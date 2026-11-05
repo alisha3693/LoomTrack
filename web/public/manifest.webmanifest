@@ -1,0 +1,9 @@
+{
+  "name": "LoomTrack",
+  "short_name": "LoomTrack",
+  "start_url": "/s",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
