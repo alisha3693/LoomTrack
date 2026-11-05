@@ -1,0 +1,20 @@
+{
+  "name": "loomtrack",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm:api\" \"npm:dev -w web\"",
+    "api": "node scripts/py.cjs -m uvicorn loomtrack.main:create_app --factory --reload --port 4000",
+    "seed": "node scripts/py.cjs -m loomtrack.seed",
+    "explain": "node scripts/py.cjs -m loomtrack.explain",
+    "test": "node scripts/py.cjs -m pytest -q",
+    "build": "npm run build -w web",
+    "start": "npm run build && node scripts/py.cjs -m uvicorn loomtrack.main:create_app --factory --host 0.0.0.0 --port 4000"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
