@@ -22,7 +22,7 @@ export default function Inbox({
     <div className="card inbox" role="list">
       {items.map((i) => (
         <Link key={`${i.kind}${i.id}`} to={hrefFor(i)} className={`inbox-row${i.unread ? " unread" : ""}`} role="listitem">
-          <span className="inbox-dot" aria-label={i.unread ? "Not opened yet" : undefined}>{i.unread ? <i /> : null}</span>
+          <span className="inbox-dot">{i.unread ? <><i aria-hidden="true" /><span className="sr-only">Not opened yet</span></> : null}</span>
           <div className="inbox-main">
             <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
               <b>{i.title}</b>

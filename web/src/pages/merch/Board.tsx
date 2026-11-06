@@ -130,7 +130,7 @@ export default function Board() {
 
   return (
     <main className="page">
-      <PageHeader title="Orders" sub={data ? `${plural(total, "live order")} · as of ${fmtDate(data.today, true)}` : " "} />
+      <PageHeader title="Orders" sub={data ? `${plural(total, "live order")} · as of ${fmtDate(data.today, true)}` : " "} actions={<Link className="btn btn-primary phone-only" to="/m/orders/new">New order</Link>} />
 
       <div className="stack" style={{ gap: 24 }}>
         {data && (

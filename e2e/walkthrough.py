@@ -49,6 +49,7 @@ with sync_playwright() as p:
     pg.screenshot(path=OUT / "02-board.png", full_page=True)
 
     pg.click("a.po:has-text('B-PO-88213')")
+    pg.click("[role=tab]:has-text('Plan and delay')")
     pg.wait_for_selector("text=Delay projection")
     time.sleep(0.5)
     pg.screenshot(path=OUT / "03-detail-88213.png", full_page=True)
@@ -67,11 +68,12 @@ with sync_playwright() as p:
     time.sleep(0.5)
     pg.screenshot(path=OUT / "04-new-order.png", full_page=True)
     pg.click("text=Create order")
+    pg.click("[role=tab]:has-text('Plan and delay')")
     pg.wait_for_selector("text=Delay projection")
     pg.screenshot(path=OUT / "05-created.png", full_page=True)
 
-    pg.goto(f"{BASE}/m/buyers")
-    pg.wait_for_selector("text=Sent to buyers")
+    pg.goto(f"{BASE}/m/buyers?tab=sent")
+    pg.wait_for_selector(".sent-row")
     pg.screenshot(path=OUT / "06-buyers.png", full_page=True)
 
     # --- Supervisor (phone) ---
@@ -103,7 +105,7 @@ with sync_playwright() as p:
     time.sleep(12)
     pg.goto(f"{BASE}/m")
     pg.wait_for_selector("table.board tbody tr")
-    pg.click("text=C-PO-0488")
+    pg.click("a.po:has-text('C-PO-0488')")
     pg.click("[role=tab]:has-text('History and floor')")
     pg.wait_for_selector("text=Floor updates")
     time.sleep(0.5)
@@ -114,10 +116,10 @@ with sync_playwright() as p:
     bp = bc.new_page()
     bp.on("pageerror", lambda e: errors.append(f"buyer pageerror: {e}"))
     bp.goto(f"{BASE}/b/{token}")
-    bp.wait_for_selector(".order-row")                                  # the overview lists the orders
+    bp.wait_for_selector(".upcoming")                                # the overview lists the orders
     time.sleep(0.8)
     bp.screenshot(path=OUT / "11-buyer.png", full_page=True)
-    bp.locator(".order-row").first.click()                              # and each order opens on its own page
+    bp.locator(".upcoming").first.click()                            # and each order opens on its own page
     bp.wait_for_selector("text=Production")
     bp.screenshot(path=OUT / "12-buyer-order.png", full_page=True)
     b.close()

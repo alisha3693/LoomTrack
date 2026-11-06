@@ -3,7 +3,7 @@
 A click-by-click script that walks through every requirement in the brief. It works for testing the build yourself and for showing it to the client (about 15 minutes). Every step lists what you should see.
 
 ## Before you start
-1. Ollama is running (the tray icon), with `llama3` pulled. Without it, notes are categorised by keywords and the top bar shows **AI off · keywords**. Everything else still works.
+1. Ollama is running (the tray icon), with `llama3` pulled. Without it, notes are categorised by keywords and the account menu (bottom of the sidebar) shows **Keywords only**. Everything else still works.
 2. Reset the demo data: `npm run seed`. This prints the three buyer links.
 3. Start the app: `npm start` → open **http://localhost:4000**. Or use `npm run dev` for live reload while coding (web on :5173).
 
@@ -21,7 +21,7 @@ Log in as **priya@companya.in / loom1234**.
 - **Expect:** 3 red · 2 amber · 4 green, sorted trouble first.
 - Each row shows one line of maths, e.g. **B-PO-88213** (sample data): *Stitching 57% · need 743/day, making 669/day*.
 - Filter by **Company C (Germany)**: only C's orders remain. Try unit and ship week too. Click a count chip (e.g. red) to show only those orders.
-- The top bar says **AI · llama3**. That's the local model; nothing is sent to a paid service.
+- The account menu (bottom of the sidebar) says **AI on**. That's the local model; nothing is sent to a paid service.
 
 ## 2. The delay warning shows its maths (Must have #4, the hard part)
 Open **C-PO-0488** (kids printed tee, sample data).
@@ -35,10 +35,10 @@ Open **C-PO-0488** (kids printed tee, sample data).
 Still on C-PO-0488:
 
 - The red card says *Not visible to the buyer until you confirm*. Its suggested message already names the cause found in the Tamil notes (*power cut*).
-- Open Company C's buyer link (from **Buyers & exports → Open buyer view**). **Expect:** no delay notice on C-PO-0488.
+- Open Company C's buyer link (from **Buyers → the buyer → What the buyer sees**). **Expect:** no delay notice on C-PO-0488.
 - Back in the office: edit the message if you like → **Confirm & send to buyer**.
 - Refresh the buyer view. **Expect:** an *Update from your merchandiser* banner with the expected date.
-- **Buyers & exports → Sent to buyers** shows the (mock) email.
+- **Buyers → Sent messages** shows the (mock) email.
 
 ## 4. Supervisor daily update on the phone, in Tamil (Must have #2)
 Phone window → log in as **9840000001 / 1111** (Murugan, Unit 1).
@@ -71,7 +71,7 @@ Office → C-PO-0488 → **Floor updates** (allow ~5–20 s for the local model)
 - **Create order** → the detail page shows green, on plan.
 
 ## 6b. Your own plan templates
-**Templates** in the top bar.
+**Plan templates**, under **Set up** in the sidebar.
 
 - **Expect:** the three built-in templates (marked *Built in*, no Edit button). **Copy** on *Knit basic*.
 - Name it *Embroidered polo*. **+ New production stage**: name *Embroidery*, process `embroidery`, starts **26**, ends **16** (days before ex-factory). Tamil name is optional. **Sort by end day**.
@@ -83,13 +83,13 @@ Office → C-PO-0488 → **Floor updates** (allow ~5–20 s for the local model)
 ## 6c. A buyer asks for an order (home page, request, conversation)
 Use two windows: the office (signed in as Priya) and a private window for the buyer.
 
-1. Buyer window: open **http://localhost:4000** signed out. **Expect:** the home page. Paste a buyer link (**Buyers & exports → Open buyer view** shows it) and **Open my orders**.
+1. Buyer window: open **http://localhost:4000** signed out. **Expect:** the home page. Paste a buyer link (**Buyers → the buyer → What the buyer sees** shows it) and **Open my orders**.
 2. **New order request**: PO `B-PO-91000`, style, colour (Pantone and hex optional), a date, quantities by size. **Send request.** **Expect:** *With the merchandiser*.
 3. Office: **Requests** shows a count. Open it. **Ask a question.** The status becomes *Waiting for the buyer*.
 4. Buyer: reload. **Expect:** *Question for you*. Reply. The status goes back to *With the merchandiser*.
 5. Office: **Propose another date** with a reason. Buyer: *New date proposed*. **Agree.** The request now carries the new date.
 6. Office: **Accept into an order**: pick the unit and a template. **Expect:** the order opens with its own number (`LT-...`) and exactly the buyer's quantities, colour and agreed date. The buyer's request shows *Accepted* with that number.
-7. **Buyers & exports → Sent to buyers** lists the messages the buyer was sent.
+7. **Buyers → Sent messages** lists the messages the buyer was sent.
 
 **Files.** On the new-request form, **Add files** (a PNG print design, a PDF pattern). Try a text file renamed to `.png`: the request is sent, and the buyer sees which file was refused and why.
 - Office, on the request: the buyer's files are listed under **Files** with **Buyer** and **Floor** ticks. Upload one of your own (for example a cutting pattern): it is private until you tick **Buyer**.
@@ -107,7 +107,7 @@ Use two windows: the office (signed in as Priya) and a private window for the bu
 
 ## 6e. A buyer signs in with their own account, and the home page
 1. Signed out, open **http://localhost:4000**. **Expect:** the home page: what LoomTrack does, who it is for, how an order moves, a box for a private link and a **Sign in** button.
-2. Office, **Buyers & exports**, Company B: **Add a person**, name *Sam Patel*, email *sam@companyb.example*, **Create sign-in**. **Expect:** a temporary password in an amber box, with a note that it is not shown again. A second sign-in with the same email is refused.
+2. Office, **Buyers**, Company B, **People and access**: **Add a person**, name *Sam Patel*, email *sam@companyb.example*, access *Full access*, **Create sign-in**. **Expect:** a temporary password in an amber box, with a note that it is not shown again. A second sign-in with the same email is refused.
 3. Buyer window: **Sign in** with that email and the temporary password. **Expect:** you are sent to *Choose your own password* and cannot skip it, even by typing `/b/me`. Try a password under 8 characters, then a good one.
 4. **Expect:** Company B's own orders and requests, with **Password** and **Sign out** in the header, and none of Company C's. The private link still works the same way.
 5. Office: **New password** beside Sam. **Expect:** Sam's open window is signed out at once and the account shows *Has not signed in yet* again. **Remove** ends the account the same way.
@@ -131,12 +131,23 @@ Use two windows: the office (signed in as Priya) and a private window for the bu
 
 ## 6h. Finding things and answering fast (both sides)
 1. Office, **Orders**: the top is **Needs you**: requests waiting, buyer messages to answer, delay warnings, late materials. Click *buyer messages to answer*: the board shows only those orders, with a chip to clear it.
-2. Press **/** anywhere in the office, type `88240` (or `Company B`, `raglan`, `LT-2026`) and press Enter. It opens the order. **Set up** holds Templates and Units; **+ New order** is always in the bar.
-3. On an order: breadcrumbs, the buyer's name (click it for all their orders), **What the buyer sees** (their view of this order), and the tabs: Overview, Conversation, Materials, Files and requests, History and floor.
+2. Press **/** anywhere in the office, type `88240` (or `Company B`, `raglan`, `LT-2026`) and press Enter. It opens the order. **Set up** in the sidebar holds Templates and Units; **New order** is always at the top of the sidebar.
+3. On an order: breadcrumbs, the buyer's name (click it for all their orders), **What the buyer sees** (their view of this order), and the tabs: Overview, Plan and delay, Conversation, Approvals, Materials, Files and requests, History and floor.
 4. Buyer window, an order, **Conversation**: write *"Can you send photos of the cartons?"* and send.
 5. Office: the board's *Needs you* now lists it, the order shows *Buyer is waiting for your reply*, and the order page opens on a highlighted conversation. Reply.
-6. Buyer, **Overview**: *New reply about …* is the first card. Open it: the dot goes away and the card does not come back.
+6. Buyer, **Overview**: *New reply about …* is on the list. Open it: it goes away and does not come back, on any device. Back in the office, the conversation now says **Seen by Company B (UK)**.
 7. A buyer's request that the office has countered: the buyer's overview has *Agree to a new date* first; the request page opens with **Your turn** and the *Agree* button before anything else. Agreeing hands it back; the office request page shows **The buyer is waiting for your answer**, with the buyer's other orders beside it.
+
+## 6i. Approvals, delay-notice receipts, one inbox (both sides)
+1. Office, **Orders**: the sidebar shows counts beside *Requests*, *Approvals* and *Messages*. Open **B-PO-88213**, tab **Approvals**: a pre-production sample is already waiting, with *Waiting for the buyer · not opened yet*.
+2. Buyer (Hannah, `hannah@companyb.example` / `buyer1234`): **Overview** lists *Approve: Pre-production sample, navy crew neck*. Open **Approvals** and press **Ask for changes**: a reason is required. Write *Neck rib is too wide* and send.
+3. Office: *Needs you* now says *an approval sent back by the buyer*. On the order, tab **Approvals**, **Answer and send again**, write what changed. The buyer sees it again and **Approve** completes it (for a fit or pre-production sample the plan step is marked done, and the date history says *approved by the buyer*).
+4. **Ask the buyer to approve something** (order, Approvals tab): pick *Pre-production sample*, name it, send. The buyer gets a card on the overview and a mock email under Buyers → Sent messages.
+5. Buyer, **B-PO-88240**: the delay notice has **Acknowledge** (or *Acknowledge with a note*). Office, the same order, **Overview**: *Acknowledged by the buyer …*; before that it said *Not opened* or *Opened, not acknowledged*, and the board's *Needs you* listed it.
+6. **Messages** (either side): every conversation in one list, the ones waiting on you first, with a dot for what you have not opened. Open a request that became an order: its history opens the order's conversation.
+7. Office, **Buyers → Company B → People and access**: *Maya Singh (QC)* is **View only**. Sign in as `qc@companyb.example` / `buyer1234`: everything can be read, nothing can be sent, approved or changed, and there is no New request button. Switch her to *Full access* and it works on her next request.
+8. **Documents** (buyer): every file shared on their orders and requests, searchable. **History** on an order: what happened, when, and who did it.
+9. Collapse the sidebar with the button at its foot (it remembers). On a phone the sidebar becomes a tab bar.
 
 ## 7. Date changes leave a compliance trail
 On any order: **Change ex-factory** (or click a due date in the TNA list).
@@ -150,17 +161,17 @@ Open each of the three buyer links.
 
 - **Expect:** the overview opens with **Needs your attention**, then tiles, a compact list of orders and their requests. Each shows only its own orders. No unit names, no internal colours, no raw supervisor notes. Open an order for its tabs.
 - **Weekly status (Excel)** downloads the buyer edition. **Print / PDF** gives a clean printout.
-- Office → Buyers & exports → **New link** revokes the old link immediately (try the old one: *This link is not valid*).
+- Office → Buyers → Company B → **Link and exports** → **New link** revokes the old link immediately (try the old one: *This link is not valid*).
 
 ## 9. Weekly export per buyer (Must have #6)
-**Buyers & exports**: the *Buyer edition* matches the buyer link. The *Internal edition* adds status colour and slack per order.
+**Buyers → Link and exports**: the *Buyer edition* matches the buyer link. The *Internal edition* adds status colour and slack per order.
 
 ---
 
 ## Automated checks
 | Command | What it proves |
 |---|---|
-| `npm test` | 124 backend tests: run-rate maths, keyword classifier, schema migration, order requests and changes, file upload checks, buyer isolation, idempotent offline sends, unit scoping, AI fallback, confirm-before-buyer, append-only audit |
+| `npm test` | 136 backend tests: run-rate maths, keyword classifier, schema migration, order requests and changes, file upload checks, buyer isolation, idempotent offline sends, unit scoping, AI fallback, confirm-before-buyer, append-only audit |
 | `npm run explain` | Prints the run-rate maths for every order in the terminal |
 | `python e2e/walkthrough.py` | Clicks through every screen in a headless browser, saves screenshots to `e2e/shots/`, fails on any browser error (run `npm run seed` first) |
 | `python e2e/offline_test.py` | Phone offline → update queued → back online → lands exactly once |

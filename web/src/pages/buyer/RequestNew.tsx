@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { PageHeader, useCanWrite } from "../../components/ui";
 import { api } from "../../lib/api";
 import { fmtSize, KIND_LABEL, Kind } from "../../components/Attachments";
 import { FABRIC_TYPES } from "../../lib/fabric";
@@ -15,6 +16,7 @@ export default function RequestNew() {
 
 function Form({ token, today }: { token: string; today: string }) {
   const nav = useNavigate();
+  const canWrite = useCanWrite();
   const [f, setF] = useState({ poNo: "", style: "", description: "", colour: "", pantone: "", hex: "", exFactory: "", fabricType: "", fabricComposition: "", fabricGsm: "", fabricNote: "" });
   const [sizes, setSizes] = useState(DEFAULT_SIZES);
   const [error, setError] = useState<string | null>(null);
@@ -61,51 +63,30 @@ function Form({ token, today }: { token: string; today: string }) {
     }
   }
 
-  return (
-    <form className="stack" onSubmit={submit}>
-      <div>
-        <h2 style={{ fontSize: 22 }}>New order request</h2>
-        <p className="muted">Tell us what you need. Your merchandiser will confirm it, ask a question, or suggest a different date.</p>
+  if (!canWrite) {
+    return (
+      <div className="stack">
+        <PageHeader title="New request" />
+        <div className="banner">Your account can look at orders but not send requests. Ask your merchandiser to change your access, or use a colleague's account.</div>
       </div>
+    );
+  }
+
+  return (
+    <form className="stack" onSubmit={submit} style={{ gap: 20 }}>
+      <PageHeader
+        crumbs={[{ label: "Requests", to: `/b/${token}/requests` }, { label: "New request" }]}
+        title="New order request"
+        sub="Tell us what you need. Your merchandiser will confirm it, ask a question, or suggest a different date."
+      />
 
       <section className="card card-pad stack">
+        <h2>The order</h2>
         <div className="grid-2">
           <label className="field"><span>Your PO number</span><input className="input" value={f.poNo} onChange={set("poNo")} required placeholder="B-PO-88350" /></label>
           <label className="field"><span>Style</span><input className="input" value={f.style} onChange={set("style")} required placeholder="Men's raglan tee" /></label>
-          <label className="field"><span>Colour name</span><input className="input" value={f.colour} onChange={set("colour")} required placeholder="Charcoal" /></label>
-          <label className="field"><span>Pantone reference (optional)</span><input className="input" value={f.pantone} onChange={set("pantone")} maxLength={30} placeholder="19-3906 TCX" /></label>
-          <div className="field">
-            <span>Colour swatch, hex (optional)</span>
-            <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
-              <input type="color" className="color-pick" aria-label="Pick a colour" value={hexOk ? f.hex : "#ffffff"} onChange={(e) => setF((x) => ({ ...x, hex: e.target.value.toUpperCase() }))} />
-              <input className="input" value={f.hex} onChange={(e) => setF((x) => ({ ...x, hex: e.target.value.trim() }))} onBlur={tidyHex} maxLength={7} placeholder="#36454F" aria-label="Colour hex" />
-              <span className="swatch swatch-lg" style={hexOk ? { background: f.hex } : { background: "transparent", borderStyle: "dashed" }} />
-            </div>
-          </div>
+          <label className="field"><span>Colour</span><input className="input" value={f.colour} onChange={set("colour")} required placeholder="Charcoal" /></label>
           <label className="field"><span>Ex-factory date you need</span><input className="input" type="date" min={addDaysIso(today, 1)} value={f.exFactory} onChange={set("exFactory")} required /></label>
-        </div>
-        <label className="field"><span>Notes (optional)</span>
-          <textarea className="textarea" rows={3} maxLength={1000} value={f.description} onChange={set("description")} placeholder="Construction, trims, packing, anything we should know" />
-        </label>
-      </section>
-
-      <section className="card card-pad stack">
-        <h2>Fabric (optional)</h2>
-        <p className="faint small" style={{ margin: 0 }}>If you know what you want it made from. We will confirm or suggest an alternative.</p>
-        <div className="grid-2">
-          <label className="field"><span>Fabric type</span>
-            <input className="input" list="fabric-types" value={f.fabricType} onChange={set("fabricType")} maxLength={60} placeholder="Single jersey" />
-            <datalist id="fabric-types">{FABRIC_TYPES.map((t) => <option key={t} value={t} />)}</datalist>
-          </label>
-          <label className="field"><span>Weight (GSM)</span>
-            <input className="input num" inputMode="numeric" value={f.fabricGsm} onChange={(e) => setF((x) => ({ ...x, fabricGsm: e.target.value.replace(/\D/g, "").slice(0, 3) }))} placeholder="180" />
-          </label>
-          <label className="field"><span>Composition</span>
-            <input className="input" value={f.fabricComposition} onChange={set("fabricComposition")} maxLength={120} placeholder="95% cotton, 5% elastane" />
-          </label>
-          <label className="field"><span>Note (fabric code, certification, finish)</span>
-            <input className="input" value={f.fabricNote} onChange={set("fabricNote")} maxLength={200} />
-          </label>
         </div>
       </section>
 
@@ -126,27 +107,71 @@ function Form({ token, today }: { token: string; today: string }) {
         </div>
       </section>
 
-      <section className="card card-pad stack">
-        <h2>Designs, patterns, prints and fabric (optional)</h2>
-        <p className="faint small" style={{ margin: 0 }}>PDF, images, Photoshop, ZIP, Excel/Word or DXF. Up to 10 files, 15 MB each. Only you and our merchandiser can see them.</p>
-        {picked.map((p, i) => (
-          <div key={i} className="row" style={{ justifyContent: "space-between" }}>
-            <span>{p.file.name} <span className="faint small">{fmtSize(p.file.size)}</span></span>
-            <span className="row">
-              <select className="select select-sm" style={{ width: "auto" }} aria-label="Kind of file" value={p.kind}
-                onChange={(e) => setPicked((all) => all.map((x, j) => (j === i ? { ...x, kind: e.target.value as Kind } : x)))}>
-                {(Object.keys(KIND_LABEL) as Kind[]).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
-              </select>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPicked((all) => all.filter((_, j) => j !== i))}>Remove</button>
-            </span>
+      <details className="card more-details">
+        <summary>Add fabric, a colour reference, notes or files <span className="faint small">(optional)</span></summary>
+        <div className="stack" style={{ padding: "4px 20px 20px", gap: 20 }}>
+          <div className="stack" style={{ gap: 12 }}>
+            <h2>Colour reference</h2>
+            <div className="grid-2">
+              <label className="field"><span>Pantone reference</span><input className="input" value={f.pantone} onChange={set("pantone")} maxLength={30} placeholder="19-3906 TCX" /></label>
+              <div className="field">
+                <span>Colour swatch (hex)</span>
+                <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
+                  <input type="color" className="color-pick" aria-label="Pick a colour" value={hexOk ? f.hex : "#ffffff"} onChange={(e) => setF((x) => ({ ...x, hex: e.target.value.toUpperCase() }))} />
+                  <input className="input" value={f.hex} onChange={(e) => setF((x) => ({ ...x, hex: e.target.value.trim() }))} onBlur={tidyHex} maxLength={7} placeholder="#36454F" aria-label="Colour hex" />
+                  <span className="swatch swatch-lg" style={hexOk ? { background: f.hex } : { background: "transparent", borderStyle: "dashed" }} />
+                </div>
+              </div>
+            </div>
           </div>
-        ))}
-        <label className="btn btn-sm" style={{ alignSelf: "flex-start", cursor: "pointer" }}>
-          Add files
-          <input type="file" multiple hidden accept=".pdf,.ai,.png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.psd,.zip,.xlsx,.docx,.dxf"
-            onChange={(e) => { const fs = Array.from(e.target.files ?? []); setPicked((all) => [...all, ...fs.map((file) => ({ file, kind: "design" as Kind }))].slice(0, 10)); e.target.value = ""; }} />
-        </label>
-      </section>
+
+          <div className="stack" style={{ gap: 12 }}>
+            <h2>Fabric</h2>
+            <p className="faint small" style={{ margin: 0 }}>If you know what you want it made from. We will confirm or suggest an alternative.</p>
+            <div className="grid-2">
+              <label className="field"><span>Fabric type</span>
+                <input className="input" list="fabric-types" value={f.fabricType} onChange={set("fabricType")} maxLength={60} placeholder="Single jersey" />
+                <datalist id="fabric-types">{FABRIC_TYPES.map((t) => <option key={t} value={t} />)}</datalist>
+              </label>
+              <label className="field"><span>Weight (GSM)</span>
+                <input className="input num" inputMode="numeric" value={f.fabricGsm} onChange={(e) => setF((x) => ({ ...x, fabricGsm: e.target.value.replace(/\D/g, "").slice(0, 3) }))} placeholder="180" />
+              </label>
+              <label className="field"><span>Composition</span>
+                <input className="input" value={f.fabricComposition} onChange={set("fabricComposition")} maxLength={120} placeholder="95% cotton, 5% elastane" />
+              </label>
+              <label className="field"><span>Note (fabric code, certification, finish)</span>
+                <input className="input" value={f.fabricNote} onChange={set("fabricNote")} maxLength={200} />
+              </label>
+            </div>
+          </div>
+
+          <label className="field"><span>Notes</span>
+            <textarea className="textarea" rows={3} maxLength={1000} value={f.description} onChange={set("description")} placeholder="Construction, trims, packing, anything we should know" />
+          </label>
+
+          <div className="stack" style={{ gap: 12 }}>
+            <h2>Designs, patterns, prints and fabric files</h2>
+            <p className="faint small" style={{ margin: 0 }}>PDF, images, Photoshop, ZIP, Excel/Word or DXF. Up to 10 files, 15 MB each. Only you and our merchandiser can see them.</p>
+            {picked.map((p, i) => (
+              <div key={i} className="row" style={{ justifyContent: "space-between" }}>
+                <span>{p.file.name} <span className="faint small">{fmtSize(p.file.size)}</span></span>
+                <span className="row">
+                  <select className="select select-sm" style={{ width: "auto" }} aria-label="Kind of file" value={p.kind}
+                    onChange={(e) => setPicked((all) => all.map((x, j) => (j === i ? { ...x, kind: e.target.value as Kind } : x)))}>
+                    {(Object.keys(KIND_LABEL) as Kind[]).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+                  </select>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPicked((all) => all.filter((_, j) => j !== i))}>Remove</button>
+                </span>
+              </div>
+            ))}
+            <label className="btn btn-sm" style={{ alignSelf: "flex-start", cursor: "pointer" }}>
+              Add files
+              <input type="file" multiple hidden accept=".pdf,.ai,.png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.psd,.zip,.xlsx,.docx,.dxf"
+                onChange={(e) => { const fs = Array.from(e.target.files ?? []); setPicked((all) => [...all, ...fs.map((file) => ({ file, kind: "design" as Kind }))].slice(0, 10)); e.target.value = ""; }} />
+            </label>
+          </div>
+        </div>
+      </details>
 
       {error && <div className="banner banner-error">{error}</div>}
       <div className="row" style={{ justifyContent: "flex-end" }}>

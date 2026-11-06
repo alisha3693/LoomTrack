@@ -44,7 +44,7 @@ Three kinds of user hit three separate sets of endpoints, and each set is guarde
 ## Order requests: from a buyer's ask to an order (`services/requests.py`)
 
 1. **The buyer** opens their private link (or pastes it on the landing page) and sends an **order request**: their PO number, style, colour (name, optional Pantone and hex swatch), quantities by size and the ex-factory date they need.
-2. **The merchandiser** sees it under **Requests** (a count shows in the top bar). They can **ask a question**, **propose another date**, **accept** it into an order, or **decline** it (with a reason).
+2. **The merchandiser** sees it under **Requests** (a count shows beside it in the sidebar). They can **ask a question**, **propose another date**, **accept** it into an order, or **decline** it (with a reason).
 3. The **status says whose turn it is**: `submitted` is the merchandiser's; `query` and `countered` are the buyer's. When the buyer answers or agrees, it returns to `submitted`.
 4. **Agreeing** to a proposed date updates the request's date. **Accepting** creates the order, with exactly the quantities, colour and date the buyer asked for or agreed to. The merchandiser picks the production unit and the plan template.
 5. Everything said or decided is a row in `request_messages`, which the buyer sees too. A copy of each merchandiser message goes to the (mock) sent-messages list.
@@ -66,14 +66,36 @@ A buyer reaches only their own requests: another buyer's request is "not found".
 - When a request is **accepted**, its files move onto the new order. Buyers see their files on their order page, supervisors under "Files for this order" on a stage screen.
 - Office and floor links are short-lived signed links; buyers open files through their own link, scoped to their own requests and orders.
 
-## Finding your way: search, "needs you" and the conversation
+## Finding your way: the sidebar, search and "needs you"
 
-- **Office navigation.** The bar keeps to daily work: Orders, Requests (with the count waiting for you), Buyers. Rarely changed things (plan templates, units and capacity) sit under **Set up**. **+ New order** is an action, not a page. **Search** (press `/` or Ctrl+K anywhere) finds an order, request or buyer by PO, our LT number, request number, style, colour or buyer name, and opens it with Enter (`services/search.py`).
-- **Needs you** is the top of the order board: buyer requests waiting for your answer, buyer messages to answer, delay warnings to review, orders with late materials. One quiet list, one line each, and the same pattern on the buyer's overview. Each line goes straight to the thing (or filters the board to those orders), and "nothing is waiting for you" is said plainly when that is true.
-- **Order page.** Breadcrumbs, a link from the buyer's name to all their orders, **What the buyer sees** (opens the buyer's own page for this order), and five tabs (Overview, Conversation, Materials, Files and requests, History and floor) that the address remembers (`?tab=`). A pending delay warning and "the buyer is waiting for your reply" sit above the tabs whichever one is open.
-- **Request page (office).** The decision (accept, ask, propose another date, decline) is at the top; the request and conversation are in the middle; the side panel shows the buyer's live orders and how they are going, so the answer can take that into account.
-- **Conversation about an order** (`services/order_messages.py`). A buyer can write to the merchandiser from any order (anything that is not a change of date or quantity, which stays a *change request*), and the merchandiser answers in the same thread. It is append-only, capped at 500 messages and 2,000 characters each, and scoped by buyer like everything else: another buyer's order and a cancelled order are simply "not found". The merchandiser's reply also lands in the buyer's inbox (mock email). The board and the order page show who owes a reply.
-- **Buyer navigation.** A header with Overview, Orders and Requests (a count when their answer is needed) and **+ New request**. The **overview** starts with **Needs your attention**: a countered date to agree, a question to answer, a new reply, a delay notice, items the buyer must supply. Then summary tiles, a compact orders list and their requests. Each order has its own page with tabs (Progress, Conversation, Materials, Files and photos, Date history); a request page begins with whose turn it is and the one thing to do. "New reply" dots are remembered in the browser only.
+- **One frame on every signed-in page** (`components/AppShell.tsx`). A sidebar with line icons, labels and counts: for the office Orders, Requests, Approvals, Messages, Buyers, then a **Set up** group (plan templates, units and capacity); for the buyer Overview, Orders, Requests, Messages, Approvals, Documents. The one primary action (**New order** / **New request**) and **Search** sit at the top; the account (theme, sign out, and for buyers the password) at the bottom. The sidebar collapses to icons (and remembers it), and on a phone becomes a tab bar with a **More** sheet. Counts come from `/api/m/meta` and `/api/b/:token/badges` and refresh when something is read or decided. **Search** (press `/` or Ctrl+K anywhere in the office) finds an order, request or buyer by PO, our LT number, request number, style, colour or buyer name, and opens it with Enter (`services/search.py`).
+- **Needs you** is the top of the order board: buyer requests waiting for your answer, buyer messages to answer, approvals the buyer sent back, delay warnings to review, delay notices the buyer has not acknowledged, orders with late materials. One quiet list, one line each, and the same pattern on the buyer's overview. Each line goes straight to the thing (or filters the board to those orders), and "nothing is waiting for you" is said plainly when that is true.
+- **Order page.** Breadcrumbs, a link from the buyer's name to all their orders, **What the buyer sees** (opens the buyer's own page for this order), and seven tabs (Overview, Plan and delay, Conversation, Approvals, Materials, Files and requests, History and floor) that the address remembers (`?tab=`). A pending delay warning, "the buyer is waiting for your reply" and an approval the buyer sent back sit above the tabs whichever one is open. Overview is the short version: the dates, why the date is where it is, whether the buyer has seen the delay notice, and the five latest things that happened.
+- **Request page (office).** One column: the decision (accept, ask, propose another date, decline) at the top, then the request, the conversation, the buyer's live orders and how they are going (so the answer can take that into account), and the files. The requests list says in a line what happens next on each one.
+- **Conversation about an order** (`services/order_messages.py`). A buyer can write to the merchandiser from any order (anything that is not a change of date or quantity, which stays a *change request*), and the merchandiser answers in the same thread. It is append-only, capped at 500 messages and 2,000 characters each, and scoped by buyer like everything else: another buyer's order and a cancelled order are simply "not found". The merchandiser's reply also lands in the buyer's inbox (mock email). The board and the order page show who owes a reply. What was said while the order was still a request (submitted, questions, the proposed date, the acceptance) opens the same conversation, so the history is in one place.
+
+## Messages, read marks and delay-notice receipts (`services/inbox.py`, `services/notices.py`)
+
+- **One inbox per side** (`/m/messages`, `/b/:token/messages`). Every conversation that has something in it: an order's conversation, or an open request's. Each row shows the last message, how long ago, whose turn it is, and a dot if you have not opened it. Closed requests leave the list; their talk joins the order's.
+- **Read marks.** Opening a conversation records how far you read (`thread_reads`). That gives you the "not opened" dot going away, and gives the other side **Seen by …** under their last message, or "has not opened it yet". Nothing is ever edited.
+- **Delay notices have a receipt.** When the buyer opens a confirmed notice it is *seen*; they can then **Acknowledge** it, optionally with a note, which also goes into the conversation. The order page shows "Not opened by the buyer yet", "Opened … not acknowledged yet" or "Acknowledged …", and the board lists notices nobody has acknowledged.
+
+## Approvals (`services/approvals.py`)
+
+- The office asks the buyer to approve something on an order: a **fit sample**, a **pre-production sample**, a **lab dip / colour**, **packaging** or something else, with a name and a note. The buyer gets a mock email and a card under **Needs your attention**.
+- The buyer **approves** or **asks for changes** (a reason is required). Changes land under **Needs you** for the office, who answers and **sends it again** (what changed is required) or **withdraws** it. Every step is kept in `approval_events` and cannot be edited.
+- Approving a fit or pre-production sample marks that plan step done (Fit sample approval, PP sample approval) and writes it into the date history, so the plan follows what actually happened.
+- The office sees whether the buyer has opened it. One open approval per kind per order.
+
+## View-only buyer accounts
+
+A buyer account is created with **Full access** or **View only** (and the office can switch it later). A view-only account can read everything its buyer can, and every action that changes something (send a message, a request or a change, approve, acknowledge, upload) is refused by the server with a plain message; the screens hide the buttons. A private link always has full access, as before.
+
+## The order timeline and the buyer's documents
+
+- Each order has a **timeline** of what happened and who did it (`services/activity.py`), assembled from the date history, messages, the request's steps, approvals and delay notices. Nothing extra is stored. The buyer's version leaves out what is internal (materials, dismissed warnings, who in the office changed what).
+- **Documents** (`/b/:token/documents`) lists every file shared with the buyer and every file they sent, across orders and requests, with a search box.
+- **Buyer pages.** The **overview** starts with **Needs your attention**: something to approve, a countered date to agree, a question to answer, a new reply, a delay notice to acknowledge, items the buyer must supply. Then **Coming up** (the next ship dates, with progress) and open requests. **Orders** is a sortable table with search. Each order has its own page with tabs (Progress, Conversation, Approvals, Materials, Files and photos, History); a request page begins with whose turn it is and the one thing to do. "New reply" now comes from the server's read marks, so it is the same on every device. The **new request** form asks for the essentials first (PO, style, colour, date, quantities); fabric, colour reference, notes and files are behind one optional section.
 
 ## Fabric and materials (`services/materials.py`, `domain/materials.py`)
 
@@ -124,7 +146,7 @@ A warning is invisible to buyers until a merchandiser confirms it. Confirming al
 - The note goes to the local Llama 3 model through Ollama, with a fixed list of 11 reason categories, plain-language definitions of each, and a short Tamil factory glossary. Ollama forces the answer into a JSON shape: English translation + one category + confidence.
 - **Both the AI's answer and the human's answer are stored, in separate columns** (`ai_category` and `final_category`). When a merchandiser changes the category, the AI's original guess stays visible ("AI said …").
 - A later AI run never overwrites a category a person set by hand.
-- If Ollama is down, slow or returns junk, a keyword matcher gives a first guess instead. The record says which one produced it (`ai_source`) and keeps any error. The top bar shows **AI · llama3** or **AI off · keywords**.
+- If Ollama is down, slow or returns junk, a keyword matcher gives a first guess instead. The record says which one produced it (`ai_source`) and keeps any error. The account menu (bottom of the sidebar) shows **AI on** or **Keywords only**.
 
 ## What buyers can see (`services/buyer_view.py`)
 
@@ -150,7 +172,10 @@ Changing ex-factory, or any planned date, requires a reason and writes a row to 
 | Order detail | `/m/orders/:id` | `GET /api/m/orders/:id`, warning confirm/dismiss, date changes, reason override |
 | Materials (on the order) | `/m/orders/:id` | `GET`/`POST /api/m/orders/:id/materials`, `POST .../materials/standard`, `PATCH`/`DELETE /api/m/materials/:id` |
 | Units and capacity | `/m/units` | `GET /api/m/units`, `PATCH /api/m/units/:id`, `POST /api/m/capacity/check` |
-| Buyers & exports | `/m/buyers` | `GET /api/m/buyers`, `/exports/weekly`, `/outbox` |
+| Buyers | `/m/buyers` (list), `/m/buyers/:id?tab=` (Orders, People and access, Link and exports, Sent messages) | `GET /api/m/buyers`, `/exports/weekly`, `/outbox`, `PATCH /api/m/buyer-logins/:id` (full access or view only) |
+| Messages (office) | `/m/messages` | `GET /api/m/inbox`, `POST /api/m/orders/:id/messages/read`, `POST /api/m/requests/:id/read` |
+| Approvals (office) | `/m/approvals`, order page tab | `GET /api/m/approvals`, `POST /api/m/orders/:id/approvals`, `POST /api/m/approvals/:id/resubmit`, `/withdraw` |
+| Messages, approvals, documents (buyer) | `/b/:token/messages`, `/approvals`, `/documents` | `GET /api/b/:token/inbox`, `/badges`, `/approvals`, `/documents`, `POST .../approvals/:id/approve`, `/changes`, `GET .../orders/:id/activity`, `POST .../orders/:id/notice/seen`, `/notice/acknowledge` |
 | Requests | `/m/requests`, `/m/requests/:id` | `GET /api/m/requests?filter=`, `POST /api/m/requests/:id/query`, `/counter`, `/accept`, `/decline` |
 | Buyer: new request | `/b/:token/requests/new` | `POST /api/b/:token/requests` |
 | Buyer: one request | `/b/:token/requests/:id` | `GET /api/b/:token/requests/:id`, `POST .../reply`, `.../agree`, `.../withdraw` |
@@ -161,7 +186,7 @@ Changing ex-factory, or any planned date, requires a reason and writes a row to 
 | Sign in | `/login` | `POST /api/auth/login`, `GET /api/auth/me` (all three roles) |
 | Change password | `/account/password` | `POST /api/auth/password` |
 | Buyer: own page | `/b/me` (and `/b/me/...` for requests and changes) | the `/api/b/me/...` endpoints, signed in |
-| Buyer sign-in accounts (office) | Buyers & exports | `POST /api/m/buyers/:id/logins`, `POST /api/m/buyer-logins/:id/reset`, `DELETE /api/m/buyer-logins/:id` |
+| Buyer sign-in accounts (office) | a buyer's profile, People and access | `POST /api/m/buyers/:id/logins`, `POST /api/m/buyer-logins/:id/reset`, `DELETE /api/m/buyer-logins/:id` |
 | Templates | `/m/templates`, `/m/templates/new`, `/m/templates/:id` | `GET/POST /api/m/templates`, `PUT /api/m/templates/:id`, retire/restore, `POST /api/m/templates/preview`, `PATCH /api/m/steps/:code` |
 | Supervisor home | `/s` | `GET /api/s/orders` (cached on the phone) |
 | Supervisor update | `/s/update/:id` | `POST /api/s/updates` (through the offline queue) |
@@ -205,7 +230,7 @@ backend/loomtrack/
   routes/              auth, merchandiser, templates, requests (both sides), attachments, supervisor, buyer
   ai/classifier.py     Ollama call + keyword fallback
   seed.py / explain.py demo data / prints the run-rate maths for every order
-backend/tests/         124 tests
+backend/tests/         136 tests
 web/src/
   App.tsx              routes + role guards
   lib/                 api client, auth, Tamil strings, offline outbox, photo/voice helpers, theme

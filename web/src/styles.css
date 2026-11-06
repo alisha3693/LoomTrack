@@ -693,3 +693,13 @@ a.tile:hover { background: var(--row-hover); }
   .upcoming { grid-template-columns: 60px minmax(0, 1fr); }
   .upcoming-bar, .upcoming > .pill { grid-column: 2; }
 }
+
+/* ---------- Small helpers ---------- */
+.phone-only { display: none; }
+@media (max-width: 860px) { .phone-only { display: inline-flex; } }
+.more-details > summary { padding: 14px 20px; cursor: pointer; font-weight: 500; list-style: none; }
+.more-details > summary::-webkit-details-marker { display: none; }
+.more-details > summary::before { content: "+"; display: inline-block; width: 18px; color: var(--ink-3); }
+.more-details[open] > summary::before { content: "−"; }
+
+.notice .section-title { color: var(--ink-2); }

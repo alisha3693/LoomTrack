@@ -31,7 +31,7 @@ export default function Login() {
   }
 
   return (
-    <div className="login-wrap">
+    <main className="login-wrap">
       <div className="login stack">
         <div className="row" style={{ justifyContent: "space-between" }}>
           <div className="brand">
@@ -74,6 +74,6 @@ export default function Login() {
           </div>
         </details>
       </div>
-    </div>
+    </main>
   );
 }

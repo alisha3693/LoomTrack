@@ -1,6 +1,6 @@
 # LoomTrack database schema
 
-SQLite, 21 tables, defined in [backend/loomtrack/db.py](../backend/loomtrack/db.py). The schema is normalised (third normal form) apart from two deliberate caches. The diagram below is a Mermaid ER diagram: it renders on GitHub, and in VS Code with the "Markdown Preview Mermaid Support" extension.
+SQLite, 24 tables, defined in [backend/loomtrack/db.py](../backend/loomtrack/db.py). The schema is normalised (third normal form) apart from two deliberate caches. The diagram below is a Mermaid ER diagram: it renders on GitHub, and in VS Code with the "Markdown Preview Mermaid Support" extension.
 
 `PK` primary key, `FK` foreign key, `UK` unique. `||--o{` means one-to-many.
 
@@ -29,6 +29,9 @@ erDiagram
     orders ||--o{ attachments : "has files"
     orders ||--o{ order_materials : "needs"
     orders ||--o{ order_messages : "discussed in"
+    orders ||--o{ approvals : "needs sign-off"
+    approvals ||--|{ approval_events : "history"
+    plan_steps ||--o{ approvals : "completed by"
     plan_steps ||--o{ order_materials : "needed for"
     orders ||--o{ daily_updates : "receives"
     milestones ||--o{ daily_updates : "progress on"
@@ -64,6 +67,7 @@ erDiagram
         TEXT lang "en or ta"
         INTEGER buyer_id FK "buyer accounts only"
         INTEGER must_change_secret "1 until the buyer picks their own"
+        INTEGER can_write "0 = a buyer account that can look but not send, approve or change"
     }
     sessions {
         TEXT token PK
@@ -184,6 +188,34 @@ erDiagram
         TEXT body "1 to 2000 characters"
         TEXT created_at
     }
+    thread_reads {
+        TEXT kind PK "order or request"
+        INTEGER ref_id PK
+        TEXT reader PK "buyer or merchandiser"
+        INTEGER last_id "newest message id this reader has opened"
+        TEXT read_at
+    }
+    approvals {
+        INTEGER id PK
+        INTEGER order_id FK
+        TEXT kind "fit_sample, pp_sample, lab_dip, packaging, other"
+        TEXT title "1 to 120 characters"
+        TEXT note
+        TEXT milestone_code FK "the plan step approving it completes"
+        TEXT status "requested, approved, changes, withdrawn"
+        TEXT requested_at
+        TEXT decided_at
+        TEXT buyer_seen_at
+    }
+    approval_events {
+        INTEGER id PK
+        INTEGER approval_id FK
+        TEXT actor "buyer or merchandiser"
+        INTEGER user_id FK "merchandiser only"
+        TEXT action "requested, resubmitted, approved, changes, withdrawn"
+        TEXT note
+        TEXT created_at
+    }
     attachments {
         INTEGER id PK
         INTEGER request_id FK "a request, an order, or both"
@@ -261,6 +293,8 @@ erDiagram
         INTEGER decided_by FK
         TEXT decided_at
         TEXT created_at
+        TEXT buyer_seen_at "when the buyer first opened the notice"
+        TEXT buyer_ack_at "when the buyer acknowledged it"
     }
     date_changes {
         INTEGER id PK
@@ -292,6 +326,8 @@ erDiagram
 | The plan | `orders`, `order_sizes`, `plan_steps`, `milestones` | `plan_steps` holds each kind of step once (names, stage or milestone). `milestones` is one order's plan: a row per step with that order's dates. |
 | Requests | `order_requests`, `request_sizes`, `request_messages` | A buyer's request is a conversation, either a new order or a change to an existing one (`kind = 'amendment'`, with `order_id` set and `request_sizes` holding the full new quantities). `status` says whose turn it is: `submitted` is the merchandiser's, `query` and `countered` are the buyer's. `request_messages` is the history and is append-only (triggers). Accepting creates an `orders` row and sets `order_requests.order_id`. |
 | Conversation | `order_messages` | Messages between the buyer and the merchandiser about an order that exists (a request has its own thread in `request_messages`). Append-only (triggers), at most 500 per order. Whose turn it is comes from who wrote last. |
+| Reading | `thread_reads` | How far each side has read each conversation (`last_id` is the newest message id they have opened). It gives the reader an "unread" marker and the other side a "seen" mark; no message is ever changed. |
+| Approvals | `approvals`, `approval_events` | What the buyer has to sign off: a fit or pre-production sample, a lab dip, packaging. `status` says where it stands; `approval_events` is the history and is append-only (triggers). Approving a fit or pre-production sample sets `actual_date` on the matching `milestones` row and writes the date history, with no user (the buyer did it). |
 | Materials | `order_materials` | What an order needs before it can be made: fabric, trims, packing. Each line says where it stands and which plan step needs it (`needed_for`). The date it is needed by is read from that step's `milestones` row each time, so it follows the plan when a date moves; `needed_by` is only for something that belongs to no step. Whether a line is late is worked out, not stored (`domain/materials.py`), and it does not feed the delay projection. |
 | Files | `attachments` | Designs, patterns, print artwork, fabric references. A file belongs to a request, an order, or both: a request's files follow it onto the order it becomes. The buyer's own uploads are always visible to that buyer; ours are private unless `buyer_visible` is set; `supervisor_visible` decides what the floor can open. |
 | Templates | `templates`, `template_steps` | A saved layout of steps with timings (days before ex-factory). Orders copy the dates when created, so editing or retiring a template never changes an existing order. The built-in three are read-only. |
@@ -325,7 +361,7 @@ erDiagram
 
 ## Versions and migration
 
-`PRAGMA user_version` holds the schema version (now 8). Older databases are migrated in place when the app opens them, one version at a time: one transaction, a copy saved as `<db>.v0.bak`, `.v1.bak` or `.v5.bak`, and a foreign-key check afterwards.
+`PRAGMA user_version` holds the schema version (now 9). Older databases are migrated in place when the app opens them, one version at a time: one transaction, a copy saved as `<db>.v0.bak`, `.v1.bak` or `.v5.bak`, and a foreign-key check afterwards.
 
 | Version | Change |
 |---|---|
@@ -334,6 +370,7 @@ erDiagram
 | 2 to 3 | `templates` and `template_steps` tables; `plan_steps.builtin`. The three built-in templates are copied in from code at startup. |
 | 3 to 4 | `order_requests`, `request_sizes`, `request_messages` (new tables only, nothing rebuilt). |
 | 4 to 5 | `attachments` (new table only). |
+| 8 to 9 | `approvals`, `approval_events`, `thread_reads` (new tables and triggers), and the columns `users.can_write` (existing accounts keep full access) and `warnings.buyer_seen_at` / `buyer_ack_at`. |
 | 7 to 8 | `order_messages` (new table and triggers only). |
 | 6 to 7 | Fabric on orders and requests (`fabric_type`, `fabric_composition`, `fabric_gsm`, `fabric_note`), `units.daily_capacity`, and the `order_materials` table. Columns and a table are added; nothing is rebuilt. |
 | 5 to 6 | Buyer accounts: `users` gains the `buyer` role, `buyer_id` and `must_change_secret`. SQLite cannot change a CHECK in place, so the table is rebuilt and refilled; sessions and every user keep their ids. |

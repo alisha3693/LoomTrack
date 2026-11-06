@@ -25,20 +25,39 @@ The first round fixed *where things are*; the second fixed how it *looks*, becau
 
 - **One visual language.** Flat surfaces with hairline borders, no shadows and no coloured card edges. Status is a dot and a word, not a coloured capsule. Small grey tags are only for labels (kind of file, "Change").
 - **Alerts are one list.** "Needs you" and "Needs your attention" are the same component on both sides: one line each, a dot for urgency, one action on the right. The order board no longer shows the same warning in a card, a pill and a note; each row carries its flags in one place.
-- **No sidebars, no second bar.** Every page keeps the one top bar. The request page is a single column (the buyer's other orders sit under the conversation); the order page uses tabs, not a sticky section strip.
+- **One frame, no second bar.** In the fourth round the top bar became a sidebar (a tab bar on a phone), as asked, and every page uses it. The request page is a single column (the buyer's other orders sit under the conversation); the order page uses tabs, not a sticky section strip.
 - **The board has five columns** (order, buyer, ex-factory, now, status) instead of six with stage bars and run-rate sentences.
-- **The top bar holds the work only.** Theme, note-translation status and sign out moved into the account menu.
+- **The frame holds the work only.** Theme, note-translation status and sign out sit in the account menu at the foot of the sidebar.
+
+## The workflow between the two sides (fourth round)
+
+Gaps that could hold up the conversation between the merchandiser and the buyer, and what was done.
+
+| Gap | Status |
+|---|---|
+| Messages were scattered, one thread per order and per request, with no single place to see what waits on you | Fixed: a **Messages** inbox on both sides, the ones waiting on you first, with unread dots and counts in the sidebar |
+| A request's conversation stayed on the request after it became an order | Fixed: the order's conversation opens with the request's history |
+| The office could not tell "ignored" from "not seen" | Fixed: read marks on the server give **Seen by …** under a message, and show whether the buyer opened an approval or a delay notice |
+| A delay notice was one-way | Fixed: the buyer **acknowledges** it (with an optional note that joins the conversation); the office sees the receipt and the board lists unacknowledged notices |
+| No approval step for samples, lab dips, packaging | Fixed: the office asks, the buyer approves or asks for changes (with a reason), the office answers and sends it again; approving a fit or pre-production sample completes its plan step; a trail that cannot be edited |
+| "New reply" was remembered in one browser only | Fixed: it comes from the server's read marks, so every device agrees |
+| Buyer accounts could not be limited | Fixed: **View only** accounts can read everything and change nothing, enforced by the server |
+| No story of an order in one place | Fixed: a **timeline** per order (what happened, who did it), with an internal and a buyer version |
+| The buyer had no place for all their files | Fixed: a **Documents** page |
+| The order page was long and the lists could not be sorted | Fixed: tabs (Overview, Plan and delay, Conversation, Approvals, Materials, Files, History); the buyer's orders are a sortable table; the office board has sortable columns and quick views (ships in 7 days, needs a reply, late materials) |
+| The buyers page held accounts, links, exports and the mail log at once | Fixed: a list, and a profile per buyer with Orders, People and access, Link and exports, Sent messages |
+| The new-request form asked for everything at once | Fixed: essentials first (PO, style, colour, date, quantities); fabric, colour reference, notes and files behind one optional section |
 
 ## Still open
 
 | Gap | Why it matters | Note |
 |---|---|---|
-| Nothing reaches people **outside the app** | A buyer who does not open the page does not know their merchandiser replied | Email is still mocked; WhatsApp is the realistic channel for Tiruppur. In TODO |
-| The office cannot tell whether the buyer has **seen** a delay notice or a reply | The merchandiser cannot tell "ignored" from "not seen" | Needs read tracking on the server. In TODO |
+| Nothing reaches people **outside the app** | A buyer who does not open the page does not know their merchandiser replied | Email is still mocked; WhatsApp is the realistic channel for Tiruppur. Left out on purpose for now. In TODO |
+| No **shipping step** after ex-factory | The buyer's page ends before the goods leave: packing list, invoice, booking details, confirmed ship date | Left out on purpose for now. In TODO |
 | **One conversation per order**, not per topic | A long order will mix sample talk with shipping talk | Fine for the size of these orders; threads or tags if it grows |
-| Request and order conversations are **separate threads** | A request's talk stays on the request after it becomes an order | Both are one click apart (request page links to the order, order page lists its request) |
-| Buyer **accounts** cannot be limited to read-only | Every account for a buyer can do what the link can | In TODO |
-| Sub-pages for **supervisors** were not part of this pass | The phone screens for the floor are a different audience | Audited earlier; no known navigation problems |
+| No **bulk actions** on the requests list | Accepting needs a unit and a plan, so it stays on the request page | The list says what happens next on each request |
+| **Saved views** are fixed, not per person | Each merchandiser may want their own | Three quick views plus filters and sortable columns today |
+| The **supervisors'** phone screens only picked up the new colours | A different audience | Audited earlier; no known navigation problems |
 
 ## How this is checked
 
@@ -47,3 +66,5 @@ The first round fixed *where things are*; the second fixed how it *looks*, becau
 ## Look and feel (third round)
 
 An earthtone palette (paper, umber ink, clay, moss, ochre) with a serif for page titles and big numbers and Inter for everything else, in light and dark. Buttons are pills; everything else is flat with hairline borders. The home page was redrawn as a quiet editorial page: one headline, one example order, three columns of who it is for, four numbered steps, and the private-link box. The design was drawn first on a canvas (three screens: home, the merchandiser's orders, the buyer's overview) and then built to match.
+
+`e2e/a11y.py` runs an automated accessibility checker over 21 pages in light and dark; the last run found no serious or moderate problems. The rules for a new screen are in [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md).

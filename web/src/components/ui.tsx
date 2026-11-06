@@ -10,9 +10,9 @@ export function StatusPill({ status, label }: { status: Status; label?: string }
   );
 }
 
-export function Progress({ pct, tone }: { pct: number; tone?: Status | "" }) {
+export function Progress({ pct, tone, label = "Progress" }: { pct: number; tone?: Status | ""; label?: string }) {
   return (
-    <div className={`progress ${tone ?? ""}`} role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+    <div className={`progress ${tone ?? ""}`} role="progressbar" aria-label={label} aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
       <i style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} />
     </div>
   );

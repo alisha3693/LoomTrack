@@ -64,6 +64,7 @@ Each decision is tied to a constraint from the brief. Two decisions came from th
 - Production later: any small Linux VM; the stack has no licence costs.
 
 ### 10. Testing
+- **axe** (through `axe-playwright-python`, development only) for the accessibility scan in `e2e/a11y.py`.
 - **pytest** for the run-rate engine, the keyword classifier and end-to-end API tests: buyer isolation, idempotent updates, unit scoping, AI fallback, warning confirmation, append-only audit.
 
 ## What is mocked in the core build

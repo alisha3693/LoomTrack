@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { RequestPill } from "../../components/RequestParts";
-import { Empty, useApi } from "../../components/ui";
+import { Empty, PageHeader, useApi, useCanWrite } from "../../components/ui";
 import { isClosed } from "../../lib/buyer";
 import { ago, fmtDate, num } from "../../lib/format";
 import type { RequestRow } from "../../lib/requests";
@@ -21,6 +21,7 @@ export default function BuyerRequests() {
 }
 
 function List({ token }: { token: string }) {
+  const canWrite = useCanWrite();
   const { data, error } = useApi<{ requests: RequestRow[] }>(`/api/b/${token}/requests`);
   const all = data?.requests ?? [];
   const firstWithWork = TABS.find((t) => t.id !== "all" && all.some(t.test))?.id ?? "all";
@@ -30,10 +31,8 @@ function List({ token }: { token: string }) {
 
   return (
     <div className="stack" style={{ gap: 16 }}>
-      <div className="page-head" style={{ marginBottom: 0 }}>
-        <div><h1>Requests</h1><p className="sub">Orders you have asked for, and changes to orders. Each one is a conversation with your merchandiser.</p></div>
-        <Link className="btn btn-primary" to={`/b/${token}/requests/new`}>+ New request</Link>
-      </div>
+      <PageHeader title="Requests" sub="Orders you have asked for, and changes to orders. Each one is a conversation with your merchandiser."
+        actions={canWrite ? <Link className="btn btn-primary phone-only" to={`/b/${token}/requests/new`}>New request</Link> : undefined} />
       <div className="tabs" role="tablist">
         {TABS.map((t) => {
           const n = all.filter(t.test).length;

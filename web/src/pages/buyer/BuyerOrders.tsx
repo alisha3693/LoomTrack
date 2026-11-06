@@ -40,7 +40,7 @@ function List({ token, data }: { token: string; data: BuyerData }) {
   return (
     <div className="stack" style={{ gap: 18 }}>
       <PageHeader title="Orders" sub="Every order you have with us. Open one for its progress, approvals, materials, files and messages."
-        actions={canWrite ? <Link className="btn btn-primary" to={`/b/${token}/requests/new`}>New request</Link> : undefined} />
+        actions={canWrite ? <Link className="btn btn-primary phone-only" to={`/b/${token}/requests/new`}>New request</Link> : undefined} />
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div className="filter-tabs" role="group" aria-label="Show orders" style={{ borderBottom: 0 }}>
           {(["active", "shipped", "all"] as Tab[]).map((t) => (

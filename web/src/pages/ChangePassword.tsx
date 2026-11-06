@@ -39,7 +39,7 @@ export default function ChangePassword() {
   }
 
   return (
-    <div className="login-wrap">
+    <main className="login-wrap">
       <div className="login stack">
         <div className="row" style={{ justifyContent: "space-between" }}>
           <div className="brand"><img src="/icon.svg" alt="" />LoomTrack</div>
@@ -62,6 +62,6 @@ export default function ChangePassword() {
           {!forced && <Link className="small" to={home}>Cancel</Link>}
         </form>
       </div>
-    </div>
+    </main>
   );
 }

@@ -58,7 +58,7 @@ with sync_playwright() as p:
     office.click("button.btn-primary")
     office.wait_for_selector("text=Needs you")
     check("office board opens with a Needs-you strip", office.locator("section[aria-label='Needs you'] .attn").count() >= 3)
-    check("only one New order button on the board", office.locator("a.btn:has-text('New order')").count() == 1)
+    check("only one New order button on the board", office.locator("a.btn:has-text('New order'):visible").count() == 1)
     office.click("button.attn:has-text('buyer message')")
     office.wait_for_selector(".chip.on")
     check("the message card filters the board to that order", office.locator("table.board tbody tr").count() == 1 and "B-PO-88240" in office.inner_text("table.board"))

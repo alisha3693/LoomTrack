@@ -20,8 +20,15 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` not started. Updated as wor
 - [ ] Buyer accounts: email the invitation and a self-service "forgot password" (today the office passes the temporary password on and resets by hand; outbound email is still mocked)
 - [ ] Buyer accounts: retire the private link once everyone has an account, and give each account its own view of who may send and who may only read (today every account for a buyer can do everything the link can)
 - [x] Navigation and flow between buyer and merchandiser: global search, "needs you" on both sides, grouped office navigation, per-order pages and tabs for the buyer, a conversation about live orders, whose-turn banners, previews of what the buyer sees (see docs/UX_GAPS.md)
-- [ ] Notifications that reach people outside the app (email, WhatsApp) when the other side answers; today "new" is in-app only and the buyer's "seen" memory lives in the browser
-- [ ] Read receipts for the office (has the buyer seen the delay notice or the reply?)
+- [ ] Notifications that reach people outside the app (email, WhatsApp) when the other side answers; today "new" is in-app only (read marks are on the server, so they agree across devices)
+- [x] Read receipts both ways (seen / not opened) for conversations, approvals and delay notices
+- [x] One inbox per side, a request's talk carried onto its order, a timeline per order
+- [x] Buyer approvals (fit, pre-production, lab dip, packaging) with a trail, completing the plan step
+- [x] View-only buyer accounts
+- [x] Sidebar frame for both sides (tab bar on a phone), buyer documents page, buyer profile page for the office
+- [ ] Shipping step after ex-factory: packing list, invoice and booking details, confirmed ship date (not started on purpose)
+- [ ] Bulk quick actions on the requests list (accepting needs a unit and a plan, so it stays on the request page)
+- [ ] Per-user saved views on the order board (there are fixed views: ships in 7 days, needs a reply, late materials)
 - [x] Fabric (type, composition, GSM, note) on requests and orders; materials tracking with late and at-risk flags, buyer-supplied items, fabric in-house milestone kept in step
 - [x] Capacity check before accepting a request or creating an order: per-unit stitching capacity, what is booked, the first workable ship date, confirmation required to go over; Units page
 - [ ] Unit management screen: add units and job-work units (subcontractors for new processes such as embroidery); today units come from the seed and only their capacity can be edited
