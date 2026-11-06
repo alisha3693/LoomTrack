@@ -38,7 +38,9 @@ async def view(response: Response, buyer=Depends(current_buyer), c: AppContext =
 @router.get("/photos/{photo_id}")
 async def photo(photo_id: int, buyer=Depends(current_buyer), c: AppContext = Depends(ctx)):
     row = c.db.execute(
-        "SELECT p.path, p.mime FROM photos p JOIN orders o ON o.id = p.order_id WHERE p.id = ? AND o.buyer_id = ? AND p.buyer_visible = 1",
+        """SELECT p.path, p.mime FROM photos p JOIN daily_updates u ON u.id = p.update_id
+           JOIN milestones m ON m.id = u.milestone_id JOIN orders o ON o.id = m.order_id
+           WHERE p.id = ? AND o.buyer_id = ? AND p.buyer_visible = 1""",
         (photo_id, buyer["id"]),
     ).fetchone()
     if row is None:

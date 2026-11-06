@@ -82,7 +82,10 @@ def test_buyer_cannot_fetch_another_buyers_photo(env):
     r = post_update(env, "sup1", "photo-update-0001", stage_id(env["db"], env["orderC"], "CUT"), 100,
                     files={"photo": ("p.jpg", b"\xff\xd8\xff\xd9", "image/jpeg")})
     assert r.status_code == 201, r.text
-    photo = env["db"].execute("SELECT id FROM photos WHERE order_id = ?", (env["orderC"],)).fetchone()["id"]
+    photo = env["db"].execute(
+        "SELECT p.id FROM photos p JOIN daily_updates u ON u.id = p.update_id JOIN milestones m ON m.id = u.milestone_id WHERE m.order_id = ?",
+        (env["orderC"],),
+    ).fetchone()["id"]
     assert env["client"].get(f"/api/b/{env['tokenB']}/photos/{photo}").status_code == 404
     assert env["client"].get(f"/api/b/{env['tokenC']}/photos/{photo}").status_code == 200
 
@@ -103,6 +106,20 @@ def test_buyer_token_is_not_a_staff_session(env):
     c.cookies.set("loomtrack_session", env["tokenB"])
     assert c.get("/api/m/board").status_code == 401
     c.cookies.clear()
+
+
+def test_board_and_order_detail_load(env):
+    c = env["client"]
+    board = c.get("/api/m/board", headers=env["merch"])
+    assert board.status_code == 200
+    assert {o["id"] for o in board.json()["orders"]} >= {env["orderB"], env["orderC"]}
+
+    detail = c.get(f"/api/m/orders/{env['orderB']}", headers=env["merch"])
+    assert detail.status_code == 200
+    d = detail.json()
+    # Names and kinds come from plan_steps through the milestone's code.
+    assert all(m["name_en"] and m["name_ta"] and m["kind"] in ("stage", "milestone") for m in d["milestones"])
+    assert all(u["stage"] for u in d["updates"])
 
 
 def test_login_cookie_works_without_header(env):
@@ -211,3 +228,41 @@ def test_weekly_export_is_an_xlsx(env):
     r = env["client"].get(f"/api/b/{env['tokenB']}/weekly.xlsx")
     assert r.status_code == 200
     assert r.content[:2] == b"PK"  # xlsx is a zip
+
+
+def _new_order(env, po, buyer_id, **extra):
+    body = {"poNo": po, "buyerId": buyer_id, "style": "Style X", "colour": "Navy", "exFactory": "2026-11-30", "unitId": 1,
+            "templateKey": "basic", "sizes": [{"size": "M", "qty": 100}], **extra}
+    return env["client"].post("/api/m/orders", headers=env["merch"], json=body)
+
+
+def test_orders_get_our_own_number_and_keep_the_buyers_po(env):
+    first = _new_order(env, "PO-NUM-1", 1).json()
+    second = _new_order(env, "PO-NUM-2", 1).json()
+    year = TODAY[:4]
+    assert first["orderNo"].startswith(f"LT-{year}-") and second["orderNo"].startswith(f"LT-{year}-")
+    assert int(second["orderNo"][-4:]) == int(first["orderNo"][-4:]) + 1
+    detail = env["client"].get(f"/api/m/orders/{second['id']}", headers=env["merch"]).json()["order"]
+    assert detail["order_no"] == second["orderNo"] and detail["po_no"] == "PO-NUM-2"
+
+
+def test_po_number_is_unique_per_buyer_not_globally(env):
+    assert _new_order(env, "PO-SHARED", 1).status_code == 201
+    assert _new_order(env, "PO-SHARED", 2).status_code == 201  # another buyer may use the same number
+    again = _new_order(env, "PO-SHARED", 1)
+    assert again.status_code == 409 and "already has" in again.json()["error"]
+
+
+def test_colour_hex_and_pantone_are_saved_and_checked(env):
+    ok = _new_order(env, "PO-COL-1", 2, colourHex="#1f2a44", colourPantone=" 19-4024 TCX ")
+    assert ok.status_code == 201
+    o = env["client"].get(f"/api/m/orders/{ok.json()['id']}", headers=env["merch"]).json()["order"]
+    assert (o["colour_hex"], o["colour_pantone"]) == ("#1F2A44", "19-4024 TCX")
+    for bad in ("1F2A44", "#12345", "navy", "#GGGGGG"):
+        assert _new_order(env, "PO-COL-2", 2, colourHex=bad).status_code == 400
+
+    # The buyer sees their own swatch, but never our internal order number.
+    view = env["client"].get(f"/api/b/{env['tokenC']}").json()["orders"]
+    mine = next(x for x in view if x["poNo"] == "PO-COL-1")
+    assert mine["colourHex"] == "#1F2A44" and mine["colourPantone"] == "19-4024 TCX"
+    assert not any("orderNo" in x or "order_no" in x for x in view)

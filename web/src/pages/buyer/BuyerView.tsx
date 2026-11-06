@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { Progress, useApi } from "../../components/ui";
+import { Progress, Swatch, useApi } from "../../components/ui";
 import { fmtDate, fmtDateTime, num } from "../../lib/format";
 import { ThemeToggle } from "../../lib/theme";
 
@@ -9,6 +9,8 @@ interface BuyerOrder {
   poNo: string;
   style: string;
   colour: string;
+  colourHex: string | null;
+  colourPantone: string | null;
   qty: number;
   sizes: { size: string; qty: number }[];
   exFactory: string;
@@ -63,7 +65,7 @@ export default function BuyerView() {
               <div className="card-head" style={{ alignItems: "flex-start" }}>
                 <div>
                   <h2>{o.poNo}</h2>
-                  <div className="muted">{o.style}, {o.colour.toLowerCase()} · {num(o.qty)} pcs</div>
+                  <div className="muted">{o.style}, <Swatch hex={o.colourHex} />{o.colour.toLowerCase()}{o.colourPantone ? ` (Pantone ${o.colourPantone})` : ""} · {num(o.qty)} pcs</div>
                   <div className="faint small">{o.sizes.map((s) => `${s.size} ${num(s.qty)}`).join(" · ")}</div>
                 </div>
                 <div style={{ textAlign: "right" }}>

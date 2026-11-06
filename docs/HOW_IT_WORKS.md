@@ -108,7 +108,7 @@ Live API docs with every endpoint: http://localhost:4000/api/docs
 ```
 buyers ──< orders >── units
              │ ├──< order_sizes
-             │ └──< milestones         the TNA plan: milestones and production stages in one table
+             │ └──< milestones >── plan_steps    one order's plan; each row points at a step
              │        └──< daily_updates ──< photos
              │                  └── issue_reasons    (AI result + human decision, kept apart)
              ├──< warnings            pending / confirmed / dismissed / superseded / resolved
@@ -116,7 +116,7 @@ buyers ──< orders >── units
 users ──< sessions          outbox_messages (mock buyer emails)
 ```
 
-A *stage* is a production step with quantities (cutting, printing, stitching, washing, finishing, packing). A *milestone* is a dated checkpoint (sample approval, inspection, ex-factory). Both live in `milestones`, told apart by `kind`.
+`plan_steps` holds each step once (its English and Tamil name, and whether it is a stage or a milestone), so an order's `milestones` rows only store that order's dates. A *stage* is a production step with quantities (cutting, printing, stitching, washing, finishing, packing). A *milestone* is a dated checkpoint (sample approval, inspection, ex-factory). Both live in `milestones`, told apart by `kind`.
 
 ## Where things are in the code
 
@@ -124,7 +124,7 @@ A *stage* is a production step with quantities (cutting, printing, stitching, wa
 backend/loomtrack/
   main.py              app setup, error format, serves the built web app
   config.py            database path, holidays, AI model, "today" (pinned for the demo)
-  db.py                schema + transaction helper
+  db.py                schema, in-place migration from the old layout, transaction helper
   security.py          password hashing, session tokens, signed media URLs
   deps.py              "who is signed in", role guards
   domain/              no database, no web: calendar, runrate, tna templates, reason list
@@ -132,7 +132,7 @@ backend/loomtrack/
   routes/              auth, merchandiser, supervisor, buyer
   ai/classifier.py     Ollama call + keyword fallback
   seed.py / explain.py demo data / prints the run-rate maths for every order
-backend/tests/         37 tests
+backend/tests/         47 tests
 web/src/
   App.tsx              routes + role guards
   lib/                 api client, auth, Tamil strings, offline outbox, photo/voice helpers, theme

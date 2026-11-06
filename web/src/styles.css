@@ -368,3 +368,8 @@ details > summary::marker { color: var(--ink-3); }
 .theme-toggle { width: 32px; height: 32px; padding: 0; border-radius: 50%; display: inline-grid; place-items: center; border: 1px solid var(--line-2); background: var(--surface); cursor: pointer; color: var(--ink-2); flex: none; }
 .theme-toggle:hover { color: var(--ink); background: var(--sunken); }
 .theme-toggle svg { width: 16px; height: 16px; }
+
+/* Colour chip next to a colour name */
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--line-2); vertical-align: -1px; margin-right: 6px; }
+.swatch-lg { width: 36px; height: 36px; margin: 0; border-radius: 8px; flex: none; }
+.color-pick { width: 40px; height: 40px; padding: 2px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface); cursor: pointer; flex: none; }

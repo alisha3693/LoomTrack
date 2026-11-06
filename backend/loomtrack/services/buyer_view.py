@@ -48,15 +48,17 @@ def buyer_orders(db: sqlite3.Connection, buyer_id: int, today: str) -> list[dict
         ).fetchone()
 
         photos = db.execute(
-            """SELECT p.id, u.work_date, m.name_en AS stage FROM photos p
+            """SELECT p.id, u.work_date, s.name_en AS stage FROM photos p
                JOIN daily_updates u ON u.id = p.update_id JOIN milestones m ON m.id = u.milestone_id
-               WHERE p.order_id = ? AND p.buyer_visible = 1 ORDER BY p.id DESC LIMIT 12""",
+               JOIN plan_steps s ON s.code = m.code
+               WHERE m.order_id = ? AND p.buyer_visible = 1 ORDER BY p.id DESC LIMIT 12""",
             (o["id"],),
         ).fetchall()
 
         date_changes = db.execute(
-            """SELECT d.field, d.old_value, d.new_value, d.reason, d.changed_at, m.name_en AS milestone
+            """SELECT d.field, d.old_value, d.new_value, d.reason, d.changed_at, s.name_en AS milestone
                FROM date_changes d LEFT JOIN milestones m ON m.id = d.milestone_id
+               LEFT JOIN plan_steps s ON s.code = m.code
                WHERE d.order_id = ? ORDER BY d.id DESC""",
             (o["id"],),
         ).fetchall()
@@ -70,6 +72,8 @@ def buyer_orders(db: sqlite3.Connection, buyer_id: int, today: str) -> list[dict
                 "poNo": o["po_no"],
                 "style": o["style"],
                 "colour": o["colour"],
+                "colourHex": o["colour_hex"],
+                "colourPantone": o["colour_pantone"],
                 "qty": o["qty_total"],
                 "sizes": [dict(s) for s in sizes],
                 "exFactory": o["ex_factory"],

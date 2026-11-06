@@ -24,7 +24,7 @@ from .config import CALENDAR
 from .db import open_db, transaction
 from .domain.tna import TEMPLATES, plan_from_template
 from .security import hash_secret, new_token
-from .services.orders import refresh_all_active
+from .services.orders import next_order_no, refresh_all_active
 
 BUYERS = [
     ("Company B (UK)", "United Kingdom"),
@@ -141,6 +141,11 @@ def _placeholder_photo(name: str, label: str) -> str:
     return str(path)
 
 
+# Demo swatches for the seeded colours (approximate screen colours, not dye specs).
+COLOUR_HEX = {"Navy": "#1F2A44", "White": "#FFFFFF", "Yellow": "#F2C400", "Black": "#111111", "Grey marl": "#9CA3AF",
+              "Washed blue": "#6F8FB3", "Ecru": "#E8DCC4", "Olive": "#6B7041"}
+
+
 async def seed(db, today: str) -> None:
     db.execute("DROP TRIGGER IF EXISTS date_changes_no_delete")
     for t in ["date_changes", "outbox_messages", "warnings", "issue_reasons", "photos", "daily_updates", "milestones", "order_sizes", "orders", "sessions", "users", "units", "buyers"]:
@@ -169,8 +174,8 @@ async def seed(db, today: str) -> None:
             qty = sum(q for _, q in o.sizes)
             own = unit_id[o.unit]
             order_id = db.execute(
-                "INSERT INTO orders (po_no, buyer_id, style, colour, qty_total, ex_factory, unit_id, template_key, merchandiser_id) VALUES (?,?,?,?,?,?,?,?,?)",
-                (o.po, buyer_id[o.buyer], o.style, o.colour, qty, o.ex_factory, own, t.key, merch_id),
+                "INSERT INTO orders (order_no, po_no, buyer_id, style, colour, colour_hex, qty_total, ex_factory, unit_id, template_key, merchandiser_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (next_order_no(db, today), o.po, buyer_id[o.buyer], o.style, o.colour, COLOUR_HEX.get(o.colour), qty, o.ex_factory, own, t.key, merch_id),
             ).lastrowid
             for n, (size, q) in enumerate(o.sizes, start=1):
                 db.execute("INSERT INTO order_sizes (order_id, seq, size, qty) VALUES (?,?,?,?)", (order_id, n, size, q))
@@ -180,8 +185,8 @@ async def seed(db, today: str) -> None:
                 unit = (unit_id[SUBCONTRACTOR[it.process]] if it.process in SUBCONTRACTOR else own) if it.kind == "stage" else None
                 ms_done = it.kind == "milestone" and it.code != "EXF" and p.planned_date < today and it.code not in o.pending_milestones
                 ms_id = db.execute(
-                    "INSERT INTO milestones (order_id, seq, code, name_en, name_ta, kind, process, planned_start, planned_date, actual_date, unit_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                    (order_id, p.seq, it.code, it.name_en, it.name_ta, it.kind, it.process, p.planned_start, p.planned_date, p.planned_date if ms_done else None, unit),
+                    "INSERT INTO milestones (order_id, seq, code, planned_start, planned_date, actual_date, unit_id) VALUES (?,?,?,?,?,?,?)",
+                    (order_id, p.seq, it.code, p.planned_start, p.planned_date, p.planned_date if ms_done else None, unit),
                 ).lastrowid
 
                 s = o.stages.get(it.code) if it.kind == "stage" else None
@@ -193,15 +198,15 @@ async def seed(db, today: str) -> None:
                     upd = str(uuid.uuid4())
                     note = s.notes[len(s.notes) - 1 - i] if i < len(s.notes) else None
                     db.execute(
-                        "INSERT INTO daily_updates (id, order_id, milestone_id, user_id, work_date, qty, note_text, note_source, received_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                        (upd, order_id, ms_id, supervisor_of[unit], day, q, note, "text" if note else None, f"{day} 18:{10 + i % 40:02d}:00"),
+                        "INSERT INTO daily_updates (id, milestone_id, user_id, work_date, qty, note_text, note_source, received_at) VALUES (?,?,?,?,?,?,?,?)",
+                        (upd, ms_id, supervisor_of[unit], day, q, note, "text" if note else None, f"{day} 18:{10 + i % 40:02d}:00"),
                     )
                     if note:
                         db.execute("INSERT INTO issue_reasons (update_id) VALUES (?)", (upd,))
                         to_classify.append((upd, note))
                     if i < 2:  # a placeholder floor photo on the two most recent days of each stage
                         path = _placeholder_photo(f"seed-{o.po}-{it.code}-{i}.svg", f"{o.style} · {it.name_en} · {day}")
-                        db.execute("INSERT INTO photos (update_id, order_id, path, mime) VALUES (?,?,?,?)", (upd, order_id, path, "image/svg+xml"))
+                        db.execute("INSERT INTO photos (update_id, path, mime) VALUES (?,?,?)", (upd, path, "image/svg+xml"))
 
         # One audited planned-date change: the buyer agreed a later window.
         henley = db.execute("SELECT id FROM orders WHERE po_no = 'B-PO-88301'").fetchone()["id"]

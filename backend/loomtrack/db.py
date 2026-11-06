@@ -5,6 +5,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from .domain.tna import TEMPLATES
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS buyers (
   id INTEGER PRIMARY KEY,
@@ -39,10 +41,13 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE TABLE IF NOT EXISTS orders (
   id INTEGER PRIMARY KEY,
-  po_no TEXT NOT NULL UNIQUE,
+  order_no TEXT NOT NULL UNIQUE,    -- our own number, LT-2026-0001; the PO number below is the buyer's
+  po_no TEXT NOT NULL,
   buyer_id INTEGER NOT NULL REFERENCES buyers(id),
   style TEXT NOT NULL,
-  colour TEXT NOT NULL,
+  colour TEXT NOT NULL,             -- colour name as the buyer calls it
+  colour_pantone TEXT,              -- e.g. 19-4024 TCX; the real colour reference
+  colour_hex TEXT CHECK (colour_hex IS NULL OR colour_hex GLOB '#[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]'),
   qty_total INTEGER NOT NULL CHECK (qty_total > 0),
   ex_factory TEXT NOT NULL,
   unit_id INTEGER NOT NULL REFERENCES units(id),
@@ -52,7 +57,8 @@ CREATE TABLE IF NOT EXISTS orders (
   status TEXT,                      -- cached: green | amber | red
   projected_ex_factory TEXT,        -- cached
   status_computed_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (buyer_id, po_no)          -- two buyers may use the same PO number
 );
 
 CREATE TABLE IF NOT EXISTS order_sizes (
@@ -63,16 +69,22 @@ CREATE TABLE IF NOT EXISTS order_sizes (
   PRIMARY KEY (order_id, size)
 );
 
--- TNA plan: non-production milestones and production stages in one table.
+-- The steps a plan is made of. A step's name, kind and process belong to the step,
+-- not to any one order, so they live here once (synced from domain/tna.py at startup).
+CREATE TABLE IF NOT EXISTS plan_steps (
+  code TEXT PRIMARY KEY,
+  name_en TEXT NOT NULL,
+  name_ta TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('milestone', 'stage')),
+  process TEXT                      -- stages only
+);
+
+-- One order's TNA plan: dated milestones and production stages, each pointing at a step.
 CREATE TABLE IF NOT EXISTS milestones (
   id INTEGER PRIMARY KEY,
   order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
   seq INTEGER NOT NULL,
-  code TEXT NOT NULL,
-  name_en TEXT NOT NULL,
-  name_ta TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('milestone', 'stage')),
-  process TEXT,
+  code TEXT NOT NULL REFERENCES plan_steps(code),
   planned_start TEXT,
   planned_date TEXT NOT NULL,
   actual_date TEXT,
@@ -84,8 +96,7 @@ CREATE TABLE IF NOT EXISTS milestones (
 -- retried upload from the offline queue is idempotent.
 CREATE TABLE IF NOT EXISTS daily_updates (
   id TEXT PRIMARY KEY,
-  order_id INTEGER NOT NULL REFERENCES orders(id),
-  milestone_id INTEGER NOT NULL REFERENCES milestones(id),
+  milestone_id INTEGER NOT NULL REFERENCES milestones(id),   -- the order is milestones.order_id
   user_id INTEGER NOT NULL REFERENCES users(id),
   work_date TEXT NOT NULL,
   qty INTEGER NOT NULL CHECK (qty >= 0),
@@ -99,8 +110,7 @@ CREATE INDEX IF NOT EXISTS ix_updates_ms ON daily_updates (milestone_id, work_da
 
 CREATE TABLE IF NOT EXISTS photos (
   id INTEGER PRIMARY KEY,
-  update_id TEXT REFERENCES daily_updates(id),
-  order_id INTEGER NOT NULL REFERENCES orders(id),
+  update_id TEXT NOT NULL REFERENCES daily_updates(id),
   path TEXT NOT NULL,
   mime TEXT NOT NULL,
   buyer_visible INTEGER NOT NULL DEFAULT 1,
@@ -166,6 +176,114 @@ CREATE TABLE IF NOT EXISTS outbox_messages (
 """
 
 
+SCHEMA_VERSION = 2  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no and colour fields
+
+
+def _is_v0(db: sqlite3.Connection) -> bool:
+    return "name_en" in {r["name"] for r in db.execute("PRAGMA table_info(milestones)")}
+
+
+def _migrate_v0(db: sqlite3.Connection, file: str) -> None:
+    """Normalise a v0 database in place: step names move to plan_steps, and the
+    order_id copies on daily_updates and photos go (the order is reached through the milestone).
+
+    Tables are renamed aside, recreated from SCHEMA, refilled, then the old ones dropped, all in
+    one transaction. legacy_alter_table keeps the renames from rewriting other tables' foreign keys.
+    """
+    if db.execute("SELECT 1 FROM photos WHERE update_id IS NULL").fetchone():
+        raise RuntimeError("Cannot migrate: some photos are not attached to an update")
+    if file != ":memory:":
+        backup = sqlite3.connect(f"{file}.v0.bak")
+        db.backup(backup)
+        backup.close()
+    db.execute("PRAGMA foreign_keys = OFF")
+    db.execute("PRAGMA legacy_alter_table = ON")
+    try:
+        db.executescript(
+            f"""BEGIN;
+            DROP INDEX IF EXISTS ix_updates_ms;
+            ALTER TABLE photos RENAME TO photos_old;
+            ALTER TABLE daily_updates RENAME TO daily_updates_old;
+            ALTER TABLE milestones RENAME TO milestones_old;
+            {SCHEMA}
+            INSERT INTO plan_steps (code, name_en, name_ta, kind, process)
+              SELECT code, name_en, name_ta, kind, process FROM milestones_old GROUP BY code;
+            INSERT INTO milestones (id, order_id, seq, code, planned_start, planned_date, actual_date, unit_id)
+              SELECT id, order_id, seq, code, planned_start, planned_date, actual_date, unit_id FROM milestones_old;
+            INSERT INTO daily_updates (id, milestone_id, user_id, work_date, qty, note_text, note_source, audio_path, created_at_client, received_at)
+              SELECT id, milestone_id, user_id, work_date, qty, note_text, note_source, audio_path, created_at_client, received_at FROM daily_updates_old;
+            INSERT INTO photos (id, update_id, path, mime, buyer_visible, created_at)
+              SELECT id, update_id, path, mime, buyer_visible, created_at FROM photos_old;
+            DROP TABLE photos_old;
+            DROP TABLE daily_updates_old;
+            DROP TABLE milestones_old;
+            PRAGMA user_version = 1;
+            COMMIT;"""
+        )
+    except Exception:
+        if db.in_transaction:
+            db.execute("ROLLBACK")
+        raise
+    finally:
+        db.execute("PRAGMA legacy_alter_table = OFF")
+        db.execute("PRAGMA foreign_keys = ON")
+    if db.execute("PRAGMA foreign_key_check").fetchall():
+        raise RuntimeError(f"Migration left broken references; the pre-migration copy is {file}.v0.bak")
+
+
+def _is_v1(db: sqlite3.Connection) -> bool:
+    cols = {r["name"] for r in db.execute("PRAGMA table_info(orders)")}
+    return bool(cols) and "order_no" not in cols
+
+
+def _migrate_v1(db: sqlite3.Connection, file: str) -> None:
+    """Add orders.order_no (backfilled LT-<year>-<n> in creation order), the colour fields, and
+    make the PO number unique per buyer instead of globally. Same rename-aside approach as v0."""
+    if file != ":memory:":
+        backup = sqlite3.connect(f"{file}.v1.bak")
+        db.backup(backup)
+        backup.close()
+    db.execute("PRAGMA foreign_keys = OFF")
+    db.execute("PRAGMA legacy_alter_table = ON")
+    try:
+        db.executescript(
+            f"""BEGIN;
+            ALTER TABLE orders RENAME TO orders_old;
+            {SCHEMA}
+            INSERT INTO orders (id, order_no, po_no, buyer_id, style, colour, qty_total, ex_factory, unit_id, template_key,
+                                merchandiser_id, state, status, projected_ex_factory, status_computed_at, created_at)
+              SELECT id,
+                     'LT-' || strftime('%Y', created_at) || '-' ||
+                       printf('%04d', ROW_NUMBER() OVER (PARTITION BY strftime('%Y', created_at) ORDER BY id)),
+                     po_no, buyer_id, style, colour, qty_total, ex_factory, unit_id, template_key,
+                     merchandiser_id, state, status, projected_ex_factory, status_computed_at, created_at
+              FROM orders_old;
+            DROP TABLE orders_old;
+            PRAGMA user_version = 2;
+            COMMIT;"""
+        )
+    except Exception:
+        if db.in_transaction:
+            db.execute("ROLLBACK")
+        raise
+    finally:
+        db.execute("PRAGMA legacy_alter_table = OFF")
+        db.execute("PRAGMA foreign_keys = ON")
+    if db.execute("PRAGMA foreign_key_check").fetchall():
+        raise RuntimeError(f"Migration left broken references; the pre-migration copy is {file}.v1.bak")
+
+
+def sync_plan_steps(db: sqlite3.Connection) -> None:
+    """Make plan_steps match the templates in domain/tna.py (the one place step names are edited)."""
+    steps = {i.code: i for t in TEMPLATES.values() for i in t.items}
+    db.executemany(
+        """INSERT INTO plan_steps (code, name_en, name_ta, kind, process) VALUES (?,?,?,?,?)
+           ON CONFLICT(code) DO UPDATE SET name_en = excluded.name_en, name_ta = excluded.name_ta,
+             kind = excluded.kind, process = excluded.process""",
+        [(i.code, i.name_en, i.name_ta, i.kind, i.process) for i in steps.values()],
+    )
+
+
 def open_db(file: str) -> sqlite3.Connection:
     if file != ":memory:":
         Path(file).parent.mkdir(parents=True, exist_ok=True)
@@ -175,7 +293,13 @@ def open_db(file: str) -> sqlite3.Connection:
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA journal_mode = WAL")
     db.execute("PRAGMA foreign_keys = ON")
+    if _is_v0(db):
+        _migrate_v0(db, file)
+    if _is_v1(db):
+        _migrate_v1(db, file)
     db.executescript(SCHEMA)
+    sync_plan_steps(db)
+    db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     return db
 
 

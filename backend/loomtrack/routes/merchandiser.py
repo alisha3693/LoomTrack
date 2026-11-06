@@ -15,7 +15,7 @@ from ..domain.reasons import REASON_CATEGORIES, REASON_CODES
 from ..domain.tna import OUTSOURCED, TEMPLATES, plan_from_template
 from ..security import new_token, sign_path
 from ..services.export import weekly_workbook
-from ..services.orders import compute_projection, get_milestones, get_order, refresh_all_active, refresh_order
+from ..services.orders import compute_projection, get_milestones, get_order, next_order_no, refresh_all_active, refresh_order
 from ..util import HttpError, iso_week
 
 router = APIRouter(prefix="/api/m", dependencies=[Depends(merchandiser)])
@@ -60,7 +60,7 @@ async def board(buyer: int | None = None, unit: int | None = None, week: str | N
     found = db.execute(
         f"""SELECT o.*, b.name AS buyer_name, u.name AS unit_name,
               (SELECT COUNT(*) FROM warnings w WHERE w.order_id = o.id AND w.state = 'pending') AS pending_warnings,
-              (SELECT MAX(received_at) FROM daily_updates d WHERE d.order_id = o.id) AS last_update
+              (SELECT MAX(d.received_at) FROM daily_updates d JOIN milestones m ON m.id = d.milestone_id WHERE m.order_id = o.id) AS last_update
             FROM orders o JOIN buyers b ON b.id = o.buyer_id JOIN units u ON u.id = o.unit_id
             WHERE {' AND '.join(where)}""",
         args,
@@ -74,8 +74,8 @@ async def board(buyer: int | None = None, unit: int | None = None, week: str | N
         key = next((s for s in p.stages if s.code == p.key_stage), None)
         orders.append(
             {
-                "id": o["id"], "poNo": o["po_no"], "buyer": o["buyer_name"], "unit": o["unit_name"],
-                "style": o["style"], "colour": o["colour"], "qty": o["qty_total"],
+                "id": o["id"], "orderNo": o["order_no"], "poNo": o["po_no"], "buyer": o["buyer_name"], "unit": o["unit_name"],
+                "style": o["style"], "colour": o["colour"], "colourHex": o["colour_hex"], "qty": o["qty_total"],
                 "exFactory": o["ex_factory"], "shipWeek": iso_week(o["ex_factory"]),
                 "status": p.status, "projectedExFactory": p.projected_ex_factory, "slackDays": p.slack_days,
                 "keyStage": key and {
@@ -122,10 +122,12 @@ class MilestoneOverride(BaseModel):
 
 
 class OrderIn(BaseModel):
-    poNo: str = Field(min_length=3, max_length=40)
+    poNo: str = Field(min_length=3, max_length=40)  # the buyer's PO number, as on their document
     buyerId: int
     style: str = Field(min_length=2, max_length=120)
     colour: str = Field(min_length=1, max_length=60)
+    colourHex: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    colourPantone: str | None = Field(default=None, max_length=30)
     exFactory: IsoDate
     unitId: int
     templateKey: str
@@ -147,8 +149,8 @@ async def create_order(body: OrderIn, user: User = Depends(merchandiser), c: App
         raise HttpError(400, "Duplicate size")
     if body.exFactory <= today:
         raise HttpError(400, "Ex-factory date must be in the future")
-    if db.execute("SELECT 1 FROM orders WHERE po_no = ?", (po,)).fetchone():
-        raise HttpError(409, f"PO {po} already exists")
+    if db.execute("SELECT 1 FROM orders WHERE po_no = ? AND buyer_id = ?", (po, body.buyerId)).fetchone():
+        raise HttpError(409, f"This buyer already has a PO {po}")
     unit = db.execute("SELECT kind FROM units WHERE id = ?", (body.unitId,)).fetchone()
     if not unit or unit["kind"] != "own":
         raise HttpError(400, "Pick one of our own units")
@@ -159,9 +161,12 @@ async def create_order(body: OrderIn, user: User = Depends(merchandiser), c: App
     subcontractor = {r["process"]: r["id"] for r in db.execute("SELECT id, process FROM units WHERE kind = 'subcontract'")}
 
     with transaction(db):
+        order_no = next_order_no(db, today)
         cur = db.execute(
-            "INSERT INTO orders (po_no, buyer_id, style, colour, qty_total, ex_factory, unit_id, template_key, merchandiser_id) VALUES (?,?,?,?,?,?,?,?,?)",
-            (po, body.buyerId, body.style.strip(), body.colour.strip(), qty, body.exFactory, body.unitId, t.key, user.id),
+            """INSERT INTO orders (order_no, po_no, buyer_id, style, colour, colour_hex, colour_pantone, qty_total, ex_factory, unit_id, template_key, merchandiser_id)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (order_no, po, body.buyerId, body.style.strip(), body.colour.strip(), body.colourHex.upper() if body.colourHex else None,
+             (body.colourPantone or "").strip() or None, qty, body.exFactory, body.unitId, t.key, user.id),
         )
         order_id = cur.lastrowid
         for n, s in enumerate(body.sizes, start=1):
@@ -173,12 +178,12 @@ async def create_order(body: OrderIn, user: User = Depends(merchandiser), c: App
                 default = subcontractor.get(it.process, body.unitId) if it.process in OUTSOURCED else body.unitId
                 unit_id = (o.unitId if o and o.unitId else None) or default
             db.execute(
-                "INSERT INTO milestones (order_id, seq, code, name_en, name_ta, kind, process, planned_start, planned_date, unit_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (order_id, p.seq, it.code, it.name_en, it.name_ta, it.kind, it.process,
-                 (o.plannedStart if o else None) or p.planned_start, o.plannedDate if o else p.planned_date, unit_id),
+                "INSERT INTO milestones (order_id, seq, code, planned_start, planned_date, unit_id) VALUES (?,?,?,?,?,?)",
+                (order_id, p.seq, it.code, (o.plannedStart if o else None) or p.planned_start,
+                 o.plannedDate if o else p.planned_date, unit_id),
             )
     refresh_order(db, order_id, today)
-    return {"id": order_id}
+    return {"id": order_id, "orderNo": order_no}
 
 
 # --- Order detail -------------------------------------------------------------------
@@ -201,12 +206,12 @@ async def order_detail(order_id: int, c: AppContext = Depends(ctx)):
 
     updates = []
     for u in db.execute(
-        """SELECT d.*, m.name_en AS stage, m.code AS stage_code, us.name AS supervisor,
+        """SELECT d.*, s.name_en AS stage, m.code AS stage_code, us.name AS supervisor,
              r.ai_category, r.ai_translation, r.ai_confidence, r.ai_source, r.ai_error, r.final_category, r.changed_at, r.classified_at,
              (r.update_id IS NOT NULL) AS has_reason
-           FROM daily_updates d JOIN milestones m ON m.id = d.milestone_id JOIN users us ON us.id = d.user_id
-           LEFT JOIN issue_reasons r ON r.update_id = d.id
-           WHERE d.order_id = ? ORDER BY d.work_date DESC, d.received_at DESC LIMIT 60""",
+           FROM daily_updates d JOIN milestones m ON m.id = d.milestone_id JOIN plan_steps s ON s.code = m.code
+           JOIN users us ON us.id = d.user_id LEFT JOIN issue_reasons r ON r.update_id = d.id
+           WHERE m.order_id = ? ORDER BY d.work_date DESC, d.received_at DESC LIMIT 60""",
         (order_id,),
     ).fetchall():
         item = dict(u)
@@ -228,8 +233,9 @@ async def order_detail(order_id: int, c: AppContext = Depends(ctx)):
         "warnings": rows(db.execute("SELECT * FROM warnings WHERE order_id = ? ORDER BY id DESC", (order_id,))),
         "dateChanges": rows(
             db.execute(
-                """SELECT d.*, m.name_en AS milestone, u.name AS changed_by_name FROM date_changes d
-                   LEFT JOIN milestones m ON m.id = d.milestone_id LEFT JOIN users u ON u.id = d.changed_by
+                """SELECT d.*, s.name_en AS milestone, u.name AS changed_by_name FROM date_changes d
+                   LEFT JOIN milestones m ON m.id = d.milestone_id LEFT JOIN plan_steps s ON s.code = m.code
+                   LEFT JOIN users u ON u.id = d.changed_by
                    WHERE d.order_id = ? ORDER BY d.id DESC""",
                 (order_id,),
             )

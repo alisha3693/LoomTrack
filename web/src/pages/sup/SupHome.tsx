@@ -3,7 +3,7 @@ import { useAuth } from "../../lib/auth";
 import { useLang } from "../../lib/i18n";
 import { fmtDate, fmtDateTime, num } from "../../lib/format";
 import { outbox } from "../../lib/outbox";
-import { Progress } from "../../components/ui";
+import { Progress, Swatch } from "../../components/ui";
 import { SupHeader } from "./SupHeader";
 import { useSupData } from "./useSupData";
 
@@ -45,7 +45,7 @@ export default function SupHome() {
             <Link key={s.milestone_id} to={`/s/update/${s.milestone_id}`} className="card stage-card">
               <div className="top">
                 <div style={{ minWidth: 0 }}>
-                  <div className="faint small">{s.po_no} · {s.style}, {s.colour}</div>
+                  <div className="faint small">{s.order_no} · {s.po_no} · {s.style}, <Swatch hex={s.colour_hex} />{s.colour}</div>
                   <div className="stage-name">{lang === "ta" ? s.name_ta : s.name_en}</div>
                 </div>
                 <div style={{ textAlign: "right" }}>

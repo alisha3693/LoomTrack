@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Empty, StatusPill, useApi } from "../../components/ui";
+import { Empty, StatusPill, Swatch, useApi } from "../../components/ui";
 import { fmtDate, fmtDateTime, num, plural, Status } from "../../lib/format";
 import type { BoardOrder } from "../../lib/types";
 import { useMeta } from "./OfficeShell";
@@ -133,8 +133,8 @@ export default function Board() {
                         <Link to={`/m/orders/${o.id}`} className="po" onClick={(e) => e.stopPropagation()} style={{ textDecoration: "none" }}>
                           {o.poNo}
                         </Link>
-                        <div className="muted">{o.style}, {o.colour.toLowerCase()} · {num(o.qty)} pcs</div>
-                        <div className="faint small">{o.buyer} · {o.unit}</div>
+                        <div className="muted">{o.style}, <Swatch hex={o.colourHex} />{o.colour.toLowerCase()} · {num(o.qty)} pcs</div>
+                        <div className="faint small">{o.orderNo} · {o.buyer} · {o.unit}</div>
                       </td>
                       <td>
                         <StatusPill status={o.status} />

@@ -25,12 +25,26 @@ class FullProjection:
         return {**self.p.to_json(), "overdueMilestones": self.overdue_milestones}
 
 
+def next_order_no(db: sqlite3.Connection, today: str) -> str:
+    """Our own order number, LT-<year>-<n>. Call inside the transaction that inserts the order,
+    so two orders can't take the same number (and orders.order_no is UNIQUE as a backstop)."""
+    prefix = f"LT-{today[:4]}-"
+    n = db.execute(
+        "SELECT MAX(CAST(substr(order_no, ?) AS INTEGER)) FROM orders WHERE order_no LIKE ?", (len(prefix) + 1, prefix + "%")
+    ).fetchone()[0]
+    return f"{prefix}{(n or 0) + 1:04d}"
+
+
 def get_order(db: sqlite3.Connection, order_id: int) -> sqlite3.Row | None:
     return db.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
 
 
 def get_milestones(db: sqlite3.Connection, order_id: int) -> list[sqlite3.Row]:
-    return db.execute("SELECT * FROM milestones WHERE order_id = ? ORDER BY seq", (order_id,)).fetchall()
+    return db.execute(
+        """SELECT m.*, s.name_en, s.name_ta, s.kind, s.process FROM milestones m
+           JOIN plan_steps s ON s.code = m.code WHERE m.order_id = ? ORDER BY m.seq""",
+        (order_id,),
+    ).fetchall()
 
 
 def compute_projection(db: sqlite3.Connection, order: sqlite3.Row, today: str) -> FullProjection:
@@ -130,8 +144,8 @@ def recent_reason(db: sqlite3.Connection, order_id: int, today: str) -> str | No
     """The most common recent reason category on this order, ignoring 'no issue'."""
     row = db.execute(
         """SELECT r.final_category AS cat, COUNT(*) AS n FROM issue_reasons r
-           JOIN daily_updates u ON u.id = r.update_id
-           WHERE u.order_id = ? AND u.work_date >= ? AND r.final_category IS NOT NULL AND r.final_category != 'NO_ISSUE'
+           JOIN daily_updates u ON u.id = r.update_id JOIN milestones m ON m.id = u.milestone_id
+           WHERE m.order_id = ? AND u.work_date >= ? AND r.final_category IS NOT NULL AND r.final_category != 'NO_ISSUE'
            GROUP BY r.final_category ORDER BY n DESC, MAX(u.work_date) DESC LIMIT 1""",
         (order_id, add_days(today, -14)),
     ).fetchone()

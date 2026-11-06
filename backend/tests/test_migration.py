@@ -1,0 +1,144 @@
+"""v0 -> v1: step names move to plan_steps, order_id copies leave daily_updates and photos."""
+
+import sqlite3
+
+import pytest
+
+from loomtrack.db import open_db
+
+V0_TABLES = """
+CREATE TABLE buyers (id INTEGER PRIMARY KEY, name TEXT NOT NULL, country TEXT, link_token TEXT NOT NULL UNIQUE, link_active INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE units (id INTEGER PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, process TEXT);
+CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL, login TEXT NOT NULL UNIQUE, secret_hash TEXT NOT NULL, unit_id INTEGER REFERENCES units(id), lang TEXT NOT NULL DEFAULT 'en');
+CREATE TABLE orders (id INTEGER PRIMARY KEY, po_no TEXT NOT NULL UNIQUE, buyer_id INTEGER NOT NULL REFERENCES buyers(id), style TEXT NOT NULL, colour TEXT NOT NULL,
+  qty_total INTEGER NOT NULL, ex_factory TEXT NOT NULL, unit_id INTEGER NOT NULL REFERENCES units(id), template_key TEXT NOT NULL, merchandiser_id INTEGER REFERENCES users(id),
+  state TEXT NOT NULL DEFAULT 'active', status TEXT, projected_ex_factory TEXT, status_computed_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')));
+CREATE TABLE milestones (id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE, seq INTEGER NOT NULL, code TEXT NOT NULL,
+  name_en TEXT NOT NULL, name_ta TEXT NOT NULL, kind TEXT NOT NULL, process TEXT, planned_start TEXT, planned_date TEXT NOT NULL, actual_date TEXT,
+  unit_id INTEGER REFERENCES units(id), UNIQUE (order_id, code));
+CREATE TABLE daily_updates (id TEXT PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES orders(id), milestone_id INTEGER NOT NULL REFERENCES milestones(id),
+  user_id INTEGER NOT NULL REFERENCES users(id), work_date TEXT NOT NULL, qty INTEGER NOT NULL, note_text TEXT, note_source TEXT, audio_path TEXT,
+  created_at_client TEXT, received_at TEXT NOT NULL DEFAULT (datetime('now')));
+CREATE INDEX ix_updates_ms ON daily_updates (milestone_id, work_date);
+CREATE TABLE photos (id INTEGER PRIMARY KEY, update_id TEXT REFERENCES daily_updates(id), order_id INTEGER NOT NULL REFERENCES orders(id), path TEXT NOT NULL,
+  mime TEXT NOT NULL, buyer_visible INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')));
+CREATE TABLE issue_reasons (update_id TEXT PRIMARY KEY REFERENCES daily_updates(id), ai_category TEXT, final_category TEXT);
+
+INSERT INTO buyers VALUES (1, 'B', 'UK', 'tok', 1);
+INSERT INTO units VALUES (1, 'Unit 1', 'own', NULL);
+INSERT INTO users VALUES (1, 'S', 'supervisor', '9000000001', 'x', 1, 'ta');
+INSERT INTO orders (id, po_no, buyer_id, style, colour, qty_total, ex_factory, unit_id, template_key) VALUES (1, 'PO-1', 1, 'Tee', 'Navy', 1000, '2026-11-20', 1, 'basic');
+INSERT INTO orders (id, po_no, buyer_id, style, colour, qty_total, ex_factory, unit_id, template_key) VALUES (2, 'PO-2', 1, 'Polo', 'White', 500, '2026-11-12', 1, 'basic');
+INSERT INTO milestones VALUES (10, 1, 1, 'CUT', 'Cutting', 'x', 'stage', 'cutting', '2026-10-30', '2026-11-05', NULL, 1);
+INSERT INTO milestones VALUES (11, 2, 1, 'CUT', 'Cutting', 'x', 'stage', 'cutting', '2026-10-25', '2026-11-01', NULL, 1);
+INSERT INTO daily_updates (id, order_id, milestone_id, user_id, work_date, qty, note_text) VALUES ('u1', 1, 10, 1, '2026-11-02', 300, 'machine broke');
+INSERT INTO daily_updates (id, order_id, milestone_id, user_id, work_date, qty) VALUES ('u2', 2, 11, 1, '2026-11-02', 120);
+INSERT INTO photos (id, update_id, order_id, path, mime) VALUES (5, 'u1', 1, 'a.jpg', 'image/jpeg');
+INSERT INTO issue_reasons VALUES ('u1', 'MACHINE_BREAKDOWN', 'MACHINE_BREAKDOWN');
+"""
+
+
+@pytest.fixture
+def v0_file(tmp_path):
+    f = tmp_path / "old.db"
+    con = sqlite3.connect(f)
+    con.executescript(V0_TABLES)
+    con.commit()
+    con.close()
+    return f
+
+
+def test_v0_database_is_migrated_without_losing_data(v0_file):
+    db = open_db(str(v0_file))
+    cols = lambda t: {r["name"] for r in db.execute(f"PRAGMA table_info({t})")}
+    assert not cols("milestones") & {"name_en", "name_ta", "kind", "process"}
+    assert "order_id" not in cols("daily_updates") and "order_id" not in cols("photos")
+    assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+
+    # Each update still belongs to the same order, now reached through its milestone.
+    owner = {r["id"]: r["order_id"] for r in db.execute("SELECT d.id, m.order_id FROM daily_updates d JOIN milestones m ON m.id = d.milestone_id")}
+    assert owner == {"u1": 1, "u2": 2}
+    assert db.execute("SELECT update_id FROM photos").fetchone()["update_id"] == "u1"
+    assert db.execute("SELECT final_category FROM issue_reasons").fetchone()[0] == "MACHINE_BREAKDOWN"
+
+    # The name now lives once in plan_steps, taken from the templates.
+    step = db.execute("SELECT name_en, kind, process FROM plan_steps WHERE code = 'CUT'").fetchone()
+    assert (step["name_en"], step["kind"], step["process"]) == ("Cutting", "stage", "cutting")
+    assert (v0_file.parent / "old.db.v0.bak").exists()
+    # The same open carried it on to v2: every order got our own number.
+    nos = [r[0] for r in db.execute("SELECT order_no FROM orders ORDER BY id")]
+    assert len(set(nos)) == 2 and all(n.startswith("LT-") and n.endswith(("-0001", "-0002")) for n in nos)
+
+
+def test_migration_runs_once_and_new_databases_start_at_v1(v0_file, tmp_path):
+    open_db(str(v0_file)).close()
+    again = open_db(str(v0_file))  # second open must not touch anything
+    assert again.execute("SELECT COUNT(*) FROM daily_updates").fetchone()[0] == 2
+
+    fresh = open_db(str(tmp_path / "fresh.db"))
+    assert fresh.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert not (tmp_path / "fresh.db.v0.bak").exists()
+
+
+def test_plan_step_labels_follow_the_templates(tmp_path):
+    db = open_db(str(tmp_path / "labels.db"))
+    db.execute("UPDATE plan_steps SET name_ta = 'typo' WHERE code = 'CUT'")
+    open_db(str(tmp_path / "labels.db"))  # startup sync restores the template's label
+    assert db.execute("SELECT name_ta FROM plan_steps WHERE code = 'CUT'").fetchone()[0] != "typo"
+
+
+def test_milestone_needs_a_known_step(tmp_path):
+    db = open_db(str(tmp_path / "fk.db"))
+    db.execute("INSERT INTO buyers (id, name, link_token) VALUES (1, 'B', 't')")
+    db.execute("INSERT INTO units (id, name, kind) VALUES (1, 'U', 'own')")
+    db.execute("INSERT INTO orders (id, order_no, po_no, buyer_id, style, colour, qty_total, ex_factory, unit_id, template_key) VALUES (1,'LT-1','P',1,'s','c',10,'2026-11-20',1,'basic')")
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute("INSERT INTO milestones (order_id, seq, code, planned_date) VALUES (1, 1, 'NOPE', '2026-11-01')")
+
+
+V1_TABLES = """
+CREATE TABLE buyers (id INTEGER PRIMARY KEY, name TEXT NOT NULL, country TEXT, link_token TEXT NOT NULL UNIQUE, link_active INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE units (id INTEGER PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, process TEXT);
+CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL, login TEXT NOT NULL UNIQUE, secret_hash TEXT NOT NULL, unit_id INTEGER REFERENCES units(id), lang TEXT NOT NULL DEFAULT 'en');
+CREATE TABLE orders (id INTEGER PRIMARY KEY, po_no TEXT NOT NULL UNIQUE, buyer_id INTEGER NOT NULL REFERENCES buyers(id), style TEXT NOT NULL, colour TEXT NOT NULL,
+  qty_total INTEGER NOT NULL, ex_factory TEXT NOT NULL, unit_id INTEGER NOT NULL REFERENCES units(id), template_key TEXT NOT NULL, merchandiser_id INTEGER REFERENCES users(id),
+  state TEXT NOT NULL DEFAULT 'active', status TEXT, projected_ex_factory TEXT, status_computed_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')));
+PRAGMA user_version = 1;
+INSERT INTO buyers VALUES (1, 'B', 'UK', 'tok', 1);
+INSERT INTO units VALUES (1, 'Unit 1', 'own', NULL);
+INSERT INTO orders (id, po_no, buyer_id, style, colour, qty_total, ex_factory, unit_id, template_key, created_at) VALUES (1, 'PO-A', 1, 'Tee', 'Navy', 10, '2026-11-20', 1, 'basic', '2025-12-30 10:00:00');
+INSERT INTO orders (id, po_no, buyer_id, style, colour, qty_total, ex_factory, unit_id, template_key, created_at) VALUES (2, 'PO-B', 1, 'Polo', 'White', 10, '2026-11-12', 1, 'basic', '2026-01-05 10:00:00');
+INSERT INTO orders (id, po_no, buyer_id, style, colour, qty_total, ex_factory, unit_id, template_key, created_at) VALUES (3, 'PO-C', 1, 'Vest', 'Black', 10, '2026-11-25', 1, 'basic', '2026-02-05 10:00:00');
+"""
+
+
+def test_v1_orders_get_numbers_by_year_and_keep_their_ids(tmp_path):
+    f = tmp_path / "v1.db"
+    con = sqlite3.connect(f)
+    con.executescript(V1_TABLES)
+    con.commit()
+    con.close()
+    db = open_db(str(f))
+    got = {r["id"]: r["order_no"] for r in db.execute("SELECT id, order_no FROM orders")}
+    assert got == {1: "LT-2025-0001", 2: "LT-2026-0001", 3: "LT-2026-0002"}
+    assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert (tmp_path / "v1.db.v1.bak").exists()
+    # The PO number is now unique per buyer, not globally.
+    db.execute("INSERT INTO buyers VALUES (2, 'C', 'DE', 'tok2', 1)")
+    cols = "(order_no, po_no, buyer_id, style, colour, qty_total, ex_factory, unit_id, template_key)"
+    db.execute(f"INSERT INTO orders {cols} VALUES ('LT-2026-0003', 'PO-A', 2, 's', 'c', 1, '2026-11-20', 1, 'basic')")
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute(f"INSERT INTO orders {cols} VALUES ('LT-2026-0004', 'PO-A', 1, 's', 'c', 1, '2026-11-20', 1, 'basic')")
+
+
+def test_colour_hex_must_be_a_six_digit_hex_code(tmp_path):
+    db = open_db(str(tmp_path / "hex.db"))
+    db.execute("INSERT INTO buyers (id, name, link_token) VALUES (1, 'B', 't')")
+    db.execute("INSERT INTO units (id, name, kind) VALUES (1, 'U', 'own')")
+    cols = "(order_no, po_no, buyer_id, style, colour, colour_hex, qty_total, ex_factory, unit_id, template_key)"
+    db.execute(f"INSERT INTO orders {cols} VALUES ('LT-1', 'P1', 1, 's', 'c', '#1F2A44', 1, '2026-11-20', 1, 'basic')")
+    for bad in ("1F2A44", "#1f2a44", "#12345", "navy"):
+        with pytest.raises(sqlite3.IntegrityError):
+            db.execute(f"INSERT INTO orders {cols} VALUES ('LT-2', 'P2', 1, 's', 'c', ?, 1, '2026-11-20', 1, 'basic')", (bad,))

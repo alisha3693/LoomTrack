@@ -73,3 +73,9 @@ export function useApi<T>(path: string | null) {
 export function Empty({ children }: { children: ReactNode }) {
   return <div className="card card-pad muted" style={{ textAlign: "center", padding: 40 }}>{children}</div>;
 }
+
+/** Small colour chip. Hex on a screen is approximate; the Pantone reference is the real spec. */
+export function Swatch({ hex }: { hex?: string | null }) {
+  if (!hex) return null;
+  return <span className="swatch" style={{ background: hex }} title={`${hex} (approximate on screen)`} />;
+}

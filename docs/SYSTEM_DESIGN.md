@@ -125,8 +125,9 @@ Technology choices and their reasons are in [TECH_STACK.md](TECH_STACK.md). The 
 ```
 buyers ──< orders >── units
              ├──< order_sizes
-             ├──< milestones ──< daily_updates ──< photos
-             │                         └──1 issue_reasons
+             ├──< milestones >── plan_steps
+             │       └──< daily_updates ──< photos
+             │                    └──1 issue_reasons
              ├──< warnings
              └──< date_changes
 users ──< sessions            outbox_messages
@@ -134,11 +135,12 @@ users ──< sessions            outbox_messages
 
 | Table | Holds | Notes |
 |---|---|---|
-| `orders` | PO, buyer, style, colour, qty, ex-factory, unit, template, cached status | `status` and `projected_ex_factory` are caches |
+| `orders` | Our order number, the buyer's PO, buyer, style, colour (name, optional Pantone, optional hex swatch), qty, ex-factory, unit, template, cached status | `order_no` (`LT-2026-0001`) is ours and unique; `po_no` is the buyer's and unique per buyer. `status` and `projected_ex_factory` are caches |
 | `order_sizes` | Size × quantity grid | Sums to `orders.qty_total` |
-| `milestones` | The TNA plan: dated checkpoints *and* production stages | `kind` = milestone or stage; stages carry `unit_id` (own or job-work) |
-| `daily_updates` | One row per supervisor submission | `id` is generated on the phone |
-| `photos` | Photo per update | `buyer_visible` lets the office hide one |
+| `plan_steps` | The kinds of step a plan is built from (cutting, sample approval, ...): English and Tamil name, `kind`, `process` | Written once per step and synced from `domain/tna.py` at startup, so a label is fixed in one place |
+| `milestones` | One order's TNA plan: each row points at a `plan_steps` step and holds that order's dates | Stages carry `unit_id` (own or job-work); name and kind come from `plan_steps` |
+| `daily_updates` | One row per supervisor submission | `id` is generated on the phone. The order is reached through `milestone_id` (no copy of `order_id`) |
+| `photos` | Photo per update | Always belongs to an update. `buyer_visible` lets the office hide one |
 | `issue_reasons` | AI result and human decision, side by side | `ai_*` columns vs `final_category` |
 | `warnings` | Draft and decided buyer warnings | States below |
 | `date_changes` | Every planned-date change with reason and who | Append-only by trigger |
@@ -153,6 +155,11 @@ users ──< sessions            outbox_messages
 4. An update can't be dated in the future or more than 7 days back.
 5. Changing a planned date requires a reason, and writes `date_changes` in the same transaction.
 6. `date_changes` rows can't be updated or deleted.
+7. A milestone must point at a known `plan_steps` step, and an update's order is always its milestone's order (there is no second copy to disagree).
+
+### Normalisation and migrations
+
+The schema is in third normal form apart from two deliberate exceptions: the cached `orders.status` / `projected_ex_factory` (so the board doesn't rerun the engine per row) and the point-in-time numbers on `warnings` (history, not duplication). `PRAGMA user_version` records the schema version. Opening a version-0 database (before `plan_steps`) migrates it in place inside one transaction, keeps a copy as `<db>.v0.bak`, and checks foreign keys afterwards. See `_migrate_v0` in `db.py` and `tests/test_migration.py`.
 7. A buyer sees a warning only in state `confirmed` (or its resolved history).
 8. A warning is created only for orders that are amber or red.
 

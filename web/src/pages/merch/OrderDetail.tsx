@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Modal, Progress, StatusPill, Toast, useApi } from "../../components/ui";
+import { Modal, Progress, StatusPill, Swatch, Toast, useApi } from "../../components/ui";
 import { api } from "../../lib/api";
 import { fmtDate, fmtDateTime, num, plural, Status } from "../../lib/format";
 import type { MilestoneRow, OrderDetail as Detail, StageProjection, UpdateRow, WarningRow } from "../../lib/types";
@@ -38,7 +38,7 @@ export default function OrderDetail() {
           <div className="page-head" style={{ marginTop: 6, marginBottom: 0 }}>
             <div>
               <div className="row"><h1>{order.po_no}</h1><StatusPill status={p.status} /></div>
-              <p className="sub">{order.style}, {order.colour.toLowerCase()} · {order.buyer_name} · {order.unit_name}</p>
+              <p className="sub">{order.order_no} · {order.style}, <Swatch hex={order.colour_hex} />{order.colour.toLowerCase()}{order.colour_pantone ? ` (Pantone ${order.colour_pantone})` : ""} · {order.buyer_name} · {order.unit_name}</p>
             </div>
             <button className="btn btn-sm no-print" onClick={() => setEdit({ kind: "exf", current: order.ex_factory })}>Change ex-factory</button>
           </div>

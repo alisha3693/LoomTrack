@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
 import { addDaysIso, fmtDate, num } from "../../lib/format";
+import { Swatch } from "../../components/ui";
 import { useMeta } from "./OfficeShell";
 
 interface PlanItem {
@@ -21,12 +22,17 @@ export default function OrderNew() {
   const nav = useNavigate();
   const [form, setForm] = useState({ poNo: "", buyerId: "", style: "", colour: "", exFactory: "", unitId: "", templateKey: "basic" });
   const [sizes, setSizes] = useState<{ size: string; qty: string }[]>(DEFAULT_SIZES);
+  const [hex, setHex] = useState("");
+  const [pantone, setPantone] = useState("");
   const [plan, setPlan] = useState<PlanItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const total = sizes.reduce((a, s) => a + (Number(s.qty) || 0), 0);
+  const hexOk = /^#[0-9A-Fa-f]{6}$/.test(hex);
+  // Accept "1f2a44" as well as "#1F2A44".
+  const tidyHex = () => setHex((h) => (/^[0-9A-Fa-f]{6}$/.test(h) ? `#${h.toUpperCase()}` : h.toUpperCase()));
   const minDate = meta ? addDaysIso(meta.today, 1) : undefined;
 
   // Regenerate the TNA plan whenever template or ex-factory changes.
@@ -49,6 +55,7 @@ export default function OrderNew() {
     setError(null);
     const sizeRows = sizes.filter((s) => s.size.trim() && Number(s.qty) > 0).map((s) => ({ size: s.size.trim(), qty: Number(s.qty) }));
     if (!sizeRows.length) return setError("Enter at least one size quantity.");
+    if (hex && !hexOk) return setError("Colour hex must look like #1F2A44.");
     setBusy(true);
     try {
       const r = await api<{ id: number }>("/api/m/orders", {
@@ -56,6 +63,8 @@ export default function OrderNew() {
           ...form,
           poNo: form.poNo.trim(),
           buyerId: Number(form.buyerId),
+          colourHex: hex || null,
+          colourPantone: pantone.trim() || null,
           unitId: Number(form.unitId),
           sizes: sizeRows,
           milestones: plan.filter((p) => p.code !== "EXF").map((p) => ({ code: p.code, plannedStart: p.plannedStart, plannedDate: p.plannedDate })),
@@ -80,8 +89,9 @@ export default function OrderNew() {
       <form className="stack" onSubmit={submit}>
         <section className="card card-pad stack">
           <h2>Purchase order</h2>
+          <p className="faint small" style={{ margin: 0 }}>We assign our own order number (LT-year-number) when you save. The PO number is the buyer's, exactly as on their document.</p>
           <div className="grid-2">
-            <label className="field"><span>PO number</span><input className="input" value={form.poNo} onChange={set("poNo")} placeholder="B-PO-88350" required /></label>
+            <label className="field"><span>Buyer's PO number</span><input className="input" value={form.poNo} onChange={set("poNo")} placeholder="B-PO-88350" required /></label>
             <label className="field"><span>Buyer</span>
               <select className="select" value={form.buyerId} onChange={set("buyerId")} required>
                 <option value="">Choose…</option>
@@ -89,7 +99,17 @@ export default function OrderNew() {
               </select>
             </label>
             <label className="field"><span>Style</span><input className="input" value={form.style} onChange={set("style")} placeholder="Men's crew neck tee" required /></label>
-            <label className="field"><span>Colour</span><input className="input" value={form.colour} onChange={set("colour")} placeholder="Navy" required /></label>
+            <label className="field"><span>Colour name</span><input className="input" value={form.colour} onChange={set("colour")} placeholder="Navy" required /></label>
+            <label className="field"><span>Pantone reference (optional)</span><input className="input" value={pantone} onChange={(e) => setPantone(e.target.value)} placeholder="19-4024 TCX" maxLength={30} /></label>
+            <div className="field">
+              <span>Colour swatch, hex (optional)</span>
+              <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
+                <input type="color" className="color-pick" aria-label="Pick a colour" value={hexOk ? hex : "#ffffff"} onChange={(e) => setHex(e.target.value.toUpperCase())} />
+                <input className="input" value={hex} onChange={(e) => setHex(e.target.value.trim())} onBlur={tidyHex} placeholder="#1F2A44" maxLength={7} aria-label="Colour hex" />
+                {hexOk ? <span className="swatch swatch-lg" style={{ background: hex }} title="Approximate on screen" /> : <span className="swatch swatch-lg" style={{ background: "transparent", borderStyle: "dashed" }} />}
+              </div>
+              <span className="faint small">The Pantone reference is the real colour spec. The swatch is only an approximation on screen.</span>
+            </div>
             <label className="field"><span>Ex-factory date</span><input className="input" type="date" min={minDate} value={form.exFactory} onChange={set("exFactory")} required /></label>
             <label className="field"><span>Production unit</span>
               <select className="select" value={form.unitId} onChange={set("unitId")} required>

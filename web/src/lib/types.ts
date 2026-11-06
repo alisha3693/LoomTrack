@@ -14,11 +14,13 @@ export interface Meta {
 
 export interface BoardOrder {
   id: number;
+  orderNo: string;
   poNo: string;
   buyer: string;
   unit: string;
   style: string;
   colour: string;
+  colourHex: string | null;
   qty: number;
   exFactory: string;
   shipWeek: string;
@@ -133,9 +135,12 @@ export interface OrderDetail {
   today: string;
   order: {
     id: number;
+    order_no: string;
     po_no: string;
     style: string;
     colour: string;
+    colour_hex: string | null;
+    colour_pantone: string | null;
     qty_total: number;
     ex_factory: string;
     buyer_name: string;
@@ -153,9 +158,11 @@ export interface OrderDetail {
 
 export interface SupStage {
   order_id: number;
+  order_no: string;
   po_no: string;
   style: string;
   colour: string;
+  colour_hex: string | null;
   qty_total: number;
   ex_factory: string;
   milestone_id: number;

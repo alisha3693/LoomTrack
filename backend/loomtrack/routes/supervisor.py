@@ -33,12 +33,12 @@ async def my_stages(user: User = Depends(supervisor), c: AppContext = Depends(ct
     """Active stages run by this supervisor's unit, minus finished ones and ones not due for a fortnight."""
     today = c.today()
     found = c.db.execute(
-        """SELECT o.id AS order_id, o.po_no, o.style, o.colour, o.qty_total, o.ex_factory,
-             m.id AS milestone_id, m.code, m.name_en, m.name_ta, m.planned_start, m.planned_date,
+        """SELECT o.id AS order_id, o.order_no, o.po_no, o.style, o.colour, o.colour_hex, o.qty_total, o.ex_factory,
+             m.id AS milestone_id, m.code, s.name_en, s.name_ta, m.planned_start, m.planned_date,
              COALESCE((SELECT SUM(qty) FROM daily_updates d WHERE d.milestone_id = m.id), 0) AS done,
              COALESCE((SELECT SUM(qty) FROM daily_updates d WHERE d.milestone_id = m.id AND d.work_date = ?), 0) AS today_qty
-           FROM milestones m JOIN orders o ON o.id = m.order_id
-           WHERE m.kind = 'stage' AND m.unit_id = ? AND o.state = 'active'
+           FROM milestones m JOIN orders o ON o.id = m.order_id JOIN plan_steps s ON s.code = m.code
+           WHERE s.kind = 'stage' AND m.unit_id = ? AND o.state = 'active'
            ORDER BY o.ex_factory, m.seq""",
         (today, user.unit_id),
     ).fetchall()
@@ -88,9 +88,9 @@ async def post_update(
         return {"ok": True, "duplicate": True}
 
     stage = db.execute(
-        """SELECT m.id, m.order_id, m.unit_id, m.kind, o.qty_total, o.state,
+        """SELECT m.id, m.order_id, m.unit_id, s.kind, o.qty_total, o.state,
              COALESCE((SELECT SUM(qty) FROM daily_updates d WHERE d.milestone_id = m.id), 0) AS done
-           FROM milestones m JOIN orders o ON o.id = m.order_id WHERE m.id = ?""",
+           FROM milestones m JOIN orders o ON o.id = m.order_id JOIN plan_steps s ON s.code = m.code WHERE m.id = ?""",
         (milestoneId,),
     ).fetchone()
     if not stage or stage["kind"] != "stage":
@@ -115,12 +115,12 @@ async def post_update(
     try:
         with transaction(db):
             db.execute(
-                """INSERT INTO daily_updates (id, order_id, milestone_id, user_id, work_date, qty, note_text, note_source, audio_path, created_at_client)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                (id, stage["order_id"], stage["id"], user.id, workDate, qty, note or None, source, saved_audio[0] if saved_audio else None, createdAt),
+                """INSERT INTO daily_updates (id, milestone_id, user_id, work_date, qty, note_text, note_source, audio_path, created_at_client)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (id, stage["id"], user.id, workDate, qty, note or None, source, saved_audio[0] if saved_audio else None, createdAt),
             )
             if saved_photo:
-                db.execute("INSERT INTO photos (update_id, order_id, path, mime) VALUES (?,?,?,?)", (id, stage["order_id"], *saved_photo))
+                db.execute("INSERT INTO photos (update_id, path, mime) VALUES (?,?,?)", (id, *saved_photo))
             if note or saved_audio:
                 db.execute("INSERT INTO issue_reasons (update_id) VALUES (?)", (id,))
     except Exception:

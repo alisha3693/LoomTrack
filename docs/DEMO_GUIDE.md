@@ -60,7 +60,11 @@ Office → C-PO-0488 → **Floor updates** (allow ~5–20 s for the local model)
 - Untick **buyer** under a photo to hide it from the buyer link.
 
 ## 6. Order setup with a TNA plan (Must have #1)
-**New order** → PO `B-PO-88350`, Company B, *Men's raglan tee*, Charcoal, ex-factory **18 Dec 2026**, Unit 1, sizes S 800 / M 1600 / L 1600 / XL 900 / XXL 300.
+**New order** → buyer's PO `B-PO-88350`, Company B, *Men's raglan tee*, colour Charcoal with Pantone `19-3906 TCX` and hex `#36454F`, ex-factory **18 Dec 2026**, Unit 1, sizes S 800 / M 1600 / L 1600 / XL 900 / XXL 300.
+
+- **Expect:** the form says our own order number is assigned on save. After saving, the order header shows it (e.g. `LT-2026-0010`) with a colour chip and the Pantone reference.
+- Try the same PO number again for Company B: it is refused. The same number for Company C is accepted, because a PO number only has to be unique per buyer.
+- Hex accepts `36454f` or `#36454F` and tidies it. The swatch is labelled approximate on purpose: Pantone is the real colour spec.
 
 - **Expect:** the total shows 5,200 and the time-and-action plan fills in, worked back from ex-factory (cutting, stitching, … final inspection). Sundays and holidays are skipped. Change any date before saving.
 - Pick the **Knit printed** template: a *Printing · job work* stage appears and is assigned to the print unit automatically.
@@ -88,7 +92,7 @@ Open each of the three buyer links.
 ## Automated checks
 | Command | What it proves |
 |---|---|
-| `npm test` | 37 backend tests: run-rate maths, keyword classifier, buyer isolation, idempotent offline sends, unit scoping, AI fallback, confirm-before-buyer, append-only audit |
+| `npm test` | 47 backend tests: run-rate maths, keyword classifier, schema migration, buyer isolation, idempotent offline sends, unit scoping, AI fallback, confirm-before-buyer, append-only audit |
 | `npm run explain` | Prints the run-rate maths for every order in the terminal |
 | `python e2e/walkthrough.py` | Clicks through every screen in a headless browser, saves screenshots to `e2e/shots/`, fails on any browser error (run `npm run seed` first) |
 | `python e2e/offline_test.py` | Phone offline → update queued → back online → lands exactly once |
