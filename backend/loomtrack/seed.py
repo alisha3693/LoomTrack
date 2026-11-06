@@ -22,9 +22,10 @@ from . import config
 from .ai.classifier import classify_by_keywords, classify_note, ai_status
 from .config import CALENDAR
 from .db import open_db, transaction
-from .domain.tna import TEMPLATES, plan_from_template
+from .domain.tna import plan_from_template
 from .security import hash_secret, new_token
 from .services.orders import next_order_no, refresh_all_active
+from .services.templates import load_template
 
 BUYERS = [
     ("Company B (UK)", "United Kingdom"),
@@ -170,7 +171,7 @@ async def seed(db, today: str) -> None:
 
     with transaction(db):
         for o in ORDERS:
-            t = TEMPLATES[o.template]
+            t = load_template(db, o.template)
             qty = sum(q for _, q in o.sizes)
             own = unit_id[o.unit]
             order_id = db.execute(

@@ -12,9 +12,10 @@ from ..config import CALENDAR
 from ..db import transaction
 from ..deps import AppContext, User, ctx, merchandiser
 from ..domain.reasons import REASON_CATEGORIES, REASON_CODES
-from ..domain.tna import OUTSOURCED, TEMPLATES, plan_from_template
+from ..domain.tna import plan_from_template
 from ..security import new_token, sign_path
 from ..services.export import weekly_workbook
+from ..services.templates import load_template, plan_json
 from ..services.orders import compute_projection, get_milestones, get_order, next_order_no, refresh_all_active, refresh_order
 from ..util import HttpError, iso_week
 
@@ -34,7 +35,7 @@ async def meta(c: AppContext = Depends(ctx)):
     return {
         "buyers": rows(db.execute("SELECT id, name, country FROM buyers ORDER BY name")),
         "units": rows(db.execute("SELECT id, name, kind, process FROM units ORDER BY kind, name")),
-        "templates": [{"key": t.key, "name": t.name} for t in TEMPLATES.values()],
+        "templates": rows(db.execute("SELECT key, name FROM templates WHERE active = 1 ORDER BY builtin DESC, lower(name)")),
         "reasons": REASON_CATEGORIES,
         "today": c.today(),
         "ai": await ai_status(),
@@ -102,11 +103,11 @@ class PlanPreviewIn(BaseModel):
 
 
 @router.post("/plan-preview")
-async def plan_preview(body: PlanPreviewIn):
-    t = TEMPLATES.get(body.templateKey)
+async def plan_preview(body: PlanPreviewIn, c: AppContext = Depends(ctx)):
+    t = load_template(c.db, body.templateKey, active_only=True)
     if not t:
         raise HttpError(400, "Unknown template")
-    return {"items": [i.to_json() for i in plan_from_template(CALENDAR, t, body.exFactory)]}
+    return {"items": plan_json(c.db, t, body.exFactory)}
 
 
 class SizeIn(BaseModel):
@@ -138,7 +139,7 @@ class OrderIn(BaseModel):
 @router.post("/orders", status_code=201)
 async def create_order(body: OrderIn, user: User = Depends(merchandiser), c: AppContext = Depends(ctx)):
     db, today = c.db, c.today()
-    t = TEMPLATES.get(body.templateKey)
+    t = load_template(db, body.templateKey, active_only=True)
     if not t:
         raise HttpError(400, "Unknown template")
     po = body.poNo.strip()
@@ -175,8 +176,8 @@ async def create_order(body: OrderIn, user: User = Depends(merchandiser), c: App
             it, o = p.item, overrides.get(p.item.code)
             unit_id = None
             if it.kind == "stage":
-                default = subcontractor.get(it.process, body.unitId) if it.process in OUTSOURCED else body.unitId
-                unit_id = (o.unitId if o and o.unitId else None) or default
+                # A step goes to the subcontractor for its process if there is one, else to the order's own unit.
+                unit_id = (o.unitId if o and o.unitId else None) or subcontractor.get(it.process, body.unitId)
             db.execute(
                 "INSERT INTO milestones (order_id, seq, code, planned_start, planned_date, unit_id) VALUES (?,?,?,?,?,?)",
                 (order_id, p.seq, it.code, (o.plannedStart if o else None) or p.planned_start,

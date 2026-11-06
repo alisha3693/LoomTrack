@@ -174,3 +174,29 @@ export interface SupStage {
   done: number;
   today_qty: number;
 }
+
+export interface TemplateStep {
+  code: string;
+  nameEn: string;
+  nameTa: string;
+  kind: "stage" | "milestone";
+  process: string | null;
+  builtin: boolean;
+  endOffset: number;
+  startOffset: number | null;
+}
+
+export interface TemplateRow {
+  id: number;
+  key: string;
+  name: string;
+  builtin: boolean;
+  active: boolean;
+  usedBy: number;
+  steps: TemplateStep[];
+}
+
+export interface TemplateList {
+  templates: TemplateRow[];
+  library: { code: string; nameEn: string; nameTa: string; kind: "stage" | "milestone"; process: string | null; builtin: boolean }[];
+}

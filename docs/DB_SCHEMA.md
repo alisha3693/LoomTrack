@@ -1,6 +1,6 @@
 # LoomTrack database schema
 
-SQLite, 13 tables, defined in [backend/loomtrack/db.py](../backend/loomtrack/db.py). The schema is normalised (third normal form) apart from two deliberate caches. The diagram below is a Mermaid ER diagram: it renders on GitHub, and in VS Code with the "Markdown Preview Mermaid Support" extension.
+SQLite, 15 tables, defined in [backend/loomtrack/db.py](../backend/loomtrack/db.py). The schema is normalised (third normal form) apart from two deliberate caches. The diagram below is a Mermaid ER diagram: it renders on GitHub, and in VS Code with the "Markdown Preview Mermaid Support" extension.
 
 `PK` primary key, `FK` foreign key, `UK` unique. `||--o{` means one-to-many.
 
@@ -16,6 +16,9 @@ erDiagram
     orders ||--|{ order_sizes : "has sizes"
     orders ||--|{ milestones : "has TNA plan"
     plan_steps ||--o{ milestones : "defines the step"
+    templates ||--|{ template_steps : "has steps"
+    plan_steps ||--o{ template_steps : "used in"
+    users ||--o{ templates : "created"
     orders ||--o{ daily_updates : "receives"
     milestones ||--o{ daily_updates : "progress on"
     daily_updates ||--o{ photos : "has"
@@ -85,6 +88,24 @@ erDiagram
         TEXT name_ta
         TEXT kind "milestone or stage"
         TEXT process "stages only"
+        INTEGER builtin "1 = defined in code"
+    }
+    templates {
+        INTEGER id PK
+        TEXT key UK "stored on orders.template_key"
+        TEXT name "unique among active"
+        INTEGER builtin "built-ins are read-only"
+        INTEGER active "0 = retired"
+        INTEGER created_by FK
+        TEXT created_at
+        TEXT updated_at
+    }
+    template_steps {
+        INTEGER template_id PK, FK
+        TEXT code PK, FK "step"
+        INTEGER seq UK "order within the template"
+        INTEGER end_offset "days before ex-factory"
+        INTEGER start_offset "stages only; bigger than end"
     }
     milestones {
         INTEGER id PK
@@ -169,6 +190,7 @@ erDiagram
 |---|---|---|
 | People and access | `buyers`, `users`, `sessions`, `units` | A buyer's `link_token` is their credential. A supervisor's `unit_id` limits which stages they see. |
 | The plan | `orders`, `order_sizes`, `plan_steps`, `milestones` | `plan_steps` holds each kind of step once (names, stage or milestone). `milestones` is one order's plan: a row per step with that order's dates. |
+| Templates | `templates`, `template_steps` | A saved layout of steps with timings (days before ex-factory). Orders copy the dates when created, so editing or retiring a template never changes an existing order. The built-in three are read-only. |
 | Floor data | `daily_updates`, `photos`, `issue_reasons` | `daily_updates.id` is created on the phone, so a retried offline upload hits the same key and is ignored. |
 | Warnings | `warnings`, `outbox_messages` | Buyers see only `confirmed` warnings. Confirming writes a mock email to the outbox. |
 | Compliance | `date_changes` | Triggers abort every UPDATE and DELETE, so the table is append-only. |
@@ -177,6 +199,7 @@ erDiagram
 
 - `orders.qty_total > 0`, `order_sizes.qty >= 0`, `daily_updates.qty >= 0`.
 - Allowed values are checked for `units.kind`, `users.role`, `orders.state`, `milestones.kind`, `daily_updates.note_source`, `warnings.level` and `warnings.state`.
+- Template names are unique among active templates (ignoring case). Offsets are 0 to 365 days. `orders.template_key` is not a foreign key: a template is retired, never deleted, so the key always resolves.
 - `orders.order_no` is unique. `orders.po_no` is unique per buyer (`UNIQUE (buyer_id, po_no)`), because it is the buyer's own number. `colour_hex` must be `#` plus six uppercase hex digits.
 - `milestones` is unique on `(order_id, code)`, and `milestones.code` must exist in `plan_steps`. `order_sizes` is keyed on `(order_id, size)`.
 - `daily_updates` and `photos` carry no `order_id`: an update's order is its milestone's order, so there is no second copy to disagree. Every photo must belong to an update.
@@ -195,11 +218,12 @@ erDiagram
 
 ## Versions and migration
 
-`PRAGMA user_version` holds the schema version (now 2). Older databases are migrated in place when the app opens them, one version at a time: one transaction, a copy saved as `<db>.v0.bak` or `.v1.bak`, and a foreign-key check afterwards.
+`PRAGMA user_version` holds the schema version (now 3). Older databases are migrated in place when the app opens them, one version at a time: one transaction, a copy saved as `<db>.v0.bak` or `.v1.bak`, and a foreign-key check afterwards.
 
 | Version | Change |
 |---|---|
 | 0 to 1 | Step names moved to `plan_steps`; `order_id` removed from `daily_updates` and `photos`. |
 | 1 to 2 | `orders.order_no` added and backfilled (`LT-<year>-<n>` in creation order); colour fields added; PO number made unique per buyer. |
+| 2 to 3 | `templates` and `template_steps` tables; `plan_steps.builtin`. The three built-in templates are copied in from code at startup. |
 
 Code: `_migrate_v0` and `_migrate_v1` in [db.py](../backend/loomtrack/db.py). Tests: [test_migration.py](../backend/tests/test_migration.py).

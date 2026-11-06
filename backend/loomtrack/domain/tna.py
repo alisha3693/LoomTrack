@@ -51,7 +51,8 @@ WASH = _s("WASH", "Washing", "வாஷிங்", "washing", 14, 6)
 FINISH = _s("FINISH", "Finishing & checking", "ஃபினிஷிங் & செக்கிங்", "finishing", 14, 4)
 PACK = _s("PACK", "Packing", "பேக்கிங்", "packing", 8, 3)
 
-TEMPLATES: dict[str, Template] = {
+# Starting templates, copied into the database at startup. Merchandisers add their own in the app.
+BUILTIN_TEMPLATES: dict[str, Template] = {
     t.key: t
     for t in (
         Template("basic", "Knit basic (tee / polo)", (FIT, PP, FAB, CUT, STITCH, INLINE, FINISH, PACK, FINAL, EXF)),
@@ -59,8 +60,6 @@ TEMPLATES: dict[str, Template] = {
         Template("washed", "Knit garment-washed (subcontract wash)", (FIT, PP, FAB, CUT, STITCH, INLINE, WASH, FINISH, PACK, FINAL, EXF)),
     )
 }
-
-OUTSOURCED = {"printing", "washing"}
 
 
 @dataclass(frozen=True)

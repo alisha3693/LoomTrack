@@ -4,7 +4,7 @@ import sqlite3
 
 import pytest
 
-from loomtrack.db import open_db
+from loomtrack.db import SCHEMA_VERSION, open_db
 
 V0_TABLES = """
 CREATE TABLE buyers (id INTEGER PRIMARY KEY, name TEXT NOT NULL, country TEXT, link_token TEXT NOT NULL UNIQUE, link_active INTEGER NOT NULL DEFAULT 1);
@@ -53,7 +53,7 @@ def test_v0_database_is_migrated_without_losing_data(v0_file):
     cols = lambda t: {r["name"] for r in db.execute(f"PRAGMA table_info({t})")}
     assert not cols("milestones") & {"name_en", "name_ta", "kind", "process"}
     assert "order_id" not in cols("daily_updates") and "order_id" not in cols("photos")
-    assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     assert db.execute("PRAGMA foreign_key_check").fetchall() == []
 
     # Each update still belongs to the same order, now reached through its milestone.
@@ -77,7 +77,7 @@ def test_migration_runs_once_and_new_databases_start_at_v1(v0_file, tmp_path):
     assert again.execute("SELECT COUNT(*) FROM daily_updates").fetchone()[0] == 2
 
     fresh = open_db(str(tmp_path / "fresh.db"))
-    assert fresh.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert fresh.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     assert not (tmp_path / "fresh.db.v0.bak").exists()
 
 
@@ -122,7 +122,7 @@ def test_v1_orders_get_numbers_by_year_and_keep_their_ids(tmp_path):
     db = open_db(str(f))
     got = {r["id"]: r["order_no"] for r in db.execute("SELECT id, order_no FROM orders")}
     assert got == {1: "LT-2025-0001", 2: "LT-2026-0001", 3: "LT-2026-0002"}
-    assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     assert db.execute("PRAGMA foreign_key_check").fetchall() == []
     assert (tmp_path / "v1.db.v1.bak").exists()
     # The PO number is now unique per buyer, not globally.
@@ -142,3 +142,23 @@ def test_colour_hex_must_be_a_six_digit_hex_code(tmp_path):
     for bad in ("1F2A44", "#1f2a44", "#12345", "navy"):
         with pytest.raises(sqlite3.IntegrityError):
             db.execute(f"INSERT INTO orders {cols} VALUES ('LT-2', 'P2', 1, 's', 'c', ?, 1, '2026-11-20', 1, 'basic')", (bad,))
+
+
+def test_v2_database_gets_the_template_tables_and_keeps_its_orders(tmp_path):
+    """A v2 database has no templates tables and no plan_steps.builtin column."""
+    f = tmp_path / "v2.db"
+    db = open_db(str(f))
+    db.execute("INSERT INTO buyers (id, name, link_token) VALUES (1, 'B', 't')")
+    db.execute("INSERT INTO units (id, name, kind) VALUES (1, 'U', 'own')")
+    db.execute("INSERT INTO orders (id, order_no, po_no, buyer_id, style, colour, qty_total, ex_factory, unit_id, template_key) VALUES (1,'LT-2026-0001','P',1,'s','c',10,'2026-11-20',1,'basic')")
+    db.execute("DROP TABLE template_steps")
+    db.execute("DROP TABLE templates")
+    db.execute("ALTER TABLE plan_steps DROP COLUMN builtin")
+    db.execute("PRAGMA user_version = 2")
+    db.close()
+
+    db = open_db(str(f))
+    assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    assert {r["key"] for r in db.execute("SELECT key FROM templates")} == {"basic", "printed", "washed"}
+    assert db.execute("SELECT builtin FROM plan_steps WHERE code = 'CUT'").fetchone()[0] == 1
+    assert db.execute("SELECT po_no FROM orders").fetchone()[0] == "P"  # the order is untouched

@@ -15,7 +15,7 @@ from . import config
 from .ai.classifier import classify_note
 from .db import open_db
 from .deps import AppContext
-from .routes import auth, buyer, merchandiser, supervisor
+from .routes import auth, buyer, merchandiser, supervisor, templates
 from .util import HttpError
 
 
@@ -42,7 +42,7 @@ def create_app(db: sqlite3.Connection | None = None, **overrides) -> FastAPI:
     async def _starlette(_: Request, e: StarletteHTTPException):
         return JSONResponse({"error": "No such endpoint" if e.status_code == 404 else str(e.detail)}, status_code=e.status_code)
 
-    for r in (auth.router, merchandiser.router, supervisor.router, buyer.router):
+    for r in (auth.router, merchandiser.router, templates.router, supervisor.router, buyer.router):
         app.include_router(r)
 
     # Built web app (production): static assets plus SPA fallback.

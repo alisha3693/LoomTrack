@@ -8,13 +8,17 @@ import type { Meta } from "../../lib/types";
 const MetaCtx = createContext<Meta | null>(null);
 /** Buyers, units, templates, reason list and AI status — loaded once for all office screens. */
 export const useMeta = () => useContext(MetaCtx);
+const ReloadCtx = createContext<() => void>(() => {});
+/** Call after saving something that appears in the shared lists (a new template, for example). */
+export const useReloadMeta = () => useContext(ReloadCtx);
 
 export default function OfficeShell() {
   const { user, signOut } = useAuth();
-  const { data: meta } = useApi<Meta>("/api/m/meta");
+  const { data: meta, reload } = useApi<Meta>("/api/m/meta");
 
   return (
     <MetaCtx.Provider value={meta}>
+      <ReloadCtx.Provider value={() => void reload()}>
       <div className="shell">
         <header className="topbar">
           <NavLink to="/m" className="brand">
@@ -24,6 +28,7 @@ export default function OfficeShell() {
           <nav className="nav">
             <NavLink to="/m" end>Orders</NavLink>
             <NavLink to="/m/orders/new">New order</NavLink>
+            <NavLink to="/m/templates">Templates</NavLink>
             <NavLink to="/m/buyers">Buyers &amp; exports</NavLink>
           </nav>
           <div className="spacer" />
@@ -42,6 +47,7 @@ export default function OfficeShell() {
         </header>
         <Outlet />
       </div>
+      </ReloadCtx.Provider>
     </MetaCtx.Provider>
   );
 }

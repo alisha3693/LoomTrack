@@ -138,6 +138,7 @@ users ──< sessions            outbox_messages
 | `orders` | Our order number, the buyer's PO, buyer, style, colour (name, optional Pantone, optional hex swatch), qty, ex-factory, unit, template, cached status | `order_no` (`LT-2026-0001`) is ours and unique; `po_no` is the buyer's and unique per buyer. `status` and `projected_ex_factory` are caches |
 | `order_sizes` | Size × quantity grid | Sums to `orders.qty_total` |
 | `plan_steps` | The kinds of step a plan is built from (cutting, sample approval, ...): English and Tamil name, `kind`, `process` | Written once per step and synced from `domain/tna.py` at startup, so a label is fixed in one place |
+| `templates`, `template_steps` | Saved plan layouts: an ordered list of steps with start and end offsets (days before ex-factory) | The 3 built-ins come from `domain/tna.py` and are read-only; merchandisers add their own. Retired, never deleted |
 | `milestones` | One order's TNA plan: each row points at a `plan_steps` step and holds that order's dates | Stages carry `unit_id` (own or job-work); name and kind come from `plan_steps` |
 | `daily_updates` | One row per supervisor submission | `id` is generated on the phone. The order is reached through `milestone_id` (no copy of `order_id`) |
 | `photos` | Photo per update | Always belongs to an update. `buyer_visible` lets the office hide one |
@@ -192,7 +193,7 @@ The schema is in third normal form apart from two deliberate exceptions: the cac
 ## 8. Core algorithms
 
 - **Run-rate projection:** per stage, required pieces/day vs actual pieces/day (7-working-day average), chained through the production pipeline, ending in a projected ex-factory date and green/amber/red. Full method and a worked example: [RUN_RATE.md](RUN_RATE.md).
-- **TNA generation:** templates give each step an offset in days before ex-factory; dates snap back to the nearest working day (Sundays and holidays skipped).
+- **TNA generation:** templates give each step an offset in days before ex-factory; dates snap back to the nearest working day (Sundays and holidays skipped). Merchandisers build their own templates in the app. A saved template is always ordered by end offset (the delay engine reads stages in order) and ends with ex-factory. A stage must start earlier than it ends. A step typed in with an existing name reuses that step. A step goes to the subcontract unit for its process if one exists, otherwise to the order's own unit.
 - **Reason classification:** local LLM with fixed categories, definitions and a Tamil factory glossary, schema-constrained output; keyword matcher as fallback. Detail: [HOW_IT_WORKS.md](HOW_IT_WORKS.md).
 
 ---

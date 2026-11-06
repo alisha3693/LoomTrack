@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
 import { addDaysIso, fmtDate, num } from "../../lib/format";
 import { Swatch } from "../../components/ui";
@@ -11,6 +11,7 @@ interface PlanItem {
   nameEn: string;
   kind: "milestone" | "stage";
   process: string | null;
+  outsourced: boolean;
   plannedStart: string | null;
   plannedDate: string;
 }
@@ -140,6 +141,7 @@ export default function OrderNew() {
         <section className="card card-pad stack">
           <div className="row" style={{ justifyContent: "space-between" }}>
             <h2>Time-and-action plan</h2>
+            <span className="faint small"><Link to="/m/templates">Manage templates</Link></span>
             <select className="select select-sm" style={{ width: "auto" }} value={form.templateKey} onChange={set("templateKey")} aria-label="TNA template">
               {meta?.templates.map((t) => <option key={t.key} value={t.key}>{t.name}</option>)}
             </select>
@@ -153,7 +155,7 @@ export default function OrderNew() {
                 <tbody>
                   {plan.map((p) => (
                     <tr key={p.code}>
-                      <td><b style={{ fontWeight: 500 }}>{p.nameEn}</b>{p.process === "printing" || p.process === "washing" ? <span className="faint small"> · job work</span> : null}</td>
+                      <td><b style={{ fontWeight: 500 }}>{p.nameEn}</b>{p.outsourced ? <span className="faint small"> · job work</span> : null}</td>
                       <td className="muted">{p.kind === "stage" ? "Production" : "Milestone"}</td>
                       <td>{p.plannedStart ? <input type="date" className="input input-sm" value={p.plannedStart} onChange={(e) => editPlan(p.code, "plannedStart", e.target.value)} /> : <span className="faint">—</span>}</td>
                       <td>

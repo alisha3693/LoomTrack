@@ -97,6 +97,7 @@ Changing ex-factory, or any planned date, requires a reason and writes a row to 
 | New order | `/m/orders/new` | `POST /api/m/plan-preview`, `POST /api/m/orders` |
 | Order detail | `/m/orders/:id` | `GET /api/m/orders/:id`, warning confirm/dismiss, date changes, reason override |
 | Buyers & exports | `/m/buyers` | `GET /api/m/buyers`, `/exports/weekly`, `/outbox` |
+| Templates | `/m/templates`, `/m/templates/new`, `/m/templates/:id` | `GET/POST /api/m/templates`, `PUT /api/m/templates/:id`, retire/restore, `POST /api/m/templates/preview`, `PATCH /api/m/steps/:code` |
 | Supervisor home | `/s` | `GET /api/s/orders` (cached on the phone) |
 | Supervisor update | `/s/update/:id` | `POST /api/s/updates` (through the offline queue) |
 | Buyer view | `/b/:token` | `GET /api/b/:token` |
@@ -128,11 +129,11 @@ backend/loomtrack/
   security.py          password hashing, session tokens, signed media URLs
   deps.py              "who is signed in", role guards
   domain/              no database, no web: calendar, runrate, tna templates, reason list
-  services/            orders (projection + warnings), buyer_view, export (Excel)
-  routes/              auth, merchandiser, supervisor, buyer
+  services/            orders (projection + warnings), templates (load/validate/save), buyer_view, export (Excel)
+  routes/              auth, merchandiser, templates, supervisor, buyer
   ai/classifier.py     Ollama call + keyword fallback
   seed.py / explain.py demo data / prints the run-rate maths for every order
-backend/tests/         47 tests
+backend/tests/         55 tests
 web/src/
   App.tsx              routes + role guards
   lib/                 api client, auth, Tamil strings, offline outbox, photo/voice helpers, theme

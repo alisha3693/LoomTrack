@@ -70,6 +70,16 @@ Office → C-PO-0488 → **Floor updates** (allow ~5–20 s for the local model)
 - Pick the **Knit printed** template: a *Printing · job work* stage appears and is assigned to the print unit automatically.
 - **Create order** → the detail page shows green, on plan.
 
+## 6b. Your own plan templates
+**Templates** in the top bar.
+
+- **Expect:** the three built-in templates (marked *Built in*, no Edit button). **Copy** on *Knit basic*.
+- Name it *Embroidered polo*. **+ New production stage**: name *Embroidery*, process `embroidery`, starts **26**, ends **16** (days before ex-factory). Tamil name is optional. **Sort by end day**.
+- **Expect:** *Example dates* shows Embroidery between Cutting and Stitching, worked back from a sample ex-factory date.
+- **Save template.** It now appears in the **New order** template dropdown. Create an order with it: the plan includes Embroidery, and the stage goes to your own unit (no embroidery subcontractor exists).
+- Edit the template afterwards: the order you created does not change. Retire it: it leaves the dropdown, existing orders are unaffected.
+- Try a stage whose start is later than its end, or two steps with the same name: the server explains what's wrong.
+
 ## 7. Date changes leave a compliance trail
 On any order: **Change ex-factory** (or click a due date in the TNA list).
 
@@ -92,7 +102,7 @@ Open each of the three buyer links.
 ## Automated checks
 | Command | What it proves |
 |---|---|
-| `npm test` | 47 backend tests: run-rate maths, keyword classifier, schema migration, buyer isolation, idempotent offline sends, unit scoping, AI fallback, confirm-before-buyer, append-only audit |
+| `npm test` | 55 backend tests: run-rate maths, keyword classifier, schema migration, buyer isolation, idempotent offline sends, unit scoping, AI fallback, confirm-before-buyer, append-only audit |
 | `npm run explain` | Prints the run-rate maths for every order in the terminal |
 | `python e2e/walkthrough.py` | Clicks through every screen in a headless browser, saves screenshots to `e2e/shots/`, fails on any browser error (run `npm run seed` first) |
 | `python e2e/offline_test.py` | Phone offline → update queued → back online → lands exactly once |

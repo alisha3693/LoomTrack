@@ -266,3 +266,126 @@ def test_colour_hex_and_pantone_are_saved_and_checked(env):
     mine = next(x for x in view if x["poNo"] == "PO-COL-1")
     assert mine["colourHex"] == "#1F2A44" and mine["colourPantone"] == "19-4024 TCX"
     assert not any("orderNo" in x or "order_no" in x for x in view)
+
+
+# --- Custom plan templates ------------------------------------------------------------
+
+EMBROIDERY = [
+    # endOffset / startOffset are calendar days before ex-factory; a stage starts earlier (a bigger number) than it ends.
+    {"code": "CUT", "endOffset": 20, "startOffset": 30},
+    {"nameEn": "Embroidery", "nameTa": "எம்பிராய்டரி", "kind": "stage", "process": "Embroidery", "endOffset": 16, "startOffset": 26},
+    {"code": "STITCH", "endOffset": 7, "startOffset": 24},
+    {"code": "PACK", "endOffset": 3, "startOffset": 8},
+    {"code": "FINAL", "endOffset": 2},
+]
+
+
+def _save_template(env, name, steps, method="post", tid=None):
+    url = "/api/m/templates" + (f"/{tid}" if tid else "")
+    return getattr(env["client"], method)(url, headers=env["merch"], json={"name": name, "steps": steps})
+
+
+def test_merchandiser_builds_a_template_and_orders_use_it(env):
+    c = env["client"]
+    listing = c.get("/api/m/templates", headers=env["merch"]).json()
+    assert {t["key"] for t in listing["templates"] if t["builtin"]} == {"basic", "printed", "washed"}
+
+    made = _save_template(env, "Embroidered polo", EMBROIDERY)
+    assert made.status_code == 201, made.text
+    saved = next(t for t in c.get("/api/m/templates", headers=env["merch"]).json()["templates"] if t["id"] == made.json()["id"])
+    codes = [s["code"] for s in saved["steps"]]
+    assert codes[0] == "CUT" and codes[-1] == "EXF" and "EMBROIDERY" in codes     # new step created, EXF added last
+    assert codes.index("EMBROIDERY") < codes.index("STITCH")                      # ordered by end offset, earliest first
+
+    meta = c.get("/api/m/meta", headers=env["merch"]).json()["templates"]
+    key = next(t["key"] for t in meta if t["name"] == "Embroidered polo")
+    r = _new_order(env, "PO-TPL-1", 1, templateKey=key)
+    assert r.status_code == 201, r.text
+    ms = c.get(f"/api/m/orders/{r.json()['id']}", headers=env["merch"]).json()["milestones"]
+    emb = next(m for m in ms if m["code"] == "EMBROIDERY")
+    assert emb["kind"] == "stage" and emb["name_en"] == "Embroidery" and emb["unit_id"] == 1   # no subcontractor: own unit
+    assert emb["planned_date"] < next(m for m in ms if m["code"] == "STITCH")["planned_date"]
+
+
+def test_template_checks(env):
+    bad = {
+        "no stage": [{"code": "FINAL", "endOffset": 2}],
+        "stage starts after it ends": [{"code": "CUT", "endOffset": 20, "startOffset": 10}],
+        "stage without a start": [{"code": "CUT", "endOffset": 20}],
+        "duplicate step": [{"code": "CUT", "endOffset": 20, "startOffset": 30}, {"code": "CUT", "endOffset": 10, "startOffset": 18}],
+        "unknown step": [{"code": "NOPE", "endOffset": 20, "startOffset": 25}],
+        "new stage without a process": [{"nameEn": "Dye", "kind": "stage", "endOffset": 20, "startOffset": 25}],
+        "new step without a kind": [{"nameEn": "Dye", "endOffset": 20}],
+    }
+    for label, steps in bad.items():
+        assert _save_template(env, "Bad", steps).status_code == 400, label
+    ok = [{"code": "CUT", "endOffset": 20, "startOffset": 30}]
+    assert _save_template(env, "X", ok).status_code == 400  # name too short
+    assert _save_template(env, "Cutting only", ok).status_code == 201
+    assert _save_template(env, "cutting ONLY", ok).status_code == 409                 # names are unique, ignoring case
+
+
+def test_builtin_templates_are_read_only_and_retired_ones_leave_the_dropdown(env):
+    c = env["client"]
+    basic = next(t for t in c.get("/api/m/templates", headers=env["merch"]).json()["templates"] if t["key"] == "basic")
+    assert _save_template(env, "Renamed", EMBROIDERY, "put", basic["id"]).status_code == 403
+    assert c.post(f"/api/m/templates/{basic['id']}/retire", headers=env["merch"]).status_code == 403
+    assert c.patch("/api/m/steps/CUT", headers=env["merch"], json={"nameEn": "Cut", "nameTa": "x"}).status_code == 403
+
+    mine = _save_template(env, "Short-run", EMBROIDERY).json()["id"]
+    key = next(t["key"] for t in c.get("/api/m/templates", headers=env["merch"]).json()["templates"] if t["id"] == mine)
+    assert c.post(f"/api/m/templates/{mine}/retire", headers=env["merch"]).status_code == 200
+    assert key not in {t["key"] for t in c.get("/api/m/meta", headers=env["merch"]).json()["templates"]}
+    assert _new_order(env, "PO-TPL-RET", 1, templateKey=key).status_code == 400      # can't start a new order on a retired template
+    assert c.post(f"/api/m/templates/{mine}/restore", headers=env["merch"]).status_code == 200
+    assert _new_order(env, "PO-TPL-RET", 1, templateKey=key).status_code == 201
+
+
+def test_editing_a_template_never_changes_existing_orders(env):
+    c = env["client"]
+    tid = _save_template(env, "Editable", EMBROIDERY).json()["id"]
+    key = next(t["key"] for t in c.get("/api/m/templates", headers=env["merch"]).json()["templates"] if t["id"] == tid)
+    oid = _new_order(env, "PO-TPL-EDIT", 1, templateKey=key).json()["id"]
+    before = [(m["code"], m["planned_date"]) for m in c.get(f"/api/m/orders/{oid}", headers=env["merch"]).json()["milestones"]]
+
+    shorter = [{"code": "CUT", "endOffset": 28, "startOffset": 34}, {"code": "PACK", "endOffset": 6, "startOffset": 9}]
+    assert _save_template(env, "Editable", shorter, "put", tid).status_code == 200
+    after = [(m["code"], m["planned_date"]) for m in c.get(f"/api/m/orders/{oid}", headers=env["merch"]).json()["milestones"]]
+    assert before == after
+
+
+def test_template_preview_and_step_rename(env):
+    c = env["client"]
+    r = c.post("/api/m/templates/preview", headers=env["merch"], json={"exFactory": "2026-12-18", "steps": EMBROIDERY})
+    assert r.status_code == 200
+    items = r.json()["items"]
+    assert items[-1]["code"] == "EXF" and items[-1]["plannedDate"] == "2026-12-18"
+    assert all(a["plannedDate"] <= b["plannedDate"] for a, b in zip(items, items[1:]))
+    assert next(i for i in items if i["code"] == "EMBROIDERY")["nameEn"] == "Embroidery"
+    # Previewing saves nothing: the library only has the steps already saved by the tests above.
+    codes = {s["code"] for s in c.get("/api/m/templates", headers=env["merch"]).json()["library"]}
+    n_before = len(codes)
+    c.post("/api/m/templates/preview", headers=env["merch"], json={"exFactory": "2026-12-18", "steps": [
+        {"nameEn": "Brand new", "kind": "stage", "process": "dyeing", "endOffset": 20, "startOffset": 25}]})
+    assert len(c.get("/api/m/templates", headers=env["merch"]).json()["library"]) == n_before
+
+    assert c.patch("/api/m/steps/EMBROIDERY", headers=env["merch"], json={"nameEn": "Machine embroidery", "nameTa": "எம்பிராய்டரி"}).status_code == 200
+    assert next(s for s in c.get("/api/m/templates", headers=env["merch"]).json()["library"] if s["code"] == "EMBROIDERY")["nameEn"] == "Machine embroidery"
+
+
+def test_only_a_merchandiser_can_manage_templates(env):
+    c = env["client"]
+    assert c.get("/api/m/templates", headers=env["sup1"]).status_code == 403
+    assert c.post("/api/m/templates", headers=env["sup1"], json={"name": "Nope", "steps": EMBROIDERY}).status_code == 403
+    assert c.get(f"/api/b/{env['tokenB']}/templates").status_code in (401, 404)
+
+
+def test_typing_an_existing_step_name_reuses_it_instead_of_duplicating(env):
+    c = env["client"]
+    inline = {"nameEn": "  machine EMBROIDERY ", "kind": "stage", "process": "embroidery", "endOffset": 15, "startOffset": 25}
+    n = len(c.get("/api/m/templates", headers=env["merch"]).json()["library"])
+    assert _save_template(env, "Reuses embroidery", [{"code": "CUT", "endOffset": 20, "startOffset": 30}, inline]).status_code == 201
+    assert len(c.get("/api/m/templates", headers=env["merch"]).json()["library"]) == n
+    # Ex-factory is added automatically, so it can't be typed in as a new step.
+    exf = {"nameEn": "Ex-factory", "kind": "milestone", "endOffset": 0}
+    assert _save_template(env, "Bad exf", [{"code": "CUT", "endOffset": 20, "startOffset": 30}, exf]).status_code == 400

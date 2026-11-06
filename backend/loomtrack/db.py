@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from .domain.tna import TEMPLATES
+from .domain.tna import BUILTIN_TEMPLATES
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS buyers (
@@ -76,7 +76,32 @@ CREATE TABLE IF NOT EXISTS plan_steps (
   name_en TEXT NOT NULL,
   name_ta TEXT NOT NULL,
   kind TEXT NOT NULL CHECK (kind IN ('milestone', 'stage')),
-  process TEXT                      -- stages only
+  process TEXT,                     -- stages only
+  builtin INTEGER NOT NULL DEFAULT 0   -- 1 = defined in domain/tna.py, labels not editable in the app
+);
+
+-- A saved plan layout a merchandiser picks when creating an order. An order copies the
+-- dates at creation, so editing or retiring a template never changes an existing order.
+CREATE TABLE IF NOT EXISTS templates (
+  id INTEGER PRIMARY KEY,
+  key TEXT NOT NULL UNIQUE,         -- stored on orders.template_key
+  name TEXT NOT NULL,
+  builtin INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_templates_name ON templates (lower(name)) WHERE active = 1;
+
+CREATE TABLE IF NOT EXISTS template_steps (
+  template_id INTEGER NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL,
+  code TEXT NOT NULL REFERENCES plan_steps(code),
+  end_offset INTEGER NOT NULL CHECK (end_offset BETWEEN 0 AND 365),   -- calendar days before ex-factory
+  start_offset INTEGER CHECK (start_offset IS NULL OR start_offset BETWEEN 0 AND 365),  -- stages only
+  PRIMARY KEY (template_id, code),
+  UNIQUE (template_id, seq)
 );
 
 -- One order's TNA plan: dated milestones and production stages, each pointing at a step.
@@ -176,7 +201,7 @@ CREATE TABLE IF NOT EXISTS outbox_messages (
 """
 
 
-SCHEMA_VERSION = 2  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no and colour fields
+SCHEMA_VERSION = 3  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no/colour, 2 = before templates tables
 
 
 def _is_v0(db: sqlite3.Connection) -> bool:
@@ -273,15 +298,37 @@ def _migrate_v1(db: sqlite3.Connection, file: str) -> None:
         raise RuntimeError(f"Migration left broken references; the pre-migration copy is {file}.v1.bak")
 
 
+def _add_builtin_column(db: sqlite3.Connection) -> None:
+    """v2 -> v3: plan_steps.builtin (the new tables come from SCHEMA)."""
+    if "builtin" not in {r["name"] for r in db.execute("PRAGMA table_info(plan_steps)")}:
+        db.execute("ALTER TABLE plan_steps ADD COLUMN builtin INTEGER NOT NULL DEFAULT 0")
+
+
 def sync_plan_steps(db: sqlite3.Connection) -> None:
-    """Make plan_steps match the templates in domain/tna.py (the one place step names are edited)."""
-    steps = {i.code: i for t in TEMPLATES.values() for i in t.items}
+    """Make the built-in steps match domain/tna.py. Custom steps (builtin = 0) are left alone."""
+    steps = {i.code: i for t in BUILTIN_TEMPLATES.values() for i in t.items}
     db.executemany(
-        """INSERT INTO plan_steps (code, name_en, name_ta, kind, process) VALUES (?,?,?,?,?)
+        """INSERT INTO plan_steps (code, name_en, name_ta, kind, process, builtin) VALUES (?,?,?,?,?,1)
            ON CONFLICT(code) DO UPDATE SET name_en = excluded.name_en, name_ta = excluded.name_ta,
-             kind = excluded.kind, process = excluded.process""",
+             kind = excluded.kind, process = excluded.process, builtin = 1""",
         [(i.code, i.name_en, i.name_ta, i.kind, i.process) for i in steps.values()],
     )
+
+
+def sync_builtin_templates(db: sqlite3.Connection) -> None:
+    """Keep the built-in templates in step with domain/tna.py. Merchandisers' own templates are never touched."""
+    for t in BUILTIN_TEMPLATES.values():
+        db.execute(
+            """INSERT INTO templates (key, name, builtin) VALUES (?,?,1)
+               ON CONFLICT(key) DO UPDATE SET name = excluded.name, builtin = 1""",
+            (t.key, t.name),
+        )
+        tid = db.execute("SELECT id FROM templates WHERE key = ?", (t.key,)).fetchone()["id"]
+        db.execute("DELETE FROM template_steps WHERE template_id = ?", (tid,))
+        db.executemany(
+            "INSERT INTO template_steps (template_id, seq, code, end_offset, start_offset) VALUES (?,?,?,?,?)",
+            [(tid, n, i.code, i.end_offset, i.start_offset) for n, i in enumerate(t.items, start=1)],
+        )
 
 
 def open_db(file: str) -> sqlite3.Connection:
@@ -298,7 +345,9 @@ def open_db(file: str) -> sqlite3.Connection:
     if _is_v1(db):
         _migrate_v1(db, file)
     db.executescript(SCHEMA)
+    _add_builtin_column(db)
     sync_plan_steps(db)
+    sync_builtin_templates(db)
     db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     return db
 
