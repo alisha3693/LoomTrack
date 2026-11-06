@@ -43,3 +43,7 @@ The first round fixed *where things are*; the second fixed how it *looks*, becau
 ## How this is checked
 
 `e2e/` holds the scripted browser journeys. The journey that guards this work walks the flow end to end: the office finds the buyer's message from the board, answers it, the buyer sees and reads the reply, a countered date is agreed and accepted into an order and the buyer follows it to the order, and 13 pages are checked at phone width for sideways scrolling and squeezed titles. It found two layout bugs in this very pass that the type-checker and the unit tests could not.
+
+## Look and feel (third round)
+
+An earthtone palette (paper, umber ink, clay, moss, ochre) with a serif for page titles and big numbers and Inter for everything else, in light and dark. Buttons are pills; everything else is flat with hairline borders. The home page was redrawn as a quiet editorial page: one headline, one example order, three columns of who it is for, four numbered steps, and the private-link box. The design was drawn first on a canvas (three screens: home, the merchandiser's orders, the buyer's overview) and then built to match.

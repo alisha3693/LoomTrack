@@ -21,7 +21,7 @@ function apply(choice: ThemeChoice) {
   if (choice === "system") root.removeAttribute("data-theme");
   else root.setAttribute("data-theme", choice);
   const dark = choice === "dark" || (choice === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#1b1b19" : "#ffffff");
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#1D1915" : "#F5F0E6");
 }
 
 export function useTheme() {
