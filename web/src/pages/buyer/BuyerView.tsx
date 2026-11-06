@@ -1,6 +1,8 @@
 import { useEffect } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { Progress, Swatch, useApi } from "../../components/ui";
+import { RequestPill } from "../../components/RequestParts";
+import type { RequestRow } from "../../lib/requests";
 import { fmtDate, fmtDateTime, num } from "../../lib/format";
 import { ThemeToggle } from "../../lib/theme";
 
@@ -25,6 +27,37 @@ interface View {
   buyer: { name: string; country: string | null };
   today: string;
   orders: BuyerOrder[];
+}
+
+/** Requests this buyer has sent, with a way to send a new one. */
+function MyRequests({ token }: { token: string }) {
+  const { data } = useApi<{ requests: RequestRow[] }>(`/api/b/${token}/requests`);
+  return (
+    <section className="card no-print" style={{ marginBottom: 20 }}>
+      <div className="card-head">
+        <div>
+          <h2>Order requests</h2>
+          <div className="faint small">Need something made? Send a request and we will confirm it.</div>
+        </div>
+        <Link className="btn btn-primary" to={`/b/${token}/requests/new`}>New order request</Link>
+      </div>
+      {data && data.requests.length > 0 && (
+        <div className="table-scroll">
+          <table className="table">
+            <tbody>
+              {data.requests.map((r) => (
+                <tr key={r.id}>
+                  <td><Link to={`/b/${token}/requests/${r.id}`}><b>{r.poNo}</b></Link> <span className="faint small">{r.requestNo}</span><div className="muted">{r.style}, {r.colour.toLowerCase()} · {num(r.totalQty)} pcs</div></td>
+                  <td className="muted">Ex-factory {fmtDate(r.exFactory, true)}</td>
+                  <td><RequestPill status={r.status} audience="buyer" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
 }
 
 const FIELD: Record<string, string> = { ex_factory: "Ex-factory", planned_date: "Due date", planned_start: "Start date", actual_date: "Completed" };
@@ -58,6 +91,7 @@ export default function BuyerView() {
       </header>
 
       <main className="page" style={{ maxWidth: 980 }}>
+        <MyRequests token={token!} />
         <p className="faint small" style={{ marginBottom: 16 }}>As of {fmtDate(data.today, true)} · {data.orders.length} orders</p>
         <div className="stack" style={{ gap: 20 }}>
           {data.orders.map((o) => (

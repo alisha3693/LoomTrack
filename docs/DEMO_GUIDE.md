@@ -80,6 +80,18 @@ Office → C-PO-0488 → **Floor updates** (allow ~5–20 s for the local model)
 - Edit the template afterwards: the order you created does not change. Retire it: it leaves the dropdown, existing orders are unaffected.
 - Try a stage whose start is later than its end, or two steps with the same name: the server explains what's wrong.
 
+## 6c. A buyer asks for an order (landing page, request, conversation)
+Use two windows: the office (signed in as Priya) and a private window for the buyer.
+
+1. Buyer window: open **http://localhost:4000** signed out. **Expect:** the landing page. Paste a buyer link (**Buyers & exports → Open buyer view** shows it) and **Open my orders**.
+2. **New order request**: PO `B-PO-91000`, style, colour (Pantone and hex optional), a date, quantities by size. **Send request.** **Expect:** *With the merchandiser*.
+3. Office: **Requests** shows a count. Open it. **Ask a question.** The status becomes *Waiting for the buyer*.
+4. Buyer: reload. **Expect:** *Question for you*. Reply. The status goes back to *With the merchandiser*.
+5. Office: **Propose another date** with a reason. Buyer: *New date proposed*. **Agree.** The request now carries the new date.
+6. Office: **Accept into an order**: pick the unit and a template. **Expect:** the order opens with its own number (`LT-...`) and exactly the buyer's quantities, colour and agreed date. The buyer's request shows *Accepted* with that number.
+7. **Buyers & exports → Sent to buyers** lists the messages the buyer was sent.
+8. Try with another buyer's link: that buyer cannot see or answer these requests.
+
 ## 7. Date changes leave a compliance trail
 On any order: **Change ex-factory** (or click a due date in the TNA list).
 
@@ -102,7 +114,7 @@ Open each of the three buyer links.
 ## Automated checks
 | Command | What it proves |
 |---|---|
-| `npm test` | 55 backend tests: run-rate maths, keyword classifier, schema migration, buyer isolation, idempotent offline sends, unit scoping, AI fallback, confirm-before-buyer, append-only audit |
+| `npm test` | 60 backend tests: run-rate maths, keyword classifier, schema migration, order requests, buyer isolation, idempotent offline sends, unit scoping, AI fallback, confirm-before-buyer, append-only audit |
 | `npm run explain` | Prints the run-rate maths for every order in the terminal |
 | `python e2e/walkthrough.py` | Clicks through every screen in a headless browser, saves screenshots to `e2e/shots/`, fails on any browser error (run `npm run seed` first) |
 | `python e2e/offline_test.py` | Phone offline → update queued → back online → lands exactly once |

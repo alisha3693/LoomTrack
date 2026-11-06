@@ -369,6 +369,9 @@ details > summary::marker { color: var(--ink-3); }
 .theme-toggle:hover { color: var(--ink); background: var(--sunken); }
 .theme-toggle svg { width: 16px; height: 16px; }
 
+/* Count next to a nav item */
+.badge { display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 6px; border-radius: 9px; background: var(--amber-bg); color: var(--amber); font-size: 12px; font-weight: 600; text-align: center; line-height: 18px; }
+
 /* Colour chip next to a colour name */
 .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--line-2); vertical-align: -1px; margin-right: 6px; }
 .swatch-lg { width: 36px; height: 36px; margin: 0; border-radius: 8px; flex: none; }

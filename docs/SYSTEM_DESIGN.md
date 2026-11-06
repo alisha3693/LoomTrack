@@ -138,6 +138,7 @@ users ──< sessions            outbox_messages
 | `orders` | Our order number, the buyer's PO, buyer, style, colour (name, optional Pantone, optional hex swatch), qty, ex-factory, unit, template, cached status | `order_no` (`LT-2026-0001`) is ours and unique; `po_no` is the buyer's and unique per buyer. `status` and `projected_ex_factory` are caches |
 | `order_sizes` | Size × quantity grid | Sums to `orders.qty_total` |
 | `plan_steps` | The kinds of step a plan is built from (cutting, sample approval, ...): English and Tamil name, `kind`, `process` | Written once per step and synced from `domain/tna.py` at startup, so a label is fixed in one place |
+| `order_requests`, `request_sizes`, `request_messages` | A buyer's order request and its conversation; status = whose turn it is | `request_messages` is append-only. Accepting creates the order |
 | `templates`, `template_steps` | Saved plan layouts: an ordered list of steps with start and end offsets (days before ex-factory) | The 3 built-ins come from `domain/tna.py` and are read-only; merchandisers add their own. Retired, never deleted |
 | `milestones` | One order's TNA plan: each row points at a `plan_steps` step and holds that order's dates | Stages carry `unit_id` (own or job-work); name and kind come from `plan_steps` |
 | `daily_updates` | One row per supervisor submission | `id` is generated on the phone. The order is reached through `milestone_id` (no copy of `order_id`) |
@@ -156,7 +157,10 @@ users ──< sessions            outbox_messages
 4. An update can't be dated in the future or more than 7 days back.
 5. Changing a planned date requires a reason, and writes `date_changes` in the same transaction.
 6. `date_changes` rows can't be updated or deleted.
-7. A milestone must point at a known `plan_steps` step, and an update's order is always its milestone's order (there is no second copy to disagree).
+7. `request_messages` rows can't be updated or deleted.
+8. A buyer can reach only their own requests; another buyer's request is "not found".
+9. An accepted request creates an order with exactly the quantities, colour and date the buyer asked for or agreed to. A different date goes through a counter-proposal the buyer agrees to.
+10. A milestone must point at a known `plan_steps` step, and an update's order is always its milestone's order (there is no second copy to disagree).
 
 ### Normalisation and migrations
 
@@ -180,7 +184,7 @@ The schema is in third normal form apart from two deliberate exceptions: the cac
 
 ## 7. API design
 
-- **REST + JSON**, one prefix per actor: `/api/auth`, `/api/m` (office), `/api/s` (floor), `/api/b/:token` (buyer), plus signed media at `/api/media/*`. Interactive docs at `/api/docs`.
+- **REST + JSON**, one prefix per actor: `/api/auth`, `/api/m` (office), `/api/s` (floor), `/api/b/:token` (buyer, read plus the request endpoints), plus signed media at `/api/media/*`. Interactive docs at `/api/docs`.
 - **One error shape** everywhere: `{"error": "human-readable message"}`. 400 validation, 401 sign-in, 403 role or unit, 404, 409 conflict, 422 business rule, 429 lockout.
 - **Auth:** the session token is accepted from either `Authorization: Bearer <token>` (what the app sends, from localStorage) or the `loomtrack_session` cookie (set at login: `HttpOnly`, `SameSite=Lax`, `Secure` over HTTPS). The cookie lets the API be opened directly in a browser while signed in. The header wins if both are present. A buyer link token is never accepted as either.
 - **Idempotency:** `POST /api/s/updates` is idempotent on the client ID (second send returns 200 `duplicate: true`).

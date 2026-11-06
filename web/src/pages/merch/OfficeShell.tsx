@@ -27,6 +27,7 @@ export default function OfficeShell() {
           </NavLink>
           <nav className="nav">
             <NavLink to="/m" end>Orders</NavLink>
+            <NavLink to="/m/requests">Requests{meta && meta.openRequests > 0 ? <span className="badge">{meta.openRequests}</span> : null}</NavLink>
             <NavLink to="/m/orders/new">New order</NavLink>
             <NavLink to="/m/templates">Templates</NavLink>
             <NavLink to="/m/buyers">Buyers &amp; exports</NavLink>

@@ -9,7 +9,10 @@ from ..config import CALENDAR
 from ..db import transaction
 from ..domain.calendar import add_days
 from ..domain.reasons import REASON_LABEL_EN
+from ..domain.tna import Template, plan_from_template
 from ..domain.runrate import DailyQty, OrderProjection, StageInput, pretty_date, project_order
+from ..util import HttpError
+from .templates import load_template
 
 
 @dataclass
@@ -166,3 +169,52 @@ def _default_buyer_message(db: sqlite3.Connection, order: sqlite3.Row, fp: FullP
         )
     what = stage.name.lower() if stage else "production"
     return f"{head}: {what} is running behind plan.{because} Ex-factory {pretty_date(order['ex_factory'])} is still achievable and we are watching it daily."
+
+
+def validate_new_order(db: sqlite3.Connection, body, today: str) -> Template:
+    """Checks shared by 'create order' and 'accept a buyer's request'. Returns the template to plan from."""
+    t = load_template(db, body.templateKey, active_only=True)
+    if not t:
+        raise HttpError(400, "Unknown template")
+    qty = sum(s.qty for s in body.sizes)
+    if qty <= 0:
+        raise HttpError(400, "Size quantities add up to zero")
+    if len({s.size.strip().upper() for s in body.sizes}) != len(body.sizes):
+        raise HttpError(400, "Duplicate size")
+    if body.exFactory <= today:
+        raise HttpError(400, "Ex-factory date must be in the future")
+    if db.execute("SELECT 1 FROM orders WHERE po_no = ? AND buyer_id = ?", (body.poNo.strip(), body.buyerId)).fetchone():
+        raise HttpError(409, f"This buyer already has a PO {body.poNo.strip()}")
+    unit = db.execute("SELECT kind FROM units WHERE id = ?", (body.unitId,)).fetchone()
+    if not unit or unit["kind"] != "own":
+        raise HttpError(400, "Pick one of our own units")
+    if not db.execute("SELECT 1 FROM buyers WHERE id = ?", (body.buyerId,)).fetchone():
+        raise HttpError(400, "Unknown buyer")
+    return t
+
+
+def insert_order(db: sqlite3.Connection, body, t: Template, user_id: int, today: str) -> tuple[int, str]:
+    """Insert the order, its sizes and its dated plan. Call inside a transaction; returns (id, order_no)."""
+    overrides = {m.code: m for m in body.milestones or []}
+    subcontractor = {r["process"]: r["id"] for r in db.execute("SELECT id, process FROM units WHERE kind = 'subcontract'")}
+    order_no = next_order_no(db, today)
+    order_id = db.execute(
+        """INSERT INTO orders (order_no, po_no, buyer_id, style, colour, colour_hex, colour_pantone, qty_total, ex_factory, unit_id, template_key, merchandiser_id)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (order_no, body.poNo.strip(), body.buyerId, body.style.strip(), body.colour.strip(),
+         body.colourHex.upper() if body.colourHex else None, (body.colourPantone or "").strip() or None,
+         sum(s.qty for s in body.sizes), body.exFactory, body.unitId, t.key, user_id),
+    ).lastrowid
+    for n, s in enumerate(body.sizes, start=1):
+        db.execute("INSERT INTO order_sizes (order_id, seq, size, qty) VALUES (?,?,?,?)", (order_id, n, s.size.strip().upper(), s.qty))
+    for p in plan_from_template(CALENDAR, t, body.exFactory):
+        it, o = p.item, overrides.get(p.item.code)
+        unit_id = None
+        if it.kind == "stage":
+            # A step goes to the subcontractor for its process if there is one, else to the order's own unit.
+            unit_id = (o.unitId if o and o.unitId else None) or subcontractor.get(it.process, body.unitId)
+        db.execute(
+            "INSERT INTO milestones (order_id, seq, code, planned_start, planned_date, unit_id) VALUES (?,?,?,?,?,?)",
+            (order_id, p.seq, it.code, (o.plannedStart if o else None) or p.planned_start, o.plannedDate if o else p.planned_date, unit_id),
+        )
+    return order_id, order_no

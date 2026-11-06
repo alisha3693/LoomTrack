@@ -10,6 +10,8 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` not started. Updated as wor
 - [x] Normalised: step names in `plan_steps`, redundant `order_id` removed from `daily_updates` and `photos`, v0 databases migrated in place (version stored in `user_version`)
 - [x] Our own order number (`LT-year-n`) generated at creation, the buyer's PO kept as typed and unique per buyer; colour name + Pantone + hex swatch
 - [x] Merchandiser-built plan templates: create, copy, edit, retire; reusable step library; example dates in the editor; built-ins read-only
+- [x] Order requests: buyer sends from their link, merchandiser asks / counters / accepts / declines, accepted request becomes an order; landing page
+- [ ] Invited buyer accounts (today anyone holding the buyer link can send and answer requests for that buyer; rotate the link to cut access)
 - [ ] Unit management screen (subcontractors for new processes such as embroidery; today they come from the seed)
 - [ ] Next schema change: add a migration step per version (v0 to v1, v1 to v2 and v2 to v3 exist)
 - [x] Seed from sample data (3 POs from brief) + synthetic history so run-rates exist

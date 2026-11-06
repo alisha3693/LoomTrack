@@ -389,3 +389,130 @@ def test_typing_an_existing_step_name_reuses_it_instead_of_duplicating(env):
     # Ex-factory is added automatically, so it can't be typed in as a new step.
     exf = {"nameEn": "Ex-factory", "kind": "milestone", "endOffset": 0}
     assert _save_template(env, "Bad exf", [{"code": "CUT", "endOffset": 20, "startOffset": 30}, exf]).status_code == 400
+
+
+# --- Order requests ---------------------------------------------------------------------
+
+def _req(env, token, po, **extra):
+    body = {"poNo": po, "style": "Men's raglan tee", "colour": "Charcoal", "exFactory": "2026-12-20",
+            "sizes": [{"size": "M", "qty": 600}, {"size": "L", "qty": 400}], **extra}
+    return env["client"].post(f"/api/b/{token}/requests", json=body)
+
+
+def _office(env, path, method="get", **json):
+    return getattr(env["client"], method)(f"/api/m/requests{path}", headers=env["merch"], **({"json": json} if json else {}))
+
+
+def _buyer(env, token, path, method="get", **json):
+    return getattr(env["client"], method)(f"/api/b/{token}/requests{path}", **({"json": json} if json else {}))
+
+
+def test_a_buyer_sees_only_their_own_requests(env):
+    mine = _req(env, env["tokenB"], "RQ-ISO-1", colourHex="#36454f", colourPantone="19-3906 TCX").json()["id"]
+    assert [r["id"] for r in _buyer(env, env["tokenB"], "").json()["requests"] if r["id"] == mine] == [mine]
+    assert all(r["id"] != mine for r in _buyer(env, env["tokenC"], "").json()["requests"])
+    for path, method, body in ((f"/{mine}", "get", {}), (f"/{mine}/reply", "post", {"message": "hi"}),
+                               (f"/{mine}/agree", "post", {}), (f"/{mine}/withdraw", "post", {})):
+        assert _buyer(env, env["tokenC"], path, method, **body).status_code == 404, path
+    detail = _buyer(env, env["tokenB"], f"/{mine}").json()
+    assert detail["colourHex"] == "#36454F" and detail["status"] == "submitted" and detail["totalQty"] == 1000
+    assert not any(k in detail for k in ("buyer", "orderId", "decided_by")) and all("user_id" not in m for m in detail["messages"])
+    office = _office(env, f"/{mine}").json()
+    assert office["buyer"] == "Buyer B" and office["status"] == "submitted"
+    assert env["client"].get("/api/m/requests", headers=env["sup1"]).status_code == 403
+    env["client"].cookies.clear()
+    assert env["client"].get(f"/api/m/requests/{mine}").status_code == 401
+    assert env["client"].get(f"/api/m/requests/{mine}", headers={"Authorization": f"Bearer {env['tokenB']}"}).status_code == 401
+
+
+def test_request_checks(env):
+    t = env["tokenB"]
+    assert _req(env, t, "RQ-CHK-1", exFactory="2026-11-01").status_code == 400                       # in the past
+    assert _req(env, t, "RQ-CHK-1", sizes=[{"size": "M", "qty": 0}]).status_code == 400            # nothing ordered
+    assert _req(env, t, "RQ-CHK-1", sizes=[{"size": "M", "qty": 5}, {"size": "m", "qty": 5}]).status_code == 400
+    assert _req(env, t, "RQ-CHK-1", colourHex="navy").status_code == 400
+    assert _req(env, t, "PO-B-1").status_code == 409                                                # already an order
+    assert _req(env, t, "RQ-CHK-2").status_code == 201
+    assert _req(env, t, "RQ-CHK-2").status_code == 409                                              # already an open request
+    assert _req(env, env["tokenC"], "RQ-CHK-2").status_code == 201                                  # other buyer: fine
+    assert _req(env, "not-a-token", "RQ-CHK-3").status_code == 404
+
+
+def test_the_whole_conversation_ends_in_an_order(env):
+    db, t = env["db"], env["tokenB"]
+    rid = _req(env, t, "RQ-FLOW-1", colourHex="#36454F", colourPantone="19-3906 TCX", description="Raglan, contrast sleeve").json()["id"]
+    before = _office(env, "").json()["openCount"]
+    assert any(r["id"] == rid for r in _office(env, "?filter=mine").json()["requests"])
+    assert env["client"].get("/api/m/meta", headers=env["merch"]).json()["openRequests"] == before
+
+    assert _office(env, f"/{rid}/query", "post", message="").status_code == 400                    # needs words
+    assert _office(env, f"/{rid}/query", "post", message="Is the sleeve colour Pantone 18-1664?").status_code == 200
+    assert _buyer(env, t, f"/{rid}").json()["status"] == "query"
+    assert not any(r["id"] == rid for r in _office(env, "?filter=mine").json()["requests"])        # now on the buyer
+    assert any(r["id"] == rid for r in _office(env, "?filter=waiting").json()["requests"])
+
+    assert _buyer(env, t, f"/{rid}/reply", "post", message="Yes, 18-1664 TCX.").status_code == 200
+    assert _buyer(env, t, f"/{rid}").json()["status"] == "submitted"                               # back to us
+
+    assert _office(env, f"/{rid}/counter", "post", exFactory="2026-12-20", message="same").status_code == 400
+    assert _office(env, f"/{rid}/counter", "post", exFactory="2026-11-01", message="past").status_code == 400
+    assert _office(env, f"/{rid}/counter", "post", exFactory="2026-12-27", message="Fabric lead time").status_code == 200
+    d = _buyer(env, t, f"/{rid}").json()
+    assert d["status"] == "countered" and d["canAgree"] and d["exFactory"] == "2026-12-20"          # not changed until they agree
+
+    assert _buyer(env, t, f"/{rid}/agree", "post").status_code == 200
+    d = _buyer(env, t, f"/{rid}").json()
+    assert d["status"] == "submitted" and d["exFactory"] == "2026-12-27"
+    assert _buyer(env, t, f"/{rid}/agree", "post").status_code == 409                               # nothing left to agree to
+
+    assert _office(env, f"/{rid}/accept", "post", unitId=1, templateKey="basic").status_code == 200
+    accepted = _office(env, f"/{rid}").json()
+    assert accepted["status"] == "accepted" and accepted["orderNo"].startswith("LT-")
+    order = env["client"].get(f"/api/m/orders/{accepted['orderId']}", headers=env["merch"]).json()
+    o = order["order"]
+    assert (o["po_no"], o["ex_factory"], o["qty_total"], o["colour"], o["colour_hex"], o["colour_pantone"]) == (
+        "RQ-FLOW-1", "2026-12-27", 1000, "Charcoal", "#36454F", "19-3906 TCX")
+    assert [(s["size"], s["qty"]) for s in order["sizes"]] == [("M", 600), ("L", 400)]
+    assert _buyer(env, t, f"/{rid}").json()["orderNo"] == o["order_no"]
+
+    events = [m["event"] for m in _buyer(env, t, f"/{rid}").json()["messages"]]
+    assert events == ["submitted", "query", "message", "counter", "agreed", "accepted"]
+    assert _buyer(env, t, f"/{rid}/reply", "post", message="thanks").status_code == 409            # closed
+    mails = [m["subject"] for m in env["client"].get("/api/m/outbox", headers=env["merch"]).json() if "RQ-" in m["subject"]]
+    assert len(mails) >= 3
+    with pytest.raises(sqlite3.DatabaseError):
+        db.execute("UPDATE request_messages SET body = 'edited' WHERE request_id = ?", (rid,))
+    with pytest.raises(sqlite3.DatabaseError):
+        db.execute("DELETE FROM request_messages WHERE request_id = ?", (rid,))
+
+
+def test_decline_withdraw_and_failed_accept_leave_things_consistent(env):
+    t = env["tokenC"]
+    a = _req(env, t, "RQ-END-1").json()["id"]
+    assert _office(env, f"/{a}/decline", "post", message="").status_code == 400                      # a reason is required
+    assert _office(env, f"/{a}/decline", "post", message="No capacity for that window").status_code == 200
+    assert _buyer(env, t, f"/{a}").json()["status"] == "declined"
+    assert _office(env, f"/{a}/accept", "post", unitId=1, templateKey="basic").status_code == 409   # already closed
+    assert _buyer(env, t, f"/{a}/withdraw", "post").status_code == 409
+
+    b = _req(env, t, "RQ-END-2").json()["id"]
+    assert _buyer(env, t, f"/{b}/withdraw", "post").status_code == 200
+    assert _buyer(env, t, f"/{b}").json()["status"] == "withdrawn"
+
+    c = _req(env, t, "RQ-END-3").json()["id"]
+    n_orders = env["db"].execute("SELECT COUNT(*) FROM orders").fetchone()[0]
+    assert _office(env, f"/{c}/accept", "post", unitId=999, templateKey="basic").status_code == 400      # not a unit
+    assert _office(env, f"/{c}/accept", "post", unitId=1, templateKey="no-such").status_code == 400
+    assert env["db"].execute("SELECT COUNT(*) FROM orders").fetchone()[0] == n_orders                    # nothing half-created
+    assert _office(env, f"/{c}").json()["status"] == "submitted"
+    # The same PO turning up as an order in the meantime blocks the accept.
+    _new_order(env, "RQ-END-3", 2)
+    assert _office(env, f"/{c}/accept", "post", unitId=1, templateKey="basic").status_code == 409
+    assert _office(env, "?filter=bogus").status_code == 400
+
+
+def test_a_buyer_cannot_have_more_than_25_open_requests(env):
+    env["db"].execute("INSERT INTO buyers (id, name, link_token) VALUES (9, 'Busy buyer', ?)", ("busy-" + new_token(),))
+    token = env["db"].execute("SELECT link_token FROM buyers WHERE id = 9").fetchone()[0]
+    codes = [_req(env, token, f"RQ-BUSY-{i}").status_code for i in range(27)]
+    assert codes.count(201) == 25 and codes[25:] == [429, 429]

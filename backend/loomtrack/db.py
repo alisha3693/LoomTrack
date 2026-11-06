@@ -188,6 +188,55 @@ BEGIN SELECT RAISE(ABORT, 'date_changes is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS date_changes_no_delete BEFORE DELETE ON date_changes
 BEGIN SELECT RAISE(ABORT, 'date_changes is append-only'); END;
 
+-- A buyer's request: a new order they want us to make, or (later) a change to an order. It is
+-- a conversation: whose turn it is is the status. submitted = ours, query/countered = the buyer's.
+CREATE TABLE IF NOT EXISTS order_requests (
+  id INTEGER PRIMARY KEY,
+  request_no TEXT NOT NULL UNIQUE,                 -- RQ-2026-0001
+  kind TEXT NOT NULL DEFAULT 'new_order' CHECK (kind IN ('new_order', 'amendment')),
+  buyer_id INTEGER NOT NULL REFERENCES buyers(id),
+  order_id INTEGER REFERENCES orders(id),          -- amendment: the order; new order: set when accepted
+  po_no TEXT NOT NULL,                             -- the buyer's PO number
+  style TEXT NOT NULL,
+  description TEXT,
+  colour TEXT NOT NULL,
+  colour_pantone TEXT,
+  colour_hex TEXT CHECK (colour_hex IS NULL OR colour_hex GLOB '#[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]'),
+  ex_factory TEXT NOT NULL,                        -- the date the buyer wants, or has agreed to
+  status TEXT NOT NULL DEFAULT 'submitted'
+    CHECK (status IN ('submitted', 'query', 'countered', 'accepted', 'declined', 'withdrawn')),
+  decided_by INTEGER REFERENCES users(id),
+  decided_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS ix_requests_buyer ON order_requests (buyer_id, status);
+
+CREATE TABLE IF NOT EXISTS request_sizes (
+  request_id INTEGER NOT NULL REFERENCES order_requests(id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL,
+  size TEXT NOT NULL,
+  qty INTEGER NOT NULL CHECK (qty >= 0),
+  PRIMARY KEY (request_id, size)
+);
+
+-- The conversation and every status change, append-only like date_changes.
+CREATE TABLE IF NOT EXISTS request_messages (
+  id INTEGER PRIMARY KEY,
+  request_id INTEGER NOT NULL REFERENCES order_requests(id),
+  author TEXT NOT NULL CHECK (author IN ('buyer', 'merchandiser')),
+  user_id INTEGER REFERENCES users(id),
+  event TEXT NOT NULL CHECK (event IN ('submitted', 'message', 'query', 'counter', 'agreed', 'accepted', 'declined', 'withdrawn')),
+  body TEXT,
+  proposed_ex_factory TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS ix_request_messages ON request_messages (request_id, id);
+CREATE TRIGGER IF NOT EXISTS request_messages_no_update BEFORE UPDATE ON request_messages
+BEGIN SELECT RAISE(ABORT, 'request_messages is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS request_messages_no_delete BEFORE DELETE ON request_messages
+BEGIN SELECT RAISE(ABORT, 'request_messages is append-only'); END;
+
 -- Mock outbound messages (email / WhatsApp to buyers).
 CREATE TABLE IF NOT EXISTS outbox_messages (
   id INTEGER PRIMARY KEY,
@@ -201,7 +250,7 @@ CREATE TABLE IF NOT EXISTS outbox_messages (
 """
 
 
-SCHEMA_VERSION = 3  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no/colour, 2 = before templates tables
+SCHEMA_VERSION = 4  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no/colour, 2 = before templates, 3 = before order requests
 
 
 def _is_v0(db: sqlite3.Connection) -> bool:

@@ -15,8 +15,10 @@ from ..domain.reasons import REASON_CATEGORIES, REASON_CODES
 from ..domain.tna import plan_from_template
 from ..security import new_token, sign_path
 from ..services.export import weekly_workbook
+from ..services.requests import open_count
 from ..services.templates import load_template, plan_json
-from ..services.orders import compute_projection, get_milestones, get_order, next_order_no, refresh_all_active, refresh_order
+from ..services.orders import (compute_projection, get_milestones, get_order, insert_order, refresh_all_active, refresh_order,
+                               validate_new_order)
 from ..util import HttpError, iso_week
 
 router = APIRouter(prefix="/api/m", dependencies=[Depends(merchandiser)])
@@ -38,6 +40,7 @@ async def meta(c: AppContext = Depends(ctx)):
         "templates": rows(db.execute("SELECT key, name FROM templates WHERE active = 1 ORDER BY builtin DESC, lower(name)")),
         "reasons": REASON_CATEGORIES,
         "today": c.today(),
+        "openRequests": open_count(db),
         "ai": await ai_status(),
     }
 
@@ -139,50 +142,9 @@ class OrderIn(BaseModel):
 @router.post("/orders", status_code=201)
 async def create_order(body: OrderIn, user: User = Depends(merchandiser), c: AppContext = Depends(ctx)):
     db, today = c.db, c.today()
-    t = load_template(db, body.templateKey, active_only=True)
-    if not t:
-        raise HttpError(400, "Unknown template")
-    po = body.poNo.strip()
-    qty = sum(s.qty for s in body.sizes)
-    if qty <= 0:
-        raise HttpError(400, "Size quantities add up to zero")
-    if len({s.size.strip().upper() for s in body.sizes}) != len(body.sizes):
-        raise HttpError(400, "Duplicate size")
-    if body.exFactory <= today:
-        raise HttpError(400, "Ex-factory date must be in the future")
-    if db.execute("SELECT 1 FROM orders WHERE po_no = ? AND buyer_id = ?", (po, body.buyerId)).fetchone():
-        raise HttpError(409, f"This buyer already has a PO {po}")
-    unit = db.execute("SELECT kind FROM units WHERE id = ?", (body.unitId,)).fetchone()
-    if not unit or unit["kind"] != "own":
-        raise HttpError(400, "Pick one of our own units")
-    if not db.execute("SELECT 1 FROM buyers WHERE id = ?", (body.buyerId,)).fetchone():
-        raise HttpError(400, "Unknown buyer")
-
-    overrides = {m.code: m for m in body.milestones or []}
-    subcontractor = {r["process"]: r["id"] for r in db.execute("SELECT id, process FROM units WHERE kind = 'subcontract'")}
-
+    t = validate_new_order(db, body, today)
     with transaction(db):
-        order_no = next_order_no(db, today)
-        cur = db.execute(
-            """INSERT INTO orders (order_no, po_no, buyer_id, style, colour, colour_hex, colour_pantone, qty_total, ex_factory, unit_id, template_key, merchandiser_id)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (order_no, po, body.buyerId, body.style.strip(), body.colour.strip(), body.colourHex.upper() if body.colourHex else None,
-             (body.colourPantone or "").strip() or None, qty, body.exFactory, body.unitId, t.key, user.id),
-        )
-        order_id = cur.lastrowid
-        for n, s in enumerate(body.sizes, start=1):
-            db.execute("INSERT INTO order_sizes (order_id, seq, size, qty) VALUES (?,?,?,?)", (order_id, n, s.size.strip().upper(), s.qty))
-        for p in plan_from_template(CALENDAR, t, body.exFactory):
-            it, o = p.item, overrides.get(p.item.code)
-            unit_id = None
-            if it.kind == "stage":
-                # A step goes to the subcontractor for its process if there is one, else to the order's own unit.
-                unit_id = (o.unitId if o and o.unitId else None) or subcontractor.get(it.process, body.unitId)
-            db.execute(
-                "INSERT INTO milestones (order_id, seq, code, planned_start, planned_date, unit_id) VALUES (?,?,?,?,?,?)",
-                (order_id, p.seq, it.code, (o.plannedStart if o else None) or p.planned_start,
-                 o.plannedDate if o else p.planned_date, unit_id),
-            )
+        order_id, order_no = insert_order(db, body, t, user.id, today)
     refresh_order(db, order_id, today)
     return {"id": order_id, "orderNo": order_no}
 

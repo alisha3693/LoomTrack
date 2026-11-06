@@ -9,6 +9,7 @@ export interface Meta {
   templates: { key: string; name: string }[];
   reasons: { code: string; en: string; ta: string }[];
   today: string;
+  openRequests: number;
   ai: { mode: "ollama" | "keywords"; model?: string; reason?: string };
 }
 

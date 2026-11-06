@@ -41,6 +41,16 @@ Three kinds of user hit three separate sets of endpoints, and each set is guarde
 7. **The order is re-projected right away** (next section), so the board is current.
 8. **If there's a note, the phone doesn't wait for the AI.** The server answers "sent" and classifies the note in the background (a few seconds on the local model). When it finishes, it saves the translation and category and re-projects the order once more, because the reason feeds the suggested buyer message.
 
+## Order requests: from a buyer's ask to an order (`services/requests.py`)
+
+1. **The buyer** opens their private link (or pastes it on the landing page) and sends an **order request**: their PO number, style, colour (name, optional Pantone and hex swatch), quantities by size and the ex-factory date they need.
+2. **The merchandiser** sees it under **Requests** (a count shows in the top bar). They can **ask a question**, **propose another date**, **accept** it into an order, or **decline** it (with a reason).
+3. The **status says whose turn it is**: `submitted` is the merchandiser's; `query` and `countered` are the buyer's. When the buyer answers or agrees, it returns to `submitted`.
+4. **Agreeing** to a proposed date updates the request's date. **Accepting** creates the order, with exactly the quantities, colour and date the buyer asked for or agreed to. The merchandiser picks the production unit and the plan template.
+5. Everything said or decided is a row in `request_messages`, which the buyer sees too. A copy of each merchandiser message goes to the (mock) sent-messages list.
+
+A buyer reaches only their own requests: another buyer's request is "not found". The buyer link can now *submit and answer* requests, but it still cannot read anything belonging to another buyer. Open requests per buyer are capped at 25.
+
 ## Re-projecting an order (`services/orders.py`)
 
 Every time numbers change, and every time the board loads, the server recomputes each active order:
@@ -97,6 +107,10 @@ Changing ex-factory, or any planned date, requires a reason and writes a row to 
 | New order | `/m/orders/new` | `POST /api/m/plan-preview`, `POST /api/m/orders` |
 | Order detail | `/m/orders/:id` | `GET /api/m/orders/:id`, warning confirm/dismiss, date changes, reason override |
 | Buyers & exports | `/m/buyers` | `GET /api/m/buyers`, `/exports/weekly`, `/outbox` |
+| Requests | `/m/requests`, `/m/requests/:id` | `GET /api/m/requests?filter=`, `POST /api/m/requests/:id/query`, `/counter`, `/accept`, `/decline` |
+| Buyer: new request | `/b/:token/requests/new` | `POST /api/b/:token/requests` |
+| Buyer: one request | `/b/:token/requests/:id` | `GET /api/b/:token/requests/:id`, `POST .../reply`, `.../agree`, `.../withdraw` |
+| Landing | `/` (signed out) | none: staff sign in, buyers paste their link |
 | Templates | `/m/templates`, `/m/templates/new`, `/m/templates/:id` | `GET/POST /api/m/templates`, `PUT /api/m/templates/:id`, retire/restore, `POST /api/m/templates/preview`, `PATCH /api/m/steps/:code` |
 | Supervisor home | `/s` | `GET /api/s/orders` (cached on the phone) |
 | Supervisor update | `/s/update/:id` | `POST /api/s/updates` (through the offline queue) |
@@ -108,6 +122,8 @@ Live API docs with every endpoint: http://localhost:4000/api/docs
 
 ```
 buyers ──< orders >── units
+   │
+   └──< order_requests ──< request_sizes, request_messages   (a buyer's asks; accepted ones point at an order)
              │ ├──< order_sizes
              │ └──< milestones >── plan_steps    one order's plan; each row points at a step
              │        └──< daily_updates ──< photos
@@ -129,11 +145,11 @@ backend/loomtrack/
   security.py          password hashing, session tokens, signed media URLs
   deps.py              "who is signed in", role guards
   domain/              no database, no web: calendar, runrate, tna templates, reason list
-  services/            orders (projection + warnings), templates (load/validate/save), buyer_view, export (Excel)
-  routes/              auth, merchandiser, templates, supervisor, buyer
+  services/            orders (projection + warnings), templates (load/validate/save), requests (order requests), buyer_view, export (Excel)
+  routes/              auth, merchandiser, templates, requests (both sides), supervisor, buyer
   ai/classifier.py     Ollama call + keyword fallback
   seed.py / explain.py demo data / prints the run-rate maths for every order
-backend/tests/         55 tests
+backend/tests/         60 tests
 web/src/
   App.tsx              routes + role guards
   lib/                 api client, auth, Tamil strings, offline outbox, photo/voice helpers, theme
