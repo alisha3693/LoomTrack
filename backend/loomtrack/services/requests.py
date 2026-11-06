@@ -13,7 +13,8 @@ from types import SimpleNamespace
 
 from ..db import transaction
 from ..util import HttpError
-from .orders import insert_order, set_ex_factory, validate_new_order
+from . import capacity
+from .orders import fabric_fields, insert_order, set_ex_factory, validate_new_order
 
 OPEN = ("submitted", "query", "countered")
 MAX_OPEN_PER_BUYER = 25
@@ -134,6 +135,7 @@ def request_detail(db: sqlite3.Connection, rid: int, buyer_id: int | None = None
         "id": r["id"], "requestNo": r["request_no"], "kind": r["kind"], "poNo": r["po_no"], "style": r["style"],
         "description": r["description"], "colour": r["colour"], "colourHex": r["colour_hex"], "colourPantone": r["colour_pantone"],
         "exFactory": r["ex_factory"], "status": r["status"], "sizes": sizes, "totalQty": sum(s["qty"] for s in sizes),
+        "fabric": {"type": r["fabric_type"], "composition": r["fabric_composition"], "gsm": r["fabric_gsm"], "note": r["fabric_note"]},
         "createdAt": r["created_at"], "updatedAt": r["updated_at"], "messages": messages,
         "orderNo": order["order_no"] if order else None,
     }
@@ -174,13 +176,16 @@ def submit_request(db: sqlite3.Connection, buyer_id: int, body, today: str) -> i
     if db.execute("SELECT COUNT(*) FROM order_requests WHERE buyer_id = ? AND status IN ('submitted','query','countered')", (buyer_id,)).fetchone()[0] >= MAX_OPEN_PER_BUYER:
         raise HttpError(429, "You have too many open requests. Wait for some to be answered.")
     description = _text(body.description, required=False, what="the description", limit=1000)
+    fabric = fabric_fields(body)
 
     with transaction(db):
         rid = db.execute(
-            """INSERT INTO order_requests (request_no, buyer_id, po_no, style, description, colour, colour_pantone, colour_hex, ex_factory)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
+            """INSERT INTO order_requests (request_no, buyer_id, po_no, style, description, colour, colour_pantone, colour_hex, ex_factory,
+                                           fabric_type, fabric_composition, fabric_gsm, fabric_note)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (next_request_no(db, today), buyer_id, po, body.style.strip(), description, body.colour.strip(),
-             (body.colourPantone or "").strip() or None, body.colourHex.upper() if body.colourHex else None, body.exFactory),
+             (body.colourPantone or "").strip() or None, body.colourHex.upper() if body.colourHex else None, body.exFactory,
+             fabric["type"], fabric["composition"], fabric["gsm"], fabric["note"]),
         ).lastrowid
         for n, (size, qty) in enumerate(sizes, start=1):
             db.execute("INSERT INTO request_sizes (request_id, seq, size, qty) VALUES (?,?,?,?)", (rid, n, size, qty))
@@ -258,7 +263,8 @@ def office_decline(db: sqlite3.Connection, user_id: int, rid: int, message: str)
         _email(db, r, "Your order request was declined", text)
 
 
-def office_accept(db: sqlite3.Connection, user_id: int, rid: int, unit_id: int | None, template_key: str | None, message: str | None, today: str) -> tuple[int, str]:
+def office_accept(db: sqlite3.Connection, user_id: int, rid: int, unit_id: int | None, template_key: str | None, message: str | None, today: str,
+                  over_capacity_ok: bool = False) -> tuple[int, str]:
     """Turn a new-order request into an order, planned from the chosen template and unit."""
     r = _row(db, rid)
     _require_open(r)
@@ -276,9 +282,11 @@ def office_accept(db: sqlite3.Connection, user_id: int, rid: int, unit_id: int |
     body = SimpleNamespace(
         poNo=r["po_no"], buyerId=r["buyer_id"], style=r["style"], colour=r["colour"], colourHex=r["colour_hex"],
         colourPantone=r["colour_pantone"], exFactory=r["ex_factory"], unitId=unit_id, templateKey=template_key, milestones=None,
+        fabricType=r["fabric_type"], fabricComposition=r["fabric_composition"], fabricGsm=r["fabric_gsm"], fabricNote=r["fabric_note"],
         sizes=[SimpleNamespace(size=s["size"], qty=s["qty"]) for s in db.execute("SELECT size, qty FROM request_sizes WHERE request_id = ? ORDER BY seq", (rid,))],
     )
     t = validate_new_order(db, body, today)
+    capacity.guard(db, unit_id, sum(s.qty for s in body.sizes), r["ex_factory"], t, today, over_capacity_ok)
     with transaction(db):
         order_id, order_no = insert_order(db, body, t, user_id, today)
         db.execute("UPDATE order_requests SET order_id = ? WHERE id = ?", (order_id, rid))

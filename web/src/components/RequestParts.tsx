@@ -1,3 +1,4 @@
+import { fabricLine } from "../lib/fabric";
 import { fmtDate, fmtDateTime, num } from "../lib/format";
 import { EVENT_TEXT, RequestDetailData, RequestStatus, statusLabel } from "../lib/requests";
 import { Swatch } from "./ui";
@@ -18,6 +19,7 @@ export function RequestSummary({ r }: { r: RequestDetailData }) {
         {r.colourPantone ? ` (Pantone ${r.colourPantone})` : ""} · {num(r.totalQty)} pcs
       </div>
       <div className="faint small">{r.sizes.map((s) => `${s.size} ${num(s.qty)}`).join(" · ")}</div>
+      {fabricLine(r.fabric) && <div className="small">Fabric: {fabricLine(r.fabric)}{r.fabric.note ? ` · ${r.fabric.note}` : ""}</div>}
       <div className="small">
         Ex-factory asked for: <b>{fmtDate(r.exFactory, true)}</b> · PO {r.poNo}
       </div>

@@ -2,6 +2,7 @@
 // raw database rows (order detail) keep their snake_case column names.
 
 import type { Status } from "./format";
+import type { Material, MaterialSummary } from "./fabric";
 import type { RequestStatus } from "./requests";
 
 export interface Meta {
@@ -42,6 +43,7 @@ export interface BoardOrder {
   headline: string | null;
   pendingWarnings: number;
   lastUpdate: string | null;
+  materials: MaterialSummary | null;
 }
 
 export interface StageProjection {
@@ -143,6 +145,10 @@ export interface OrderDetail {
     colour: string;
     colour_hex: string | null;
     colour_pantone: string | null;
+    fabric_type: string | null;
+    fabric_composition: string | null;
+    fabric_gsm: number | null;
+    fabric_note: string | null;
     qty_total: number;
     ex_factory: string;
     buyer_name: string;
@@ -157,6 +163,7 @@ export interface OrderDetail {
   warnings: WarningRow[];
   dateChanges: DateChangeRow[];
   attachments: FileItem[];
+  materials: Material[];
   changeRequests: { id: number; requestNo: string; kind: "new_order" | "amendment"; status: RequestStatus; exFactory: string; updatedAt: string }[];
 }
 

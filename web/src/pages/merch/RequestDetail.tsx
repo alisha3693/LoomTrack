@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import { addDaysIso } from "../../lib/format";
 import { OfficeFiles } from "../../components/Attachments";
+import CapacityCheck, { blocks } from "../../components/CapacityCheck";
+import type { UnitFit } from "../../lib/fabric";
 import { Modal, Toast, useApi } from "../../components/ui";
 import { RequestPill, RequestSummary, RequestThread } from "../../components/RequestParts";
 import type { RequestDetailData } from "../../lib/requests";
@@ -25,6 +27,8 @@ export default function RequestDetail() {
   const [templateKey, setTemplateKey] = useState("basic");
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [fit, setFit] = useState<UnitFit | null>(null);
+  const [overOk, setOverOk] = useState(false);
 
   if (error) return <main className="page"><div className="banner banner-error">{error}</div></main>;
   if (!r) return <main className="page faint">Loading…</main>;
@@ -108,7 +112,7 @@ export default function RequestDetail() {
       )}
 
       {dialog === "accept" && r.kind !== "amendment" && (
-        <Modal title="Accept into an order" onClose={() => setDialog(null)}>
+        <Modal title="Accept into an order" onClose={() => setDialog(null)} wide>
           <div className="stack">
             <p className="muted" style={{ margin: 0 }}>
               The order gets exactly what the buyer asked for: {r.totalQty.toLocaleString()} pcs, ex-factory {r.exFactory}. Pick where it is made and which plan to start from.
@@ -125,13 +129,23 @@ export default function RequestDetail() {
                 {meta?.templates.map((t) => <option key={t.key} value={t.key}>{t.name}</option>)}
               </select>
             </label>
+            <CapacityCheck qty={r.totalQty} exFactory={r.exFactory} templateKey={templateKey} unitId={unitId}
+              onPickUnit={setUnitId} onSelected={(u) => { setFit(u); setOverOk(false); }}
+              onUseDate={(d) => { openDialog("counter"); setDate(d); }} />
+            {blocks(fit?.verdict) && (
+              <label className="row small" style={{ gap: 8, flexWrap: "nowrap", alignItems: "flex-start" }}>
+                <input type="checkbox" checked={overOk} onChange={(e) => setOverOk(e.target.checked)} style={{ marginTop: 3 }} />
+                <span>I have seen that {fit?.name} would be over capacity for this order, and I want to accept it anyway.</span>
+              </label>
+            )}
             <label className="field"><span>Note to the buyer (optional)</span>
               <textarea className="textarea" rows={3} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Leave empty to send the standard confirmation" />
             </label>
             {formError && <div className="banner banner-error">{formError}</div>}
             <div className="row" style={{ justifyContent: "flex-end" }}>
               <button className="btn btn-ghost" onClick={() => setDialog(null)}>Cancel</button>
-              <button className="btn btn-primary" disabled={busy || !unitId} onClick={() => send("accept", { unitId: Number(unitId), templateKey, message: message.trim() || null }, "")}>Create order</button>
+              <button className="btn btn-primary" disabled={busy || !unitId || (blocks(fit?.verdict) && !overOk)}
+                onClick={() => send("accept", { unitId: Number(unitId), templateKey, message: message.trim() || null, overCapacityOk: blocks(fit?.verdict) && overOk }, "")}>Create order</button>
             </div>
           </div>
         </Modal>

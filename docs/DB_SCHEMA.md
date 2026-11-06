@@ -1,6 +1,6 @@
 # LoomTrack database schema
 
-SQLite, 19 tables, defined in [backend/loomtrack/db.py](../backend/loomtrack/db.py). The schema is normalised (third normal form) apart from two deliberate caches. The diagram below is a Mermaid ER diagram: it renders on GitHub, and in VS Code with the "Markdown Preview Mermaid Support" extension.
+SQLite, 20 tables, defined in [backend/loomtrack/db.py](../backend/loomtrack/db.py). The schema is normalised (third normal form) apart from two deliberate caches. The diagram below is a Mermaid ER diagram: it renders on GitHub, and in VS Code with the "Markdown Preview Mermaid Support" extension.
 
 `PK` primary key, `FK` foreign key, `UK` unique. `||--o{` means one-to-many.
 
@@ -27,6 +27,8 @@ erDiagram
     users ||--o{ request_messages : "wrote"
     order_requests ||--o{ attachments : "has files"
     orders ||--o{ attachments : "has files"
+    orders ||--o{ order_materials : "needs"
+    plan_steps ||--o{ order_materials : "needed for"
     orders ||--o{ daily_updates : "receives"
     milestones ||--o{ daily_updates : "progress on"
     daily_updates ||--o{ photos : "has"
@@ -49,6 +51,7 @@ erDiagram
         TEXT name
         TEXT kind "own or subcontract"
         TEXT process "printing or washing"
+        INTEGER daily_capacity "pieces a day it can stitch; own units"
     }
     users {
         INTEGER id PK
@@ -75,6 +78,10 @@ erDiagram
         TEXT colour "name"
         TEXT colour_pantone "optional reference"
         TEXT colour_hex "optional swatch, #RRGGBB"
+        TEXT fabric_type "optional"
+        TEXT fabric_composition "optional"
+        INTEGER fabric_gsm "50 to 800, optional"
+        TEXT fabric_note "optional"
         INTEGER qty_total "greater than 0"
         TEXT ex_factory
         INTEGER unit_id FK
@@ -122,6 +129,10 @@ erDiagram
         TEXT colour
         TEXT colour_pantone
         TEXT colour_hex
+        TEXT fabric_type "same four fields as orders"
+        TEXT fabric_composition
+        INTEGER fabric_gsm
+        TEXT fabric_note
         TEXT ex_factory "asked for or agreed"
         TEXT status "submitted, query, countered, accepted, declined, withdrawn"
         INTEGER decided_by FK
@@ -144,6 +155,25 @@ erDiagram
         TEXT body
         TEXT proposed_ex_factory
         TEXT created_at
+    }
+    order_materials {
+        INTEGER id PK
+        INTEGER order_id FK
+        TEXT kind "fabric, trim, packing"
+        TEXT name
+        TEXT supplier "optional"
+        TEXT supplied_by "us or buyer"
+        REAL qty "optional"
+        TEXT unit "kg, pcs ..."
+        TEXT status "not_ordered, ordered, received"
+        TEXT ordered_date
+        TEXT expected_date
+        TEXT received_date "required once received"
+        TEXT needed_for FK "plan step that needs it"
+        TEXT needed_by "only when there is no step"
+        TEXT note
+        TEXT updated_at
+        INTEGER updated_by FK
     }
     attachments {
         INTEGER id PK
@@ -252,6 +282,7 @@ erDiagram
 | People and access | `buyers`, `users`, `sessions`, `units` | A buyer's `link_token` is a credential, and so is a buyer account (`users.role = 'buyer'`, tied to one buyer by `buyer_id`; a CHECK keeps the two in step). A supervisor's `unit_id` limits which stages they see. |
 | The plan | `orders`, `order_sizes`, `plan_steps`, `milestones` | `plan_steps` holds each kind of step once (names, stage or milestone). `milestones` is one order's plan: a row per step with that order's dates. |
 | Requests | `order_requests`, `request_sizes`, `request_messages` | A buyer's request is a conversation, either a new order or a change to an existing one (`kind = 'amendment'`, with `order_id` set and `request_sizes` holding the full new quantities). `status` says whose turn it is: `submitted` is the merchandiser's, `query` and `countered` are the buyer's. `request_messages` is the history and is append-only (triggers). Accepting creates an `orders` row and sets `order_requests.order_id`. |
+| Materials | `order_materials` | What an order needs before it can be made: fabric, trims, packing. Each line says where it stands and which plan step needs it (`needed_for`). The date it is needed by is read from that step's `milestones` row each time, so it follows the plan when a date moves; `needed_by` is only for something that belongs to no step. Whether a line is late is worked out, not stored (`domain/materials.py`), and it does not feed the delay projection. |
 | Files | `attachments` | Designs, patterns, print artwork, fabric references. A file belongs to a request, an order, or both: a request's files follow it onto the order it becomes. The buyer's own uploads are always visible to that buyer; ours are private unless `buyer_visible` is set; `supervisor_visible` decides what the floor can open. |
 | Templates | `templates`, `template_steps` | A saved layout of steps with timings (days before ex-factory). Orders copy the dates when created, so editing or retiring a template never changes an existing order. The built-in three are read-only. |
 | Floor data | `daily_updates`, `photos`, `issue_reasons` | `daily_updates.id` is created on the phone, so a retried offline upload hits the same key and is ignored. |
@@ -284,7 +315,7 @@ erDiagram
 
 ## Versions and migration
 
-`PRAGMA user_version` holds the schema version (now 6). Older databases are migrated in place when the app opens them, one version at a time: one transaction, a copy saved as `<db>.v0.bak`, `.v1.bak` or `.v5.bak`, and a foreign-key check afterwards.
+`PRAGMA user_version` holds the schema version (now 7). Older databases are migrated in place when the app opens them, one version at a time: one transaction, a copy saved as `<db>.v0.bak`, `.v1.bak` or `.v5.bak`, and a foreign-key check afterwards.
 
 | Version | Change |
 |---|---|
@@ -293,6 +324,7 @@ erDiagram
 | 2 to 3 | `templates` and `template_steps` tables; `plan_steps.builtin`. The three built-in templates are copied in from code at startup. |
 | 3 to 4 | `order_requests`, `request_sizes`, `request_messages` (new tables only, nothing rebuilt). |
 | 4 to 5 | `attachments` (new table only). |
+| 6 to 7 | Fabric on orders and requests (`fabric_type`, `fabric_composition`, `fabric_gsm`, `fabric_note`), `units.daily_capacity`, and the `order_materials` table. Columns and a table are added; nothing is rebuilt. |
 | 5 to 6 | Buyer accounts: `users` gains the `buyer` role, `buyer_id` and `must_change_secret`. SQLite cannot change a CHECK in place, so the table is rebuilt and refilled; sessions and every user keep their ids. |
 
 Code: `_migrate_v0`, `_migrate_v1` and `_migrate_v5` in [db.py](../backend/loomtrack/db.py). Tests: [test_migration.py](../backend/tests/test_migration.py).

@@ -19,7 +19,11 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` not started. Updated as wor
 - [x] Buyer accounts: the office creates a sign-in for each person at the buyer, with a one-time temporary password and a forced first change; reset and remove; the private link still works
 - [ ] Buyer accounts: email the invitation and a self-service "forgot password" (today the office passes the temporary password on and resets by hand; outbound email is still mocked)
 - [ ] Buyer accounts: retire the private link once everyone has an account, and give each account its own view of who may send and who may only read (today every account for a buyer can do everything the link can)
-- [ ] Unit management screen (subcontractors for new processes such as embroidery; today they come from the seed)
+- [x] Fabric (type, composition, GSM, note) on requests and orders; materials tracking with late and at-risk flags, buyer-supplied items, fabric in-house milestone kept in step
+- [x] Capacity check before accepting a request or creating an order: per-unit stitching capacity, what is booked, the first workable ship date, confirmation required to go over; Units page
+- [ ] Unit management screen: add units and job-work units (subcontractors for new processes such as embroidery); today units come from the seed and only their capacity can be edited
+- [ ] Capacity: other stages (cutting, finishing), a quantity increase on an existing order, uneven spreading (front-loaded stitching), and feeding crowded units into the run-rate projection
+- [ ] Materials: purchase quantities from a bill of materials per style, supplier lead times that suggest when to order, and an email reminder when something is late
 - [ ] Next schema change: add a migration step per version (v0 to v1, v1 to v2 and v2 to v3 exist)
 - [x] Seed from sample data (3 POs from brief) + synthetic history so run-rates exist
 - [x] Design tokens + base layout (desktop office, phone supervisor)

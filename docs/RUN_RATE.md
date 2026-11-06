@@ -51,4 +51,4 @@ Printing (job work) is at 3,100 / 10,000. It needs 767 pcs/day and is making 443
 ## Known limits
 - A 7-day average reacts to a bad week in about a week. A weighted average is an easy change if the client wants faster reaction.
 - Assumes stages can overlap (pipelined production), with 1 working day of lag after the upstream stage finishes.
-- Does not model capacity shared between orders on the same line. That's phase 2 (line loading).
+- Does not model capacity shared between orders on the same line. The capacity check at acceptance (services/capacity.py) does look at what is booked on a unit, but it is a separate calculation and does not change this projection.

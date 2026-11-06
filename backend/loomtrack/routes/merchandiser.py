@@ -14,7 +14,7 @@ from ..deps import AppContext, User, ctx, merchandiser
 from ..domain.reasons import REASON_CATEGORIES, REASON_CODES
 from ..domain.tna import plan_from_template
 from ..security import new_token, sign_path
-from ..services import accounts
+from ..services import accounts, capacity, materials
 from ..services.export import weekly_workbook
 from ..services.attachments import for_office
 from ..services.requests import open_count
@@ -72,6 +72,7 @@ async def board(buyer: int | None = None, unit: int | None = None, week: str | N
         args,
     ).fetchall()
 
+    stock = materials.summaries_for_active_orders(db, today)
     orders = []
     for o in found:
         if week and iso_week(o["ex_factory"]) != week:
@@ -92,6 +93,7 @@ async def board(buyer: int | None = None, unit: int | None = None, week: str | N
                 "headline": p.reasons[0] if p.reasons else None,
                 "pendingWarnings": o["pending_warnings"],
                 "lastUpdate": o["last_update"],
+                "materials": stock.get(o["id"]),
             }
         )
     orders.sort(key=lambda o: (_RANK[o["status"]], o["slackDays"], o["exFactory"]))
@@ -137,14 +139,20 @@ class OrderIn(BaseModel):
     exFactory: IsoDate
     unitId: int
     templateKey: str
+    fabricType: str | None = Field(default=None, max_length=60)
+    fabricComposition: str | None = Field(default=None, max_length=120)
+    fabricGsm: int | None = Field(default=None, ge=50, le=800)
+    fabricNote: str | None = Field(default=None, max_length=200)
     sizes: list[SizeIn] = Field(min_length=1)
     milestones: list[MilestoneOverride] | None = None
+    overCapacityOk: bool = False  # see AcceptIn in routes/requests.py
 
 
 @router.post("/orders", status_code=201)
 async def create_order(body: OrderIn, user: User = Depends(merchandiser), c: AppContext = Depends(ctx)):
     db, today = c.db, c.today()
     t = validate_new_order(db, body, today)
+    capacity.guard(db, body.unitId, sum(s.qty for s in body.sizes), body.exFactory, t, today, body.overCapacityOk)
     with transaction(db):
         order_id, order_no = insert_order(db, body, t, user.id, today)
     refresh_order(db, order_id, today)
@@ -201,6 +209,7 @@ async def order_detail(order_id: int, c: AppContext = Depends(ctx)):
             (order_id,),
         )),
         "attachments": [{**a, "url": sign_path(f"/api/media/attachments/{a['id']}")} for a in for_office(db, order_id=order_id)],
+        "materials": materials.list_for_order(db, order_id, today),
         "dateChanges": rows(
             db.execute(
                 """SELECT d.*, s.name_en AS milestone, u.name AS changed_by_name FROM date_changes d

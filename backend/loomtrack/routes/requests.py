@@ -29,6 +29,10 @@ class RequestIn(BaseModel):
     colourHex: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
     colourPantone: str | None = Field(default=None, max_length=30)
     exFactory: IsoDate
+    fabricType: str | None = Field(default=None, max_length=60)
+    fabricComposition: str | None = Field(default=None, max_length=120)
+    fabricGsm: int | None = Field(default=None, ge=50, le=800)
+    fabricNote: str | None = Field(default=None, max_length=200)
     sizes: list[SizeIn] = Field(min_length=1, max_length=30)
 
 
@@ -99,6 +103,7 @@ class AcceptIn(BaseModel):
     unitId: int | None = None  # needed for a new order, not for a change to an existing one
     templateKey: str | None = None
     message: str | None = Field(default=None, max_length=2000)
+    overCapacityOk: bool = False  # the merchandiser has seen the unit would be over capacity and wants the order anyway
 
 
 @office_router.get("")
@@ -133,7 +138,7 @@ async def office_decline(request_id: int, body: MessageIn, user: User = Depends(
 @office_router.post("/{request_id}/accept")
 async def office_accept(request_id: int, body: AcceptIn | None = None, user: User = Depends(merchandiser), c: AppContext = Depends(ctx)):
     body = body or AcceptIn()  # a change to an existing order needs nothing more than "accept"
-    order_id, order_no = svc.office_accept(c.db, user.id, request_id, body.unitId, body.templateKey, body.message, c.today())
+    order_id, order_no = svc.office_accept(c.db, user.id, request_id, body.unitId, body.templateKey, body.message, c.today(), body.overCapacityOk)
     refresh_order(c.db, order_id, c.today())
     return {"orderId": order_id, "orderNo": order_no}
 

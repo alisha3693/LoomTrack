@@ -40,6 +40,15 @@ function Maths({ o }: { o: BoardOrder }) {
   );
 }
 
+/** A late or at-risk material, beside the delay status (it does not change it). */
+function MaterialsNote({ o }: { o: BoardOrder }) {
+  const m = o.materials;
+  if (!m || (m.late === 0 && m.atRisk === 0)) return null;
+  return m.late > 0
+    ? <div className="small t-red" style={{ marginTop: 6 }}>{plural(m.late, "material")} late</div>
+    : <div className="small t-amber" style={{ marginTop: 6 }}>{plural(m.atRisk, "material")} at risk</div>;
+}
+
 export default function Board() {
   const meta = useMeta();
   const nav = useNavigate();
@@ -139,6 +148,7 @@ export default function Board() {
                       <td>
                         <StatusPill status={o.status} />
                         {o.pendingWarnings > 0 && <div className="small t-amber" style={{ marginTop: 6 }}>Warning to review</div>}
+                        <MaterialsNote o={o} />
                       </td>
                       <td className="nowrap">
                         <div className="num">{fmtDate(o.exFactory, true)}</div>
@@ -176,6 +186,7 @@ export default function Board() {
                     </div>
                     <div className="muted">{o.style} · {o.buyer}</div>
                     <Maths o={o} />
+                    <MaterialsNote o={o} />
                     <div className="small faint">Ex-factory {fmtDate(o.exFactory, true)}{o.projectedExFactory !== o.exFactory ? ` → ${fmtDate(o.projectedExFactory)}` : ""}</div>
                   </div>
                 </Link>

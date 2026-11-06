@@ -348,7 +348,7 @@ The brief's success criteria, and honest status of how LoomTrack would measure e
 | Voice quality | faster-whisper (MIT) for server-side Tamil transcription; keep original audio |
 | Real buyer emails / WhatsApp | Replace the outbox write with an SMTP sender (free) behind the same confirm step |
 | Multiple factories or tenants | Add a company ID to every table; today it is single-tenant by design |
-| Line capacity shared between orders | Line-loading module (the engine currently treats each order independently) |
+| Line capacity shared between orders in the delay engine | The acceptance-time capacity check already spreads booked stitching across a unit's days; feeding that into the run-rate projection (so a crowded unit lowers each order's expected rate) is still to do |
 
 ---
 
@@ -375,5 +375,5 @@ The brief's success criteria, and honest status of how LoomTrack would measure e
 | 1. Core build | Setup + TNA, supervisor update (offline), board, projection, AI reason, buyer link | **Done** |
 | 2. Depth | Weekly export, mock outbox, milestone marking, dark mode, PWA shell | **Done** |
 | 3. Pilot-ready | Mark shipped + actual ship date, health endpoint, session-token hashing, upload checks, CSP, backups, HTTPS, real accounts, adoption and warning-lead-time reports, real-phone test | To do |
-| 4. Improve | AI eval and model choice, local Whisper, weighted run rate, per-unit capacity view | To do |
+| 4. Improve | AI eval and model choice, local Whisper, weighted run rate, per-unit capacity view (done: Units page and the acceptance check) | To do |
 | 5. Grow | Real email/WhatsApp, Postgres if needed, multi-factory, line loading | Later |

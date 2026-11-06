@@ -2,7 +2,9 @@ import { FormEvent, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { OfficeFiles } from "../../components/Attachments";
 import ChangeForm from "../../components/ChangeForm";
+import Materials from "../../components/Materials";
 import { RequestPill } from "../../components/RequestParts";
+import { fabricLine } from "../../lib/fabric";
 import { Modal, Progress, StatusPill, Swatch, Toast, useApi } from "../../components/ui";
 import { api } from "../../lib/api";
 import { fmtDate, fmtDateTime, num, plural, Status } from "../../lib/format";
@@ -59,6 +61,11 @@ export default function OrderDetail() {
             <div><span>Quantity</span><b className="num">{num(order.qty_total)} pcs</b></div>
           </div>
           <div className="faint small" style={{ marginTop: 12 }}>{data.sizes.map((s) => `${s.size} ${num(s.qty)}`).join(" · ")}</div>
+          {fabricLine({ type: order.fabric_type, composition: order.fabric_composition, gsm: order.fabric_gsm }) && (
+            <div className="small muted" style={{ marginTop: 6 }}>
+              Fabric: {fabricLine({ type: order.fabric_type, composition: order.fabric_composition, gsm: order.fabric_gsm })}{order.fabric_note ? ` · ${order.fabric_note}` : ""}
+            </div>
+          )}
         </section>
 
         {pending && <PendingWarning w={pending} onDone={(msg) => { setToast(msg); void reload(); }} />}
@@ -69,6 +76,8 @@ export default function OrderDetail() {
         )}
 
         <Projection stages={p.stages} reasons={p.reasons} keyStage={p.keyStage} status={p.status} />
+
+        <Materials orderId={order.id} items={data.materials} steps={data.milestones} today={data.today} active={order.state === "active"} onChanged={reload} notify={setToast} />
 
         <div className="grid-2" style={{ alignItems: "start" }}>
           <Milestones data={data} onEdit={setEdit} onMarkDone={(m, date) =>

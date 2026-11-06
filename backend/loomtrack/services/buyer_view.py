@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import sqlite3
 
+from . import materials
 from .attachments import for_buyer
 from .orders import compute_projection, get_milestones
 
@@ -75,6 +76,8 @@ def buyer_orders(db: sqlite3.Connection, buyer_id: int, today: str) -> list[dict
                 "colour": o["colour"],
                 "colourHex": o["colour_hex"],
                 "colourPantone": o["colour_pantone"],
+                "fabric": {"type": o["fabric_type"], "composition": o["fabric_composition"], "gsm": o["fabric_gsm"]},
+                "materials": materials.for_buyer(db, o["id"]),
                 "qty": o["qty_total"],
                 "sizes": [dict(s) for s in sizes],
                 "exFactory": o["ex_factory"],

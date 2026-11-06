@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import { fmtSize, KIND_LABEL, Kind } from "../../components/Attachments";
+import { FABRIC_TYPES } from "../../lib/fabric";
 import { addDaysIso, num } from "../../lib/format";
 import BuyerFrame from "./BuyerFrame";
 
@@ -14,7 +15,7 @@ export default function RequestNew() {
 
 function Form({ token, today }: { token: string; today: string }) {
   const nav = useNavigate();
-  const [f, setF] = useState({ poNo: "", style: "", description: "", colour: "", pantone: "", hex: "", exFactory: "" });
+  const [f, setF] = useState({ poNo: "", style: "", description: "", colour: "", pantone: "", hex: "", exFactory: "", fabricType: "", fabricComposition: "", fabricGsm: "", fabricNote: "" });
   const [sizes, setSizes] = useState(DEFAULT_SIZES);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -30,12 +31,15 @@ function Form({ token, today }: { token: string; today: string }) {
     const rows = sizes.filter((s) => s.size.trim() && Number(s.qty) > 0).map((s) => ({ size: s.size.trim(), qty: Number(s.qty) }));
     if (!rows.length) return setError("Enter at least one size quantity.");
     if (f.hex && !hexOk) return setError("The colour hex must look like #1F2A44.");
+    if (f.fabricGsm && (Number(f.fabricGsm) < 50 || Number(f.fabricGsm) > 800)) return setError("Fabric weight (GSM) is usually between 50 and 800.");
     setBusy(true);
     try {
       const r = await api<{ id: number }>(`/api/b/${token}/requests`, {
         body: {
           poNo: f.poNo.trim(), style: f.style.trim(), description: f.description.trim() || null, colour: f.colour.trim(),
           colourPantone: f.pantone.trim() || null, colourHex: f.hex || null, exFactory: f.exFactory, sizes: rows,
+          fabricType: f.fabricType.trim() || null, fabricComposition: f.fabricComposition.trim() || null,
+          fabricGsm: f.fabricGsm ? Number(f.fabricGsm) : null, fabricNote: f.fabricNote.trim() || null,
         },
       });
       // The request exists now; add the files one by one so a bad file does not lose the request.
@@ -83,6 +87,26 @@ function Form({ token, today }: { token: string; today: string }) {
         <label className="field"><span>Notes (optional)</span>
           <textarea className="textarea" rows={3} maxLength={1000} value={f.description} onChange={set("description")} placeholder="Construction, trims, packing, anything we should know" />
         </label>
+      </section>
+
+      <section className="card card-pad stack">
+        <h2>Fabric (optional)</h2>
+        <p className="faint small" style={{ margin: 0 }}>If you know what you want it made from. We will confirm or suggest an alternative.</p>
+        <div className="grid-2">
+          <label className="field"><span>Fabric type</span>
+            <input className="input" list="fabric-types" value={f.fabricType} onChange={set("fabricType")} maxLength={60} placeholder="Single jersey" />
+            <datalist id="fabric-types">{FABRIC_TYPES.map((t) => <option key={t} value={t} />)}</datalist>
+          </label>
+          <label className="field"><span>Weight (GSM)</span>
+            <input className="input num" inputMode="numeric" value={f.fabricGsm} onChange={(e) => setF((x) => ({ ...x, fabricGsm: e.target.value.replace(/\D/g, "").slice(0, 3) }))} placeholder="180" />
+          </label>
+          <label className="field"><span>Composition</span>
+            <input className="input" value={f.fabricComposition} onChange={set("fabricComposition")} maxLength={120} placeholder="95% cotton, 5% elastane" />
+          </label>
+          <label className="field"><span>Note (fabric code, certification, finish)</span>
+            <input className="input" value={f.fabricNote} onChange={set("fabricNote")} maxLength={200} />
+          </label>
+        </div>
       </section>
 
       <section className="card card-pad stack">

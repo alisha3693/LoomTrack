@@ -2,7 +2,9 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
 import { addDaysIso, fmtDate, num } from "../../lib/format";
+import CapacityCheck, { blocks } from "../../components/CapacityCheck";
 import { Swatch } from "../../components/ui";
+import { FABRIC_TYPES, UnitFit } from "../../lib/fabric";
 import { useMeta } from "./OfficeShell";
 
 interface PlanItem {
@@ -25,6 +27,9 @@ export default function OrderNew() {
   const [sizes, setSizes] = useState<{ size: string; qty: string }[]>(DEFAULT_SIZES);
   const [hex, setHex] = useState("");
   const [pantone, setPantone] = useState("");
+  const [fabric, setFabric] = useState({ type: "", composition: "", gsm: "", note: "" });
+  const [fit, setFit] = useState<UnitFit | null>(null);
+  const [overOk, setOverOk] = useState(false);
   const [plan, setPlan] = useState<PlanItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -35,6 +40,7 @@ export default function OrderNew() {
   // Accept "1f2a44" as well as "#1F2A44".
   const tidyHex = () => setHex((h) => (/^[0-9A-Fa-f]{6}$/.test(h) ? `#${h.toUpperCase()}` : h.toUpperCase()));
   const minDate = meta ? addDaysIso(meta.today, 1) : undefined;
+  const needsAck = blocks(fit?.verdict);
 
   // Regenerate the TNA plan whenever template or ex-factory changes.
   useEffect(() => {
@@ -57,6 +63,8 @@ export default function OrderNew() {
     const sizeRows = sizes.filter((s) => s.size.trim() && Number(s.qty) > 0).map((s) => ({ size: s.size.trim(), qty: Number(s.qty) }));
     if (!sizeRows.length) return setError("Enter at least one size quantity.");
     if (hex && !hexOk) return setError("Colour hex must look like #1F2A44.");
+    if (fabric.gsm && (Number(fabric.gsm) < 50 || Number(fabric.gsm) > 800)) return setError("Fabric weight (GSM) is usually between 50 and 800.");
+    if (needsAck && !overOk) return setError("This unit would be over capacity. Tick the box under the capacity check to go ahead anyway, or pick another unit or date.");
     setBusy(true);
     try {
       const r = await api<{ id: number }>("/api/m/orders", {
@@ -66,6 +74,11 @@ export default function OrderNew() {
           buyerId: Number(form.buyerId),
           colourHex: hex || null,
           colourPantone: pantone.trim() || null,
+          fabricType: fabric.type.trim() || null,
+          fabricComposition: fabric.composition.trim() || null,
+          fabricGsm: fabric.gsm ? Number(fabric.gsm) : null,
+          fabricNote: fabric.note.trim() || null,
+          overCapacityOk: needsAck && overOk,
           unitId: Number(form.unitId),
           sizes: sizeRows,
           milestones: plan.filter((p) => p.code !== "EXF").map((p) => ({ code: p.code, plannedStart: p.plannedStart, plannedDate: p.plannedDate })),
@@ -122,6 +135,26 @@ export default function OrderNew() {
         </section>
 
         <section className="card card-pad stack">
+          <h2>Fabric (optional)</h2>
+          <p className="faint small" style={{ margin: 0 }}>Starts a "Main fabric" line under Materials, so you can track when it arrives.</p>
+          <div className="grid-2">
+            <label className="field"><span>Fabric type</span>
+              <input className="input" list="fabric-types" value={fabric.type} onChange={(e) => setFabric((f) => ({ ...f, type: e.target.value }))} maxLength={60} placeholder="Single jersey" />
+              <datalist id="fabric-types">{FABRIC_TYPES.map((t) => <option key={t} value={t} />)}</datalist>
+            </label>
+            <label className="field"><span>Weight (GSM)</span>
+              <input className="input num" inputMode="numeric" value={fabric.gsm} onChange={(e) => setFabric((f) => ({ ...f, gsm: e.target.value.replace(/\D/g, "").slice(0, 3) }))} placeholder="180" />
+            </label>
+            <label className="field"><span>Composition</span>
+              <input className="input" value={fabric.composition} onChange={(e) => setFabric((f) => ({ ...f, composition: e.target.value }))} maxLength={120} placeholder="95% cotton, 5% elastane" />
+            </label>
+            <label className="field"><span>Note (mill, fabric code, finish)</span>
+              <input className="input" value={fabric.note} onChange={(e) => setFabric((f) => ({ ...f, note: e.target.value }))} maxLength={200} />
+            </label>
+          </div>
+        </section>
+
+        <section className="card card-pad stack">
           <div className="row" style={{ justifyContent: "space-between" }}>
             <h2>Sizes</h2>
             <span className="muted">Total <b className="num">{num(total)}</b> pcs</span>
@@ -169,10 +202,23 @@ export default function OrderNew() {
           )}
         </section>
 
+        {total > 0 && form.exFactory && form.templateKey && (
+          <section className="card card-pad stack">
+            <CapacityCheck qty={total} exFactory={form.exFactory} templateKey={form.templateKey} unitId={form.unitId}
+              onPickUnit={(id) => setForm((f) => ({ ...f, unitId: id }))} onSelected={(u) => { setFit(u); setOverOk(false); }} />
+            {needsAck && (
+              <label className="row small" style={{ gap: 8, flexWrap: "nowrap", alignItems: "flex-start" }}>
+                <input type="checkbox" checked={overOk} onChange={(e) => setOverOk(e.target.checked)} style={{ marginTop: 3 }} />
+                <span>I have seen that {fit?.name} would be over capacity for this order, and I want to create it anyway.</span>
+              </label>
+            )}
+          </section>
+        )}
+
         {error && <div className="banner banner-error">{error}</div>}
         <div className="row" style={{ justifyContent: "flex-end" }}>
           <button type="button" className="btn btn-ghost" onClick={() => nav(-1)}>Cancel</button>
-          <button className="btn btn-primary" disabled={busy}>Create order</button>
+          <button className="btn btn-primary" disabled={busy || (needsAck && !overOk)}>Create order</button>
         </div>
       </form>
     </main>

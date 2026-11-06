@@ -25,6 +25,7 @@ from .db import open_db, transaction
 from .domain.tna import plan_from_template
 from .security import hash_secret, new_token
 from .services.orders import next_order_no, refresh_all_active
+from .services import materials
 from .services.templates import load_template
 
 BUYERS = [
@@ -43,6 +44,8 @@ UNIT1, UNIT2, UNIT3 = "Unit 1 · Avinashi Road", "Unit 2 · Tiruppur North", "Un
 PRINTER, WASHER = "Sri Murugan Prints (job work)", "Velan Garment Wash (job work)"
 UNITS = [(UNIT1, "own", None), (UNIT2, "own", None), (UNIT3, "own", None), (PRINTER, "subcontract", "printing"), (WASHER, "subcontract", "washing")]
 SUBCONTRACTOR = {"printing": PRINTER, "washing": WASHER}
+# Pieces a day each of our units can stitch (demo figures).
+CAPACITY = {UNIT1: 1400, UNIT2: 1300, UNIT3: 1200}
 
 USERS = [
     ("Priya S.", "merchandiser", "priya@companya.in", "loom1234", None, "en"),
@@ -119,6 +122,59 @@ ORDERS = [
 ]
 
 
+# Fabric on each demo order: type, composition, GSM, note.
+FABRIC = {
+    "B-PO-88213": ("Single jersey", "100% cotton, combed", 180, "Bio-washed"),
+    "B-PO-88240": ("Pique", "100% cotton", 220, None),
+    "C-PO-0488": ("Single jersey", "100% cotton", 160, "Print-ready, OEKO-TEX"),
+    "B-PO-88277": ("Single jersey", "95% cotton, 5% elastane", 190, None),
+    "B-PO-88301": ("Slub jersey", "100% cotton", 170, None),
+    "C-PO-0495": ("Fleece, brushed back", "80% cotton, 20% polyester", 280, "Garment washed"),
+    "C-PO-0502": ("Single jersey", "100% cotton", 150, None),
+    "D-PO-1107": ("Single jersey", "100% organic cotton (GOTS)", 180, "Certified mill, longer lead time"),
+    "D-PO-1112": ("Rib 1x1", "95% cotton, 5% elastane", 200, None),
+}
+
+# Where a demo material stands when it is not simply "arrived in time": (status, ordered, expected, received).
+STOCK_OVERRIDES = {
+    ("B-PO-88240", "Carton"): ("ordered", "2026-10-28", "2026-11-04", None),          # the floor note says the cartons have not come
+    ("B-PO-88301", "Sewing thread"): ("ordered", "2026-11-03", "2026-11-20", None),   # arrives after stitching starts
+    ("B-PO-88301", "Main label"): ("not_ordered", None, None, None),                 # not ordered and stitching starts soon
+    ("D-PO-1107", "Main fabric"): ("ordered", "2026-10-27", "2026-11-20", None),     # organic cotton: arrives after the plan wants it
+    ("D-PO-1107", "Rib / collar fabric"): ("ordered", "2026-10-27", "2026-11-12", None),
+}
+
+
+def _stock_up(db, order_id: int, po: str, today: str, user_id: int) -> None:
+    """Give a demo order its materials. Fabric is in once cutting has begun; trims and packing are in once the step that uses them has started."""
+    materials.add_standard(db, order_id, user_id, today)
+    yesterday = CALENDAR.prev_working_day(today)
+    plan = {r["code"]: r for r in db.execute("SELECT code, planned_start, planned_date FROM milestones WHERE order_id = ?", (order_id,))}
+    cutting = db.execute(
+        "SELECT 1 FROM daily_updates d JOIN milestones m ON m.id = d.milestone_id WHERE m.order_id = ? AND m.code = 'CUT'", (order_id,)
+    ).fetchone()
+    with transaction(db):
+        for m in db.execute("SELECT id, kind, name, needed_for FROM order_materials WHERE order_id = ?", (order_id,)).fetchall():
+            step = plan.get(m["needed_for"])
+            needed = (step["planned_start"] or step["planned_date"]) if step else None
+            if m["kind"] == "fabric":
+                arrived = bool(cutting) or (step is not None and step["planned_date"] < today)
+                state = ("received", None, None, min(step["planned_date"], yesterday)) if arrived else ("ordered", None, step["planned_date"], None)
+            else:
+                if needed is not None and needed < today:
+                    state = ("received", None, None, CALENDAR.shift_working_days(needed, -2))
+                elif needed is not None and needed <= CALENDAR.shift_working_days(today, 20):
+                    state = ("ordered", None, max(CALENDAR.shift_working_days(needed, -3), CALENDAR.next_working_day(today)), None)
+                else:
+                    state = ("not_ordered", None, None, None)
+            status, ordered, expected, received = STOCK_OVERRIDES.get((po, m["name"]), state)
+            db.execute(
+                "UPDATE order_materials SET status = ?, ordered_date = ?, expected_date = ?, received_date = ? WHERE id = ?",
+                (status, ordered or (CALENDAR.shift_working_days(expected, -10) if status == "ordered" and expected else None), expected, received, m["id"]),
+            )
+        materials.sync_fabric_milestone(db, order_id, user_id, undo=False)
+
+
 def _jitter(key: str) -> float:
     """Deterministic ±15% so the same seed gives the same history."""
     return 0.85 + hashlib.sha1(key.encode()).digest()[0] / 255 * 0.3
@@ -155,12 +211,12 @@ COLOUR_HEX = {"Navy": "#1F2A44", "White": "#FFFFFF", "Yellow": "#F2C400", "Black
 
 async def seed(db, today: str) -> None:
     db.execute("DROP TRIGGER IF EXISTS date_changes_no_delete")
-    for t in ["date_changes", "outbox_messages", "warnings", "issue_reasons", "photos", "daily_updates", "milestones", "order_sizes", "orders", "sessions", "users", "units", "buyers"]:
+    for t in ["date_changes", "outbox_messages", "warnings", "issue_reasons", "photos", "daily_updates", "order_materials", "milestones", "order_sizes", "orders", "sessions", "users", "units", "buyers"]:
         db.execute(f"DELETE FROM {t}")
     db.execute("CREATE TRIGGER date_changes_no_delete BEFORE DELETE ON date_changes BEGIN SELECT RAISE(ABORT, 'date_changes is append-only'); END")
 
     buyer_id = {name: db.execute("INSERT INTO buyers (name, country, link_token) VALUES (?,?,?)", (name, country, new_token())).lastrowid for name, country in BUYERS}
-    unit_id = {name: db.execute("INSERT INTO units (name, kind, process) VALUES (?,?,?)", (name, kind, proc)).lastrowid for name, kind, proc in UNITS}
+    unit_id = {name: db.execute("INSERT INTO units (name, kind, process, daily_capacity) VALUES (?,?,?,?)", (name, kind, proc, CAPACITY.get(name))).lastrowid for name, kind, proc in UNITS}
     supervisor_of: dict[int, int] = {}
     merch_id = None
     for name, role, login, secret, unit, lang in USERS:
@@ -190,6 +246,9 @@ async def seed(db, today: str) -> None:
             ).lastrowid
             for n, (size, q) in enumerate(o.sizes, start=1):
                 db.execute("INSERT INTO order_sizes (order_id, seq, size, qty) VALUES (?,?,?,?)", (order_id, n, size, q))
+            fab = FABRIC[o.po]
+            db.execute("UPDATE orders SET fabric_type = ?, fabric_composition = ?, fabric_gsm = ?, fabric_note = ? WHERE id = ?", (*fab, order_id))
+            materials.add_main_fabric(db, order_id, merch_id, o.ex_factory, {i.code for i in t.items}, {"type": fab[0], "composition": fab[1], "gsm": fab[2]})
 
             for p in plan_from_template(CALENDAR, t, o.ex_factory):
                 it = p.item
@@ -225,6 +284,9 @@ async def seed(db, today: str) -> None:
             "INSERT INTO date_changes (order_id, field, old_value, new_value, reason, changed_by, changed_at) VALUES (?,?,?,?,?,?,?)",
             (henley, "ex_factory", "2026-12-05", "2026-12-10", "Buyer moved the ship window (email from Company B sourcing, 21 Oct)", merch_id, "2026-10-21 11:42:00"),
         )
+
+    for r in db.execute("SELECT id, po_no FROM orders").fetchall():
+        _stock_up(db, r["id"], r["po_no"], today, merch_id)
 
     # Classify seeded notes exactly the way live notes are classified.
     use_model = (await ai_status())["mode"] == "ollama"

@@ -66,6 +66,23 @@ A buyer reaches only their own requests: another buyer's request is "not found".
 - When a request is **accepted**, its files move onto the new order. Buyers see their files on their order page, supervisors under "Files for this order" on a stage screen.
 - Office and floor links are short-lived signed links; buyers open files through their own link, scoped to their own requests and orders.
 
+## Fabric and materials (`services/materials.py`, `domain/materials.py`)
+
+- **Fabric** (type, composition, GSM, a note) is optional on a buyer's request and on a new order, and goes from the request onto the order when it is accepted. An order created with fabric starts with a **Main fabric** line under Materials. The buyer sees type, composition and GSM on their order; the note stays internal.
+- **Materials** are the lines an order needs: fabric, trims, packing. Each is *not ordered*, *ordered* (with an expected date) or *received* (with the date), may be supplied by the buyer (free issue, such as their labels), and names the plan step that needs it. **Add the standard list** adds the usual eight (main and rib fabric, thread, labels, hangtag, polybag, carton).
+- **When it is needed** is read from that step on every request: when a stage starts, or when a milestone is due. Move a step's date and every line that depends on it moves too.
+- **Late, at risk, on track**: late if the expected date is after the need date, the expected date has passed without arrival, or it is needed now with no date; at risk if it is not ordered and needed within 14 days, or ordered with no date and needed within 7; otherwise on track. The board shows "N materials late" beside the delay status. **This does not change the delay projection**, which stays driven only by the floor's numbers.
+- **Fabric in-house**: when every fabric line is received, that plan milestone is marked done on the latest receipt date; taking a received fabric line back unmarks it. Both go into the date history.
+- **What the buyer sees**: for each line only its name, whether it has arrived and when. No supplier, quantity, expected date or lateness. A line the buyer supplies that has not arrived says "We are waiting for this from you".
+
+## Capacity check (`services/capacity.py`, `domain/capacity.py`)
+
+- Each of our units has a **daily stitching capacity** (pieces a day), set on the Units page. Stitching is the step measured, because it decides how many pieces a unit can turn out.
+- **What is booked**: every active order with stitching at that unit, spread evenly over the working days it has left (Monday to Saturday, minus holidays), using the pieces still to be made. A stitching window that has already passed is spread over the next five working days.
+- **The new order** is spread over the stitching window its plan template gives it for that ship date. Utilisation = (already booked + this order) / (capacity x working days in the window). Up to 85% is *room to spare*, up to 100% *tight*, above that *over capacity*; a window that has already passed is *no time*. A unit with no capacity set is not checked.
+- **When it is asked**: in the Accept dialog for a buyer's request and on the New order form, side by side for every unit. Picking a unit that would be over (or has no time) needs a tick on "I want it anyway"; the server refuses without it (`overCapacityOk`). It also offers the first ship date the unit could take (searched four months ahead), with a button that opens the counter-proposal with that date, or says no date helps when the window is simply too short for the quantity.
+- Not covered: cutting, finishing and packing capacity; a quantity increase on an existing order; the run-rate engine still treats each order on its own.
+
 ## Re-projecting an order (`services/orders.py`)
 
 Every time numbers change, and every time the board loads, the server recomputes each active order:
@@ -122,6 +139,8 @@ Changing ex-factory, or any planned date, requires a reason and writes a row to 
 | Order board | `/m` | `GET /api/m/board?buyer=&unit=&week=` |
 | New order | `/m/orders/new` | `POST /api/m/plan-preview`, `POST /api/m/orders` |
 | Order detail | `/m/orders/:id` | `GET /api/m/orders/:id`, warning confirm/dismiss, date changes, reason override |
+| Materials (on the order) | `/m/orders/:id` | `GET`/`POST /api/m/orders/:id/materials`, `POST .../materials/standard`, `PATCH`/`DELETE /api/m/materials/:id` |
+| Units and capacity | `/m/units` | `GET /api/m/units`, `PATCH /api/m/units/:id`, `POST /api/m/capacity/check` |
 | Buyers & exports | `/m/buyers` | `GET /api/m/buyers`, `/exports/weekly`, `/outbox` |
 | Requests | `/m/requests`, `/m/requests/:id` | `GET /api/m/requests?filter=`, `POST /api/m/requests/:id/query`, `/counter`, `/accept`, `/decline` |
 | Buyer: new request | `/b/:token/requests/new` | `POST /api/b/:token/requests` |
@@ -172,7 +191,7 @@ backend/loomtrack/
   routes/              auth, merchandiser, templates, requests (both sides), attachments, supervisor, buyer
   ai/classifier.py     Ollama call + keyword fallback
   seed.py / explain.py demo data / prints the run-rate maths for every order
-backend/tests/         78 tests
+backend/tests/         114 tests
 web/src/
   App.tsx              routes + role guards
   lib/                 api client, auth, Tamil strings, offline outbox, photo/voice helpers, theme
@@ -191,6 +210,7 @@ e2e/                   browser walkthrough + offline test
 ## What is mocked or limited today
 
 - Buyer emails are recorded in the app, not sent.
+- Materials are tracked by hand; nothing reads a purchase order or a supplier's confirmation. The capacity check models stitching only, with even spreading, and assumes the unit's stated capacity is real.
 - Voice: the original audio is always kept for the merchandiser. The live transcript uses the phone browser's speech service where available; local Whisper is on the to-do list.
 - The run rate is a 7-day average and doesn't model capacity shared between orders on one line (see RUN_RATE.md, "Known limits").
 - One SQLite file is right for this size. Postgres is the path if the client wants managed backups.

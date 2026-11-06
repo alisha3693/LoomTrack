@@ -113,6 +113,22 @@ Use two windows: the office (signed in as Priya) and a private window for the bu
 5. Office: **New password** beside Sam. **Expect:** Sam's open window is signed out at once and the account shows *Has not signed in yet* again. **Remove** ends the account the same way.
 6. Demo accounts after `npm run seed`: `hannah@companyb.example` / `buyer1234` (Company B), `jonas@companyc.example` / `buyer1234` (Company C).
 
+## 6f. Materials: will the fabric and trims be there in time
+1. Office, board: **B-PO-88240**, **B-PO-88301** and **D-PO-1107** show a red "1 material late" under their status. Their delay status is unchanged: materials sit beside it.
+2. Open **B-PO-88301**. **Expect:** a **Materials** card. *Sewing thread* is late ("Arrives Fri 20 Nov, 4 days after it is needed (Stitching starts Mon 16 Nov)") and *Main label* is at risk ("Not ordered yet and needed in 11 days"). The fabric lines are received.
+3. Click **Received** on *Main label*. It turns green. Click **Edit** on the thread, set *Expected on* to 12 Nov, **Save**. It is no longer late.
+4. Open **D-PO-1107** (organic cotton). **Expect:** *Main fabric* is late: it arrives 20 Nov, 7 days after "Fabric in-house is due". The milestone itself is not overdue yet, so this warns a week early.
+5. Mark both fabric lines received on an order whose *Fabric in-house* is not done: the milestone is ticked on the receipt date, and the date history says why. Take one back: it is unticked.
+6. The buyer's window, order **B-PO-88301**: *Materials for your order* shows names and ticks only, and the fabric type, composition and GSM. No supplier or dates.
+
+## 6g. Capacity: can the unit take it
+1. Office, **Units**: the three units with their stitching capacity and how booked each of the next four weeks is.
+2. A buyer sends a request: PO `B-PO-99100`, 9,000 pcs (M 4,500 and L 4,500), ex-factory 15 Dec, with a fabric (single jersey, 95% cotton 5% elastane, 185 GSM).
+3. Office, **Requests**, open it, **Accept into an order**. Choose *Unit 1*. **Expect:** *Over capacity · 117%*: "15,587 pcs already booked, 9,000 more needed, 21,000 possible", which orders are using the unit (D-PO-1107, C-PO-0488), and "The first ship date this unit could take it: Fri 18 Dec". **Create order** stays disabled until you tick that you want it anyway.
+4. **Propose this date** opens the counter-proposal with 18 Dec filled in. Send it.
+5. Choose *Unit 3* instead: *Room to spare · 50%*, no tick needed. Create the order: it carries the fabric and starts a *Main fabric* line.
+6. On **New order**, type 9,000 pcs and a 15 Dec date and pick *Unit 1*: the same check appears, and the same tick is required.
+
 ## 7. Date changes leave a compliance trail
 On any order: **Change ex-factory** (or click a due date in the TNA list).
 
@@ -135,7 +151,7 @@ Open each of the three buyer links.
 ## Automated checks
 | Command | What it proves |
 |---|---|
-| `npm test` | 78 backend tests: run-rate maths, keyword classifier, schema migration, order requests and changes, file upload checks, buyer isolation, idempotent offline sends, unit scoping, AI fallback, confirm-before-buyer, append-only audit |
+| `npm test` | 114 backend tests: run-rate maths, keyword classifier, schema migration, order requests and changes, file upload checks, buyer isolation, idempotent offline sends, unit scoping, AI fallback, confirm-before-buyer, append-only audit |
 | `npm run explain` | Prints the run-rate maths for every order in the terminal |
 | `python e2e/walkthrough.py` | Clicks through every screen in a headless browser, saves screenshots to `e2e/shots/`, fails on any browser error (run `npm run seed` first) |
 | `python e2e/offline_test.py` | Phone offline → update queued → back online → lands exactly once |

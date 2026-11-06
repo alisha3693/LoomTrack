@@ -4,6 +4,7 @@ import BuyerAccount from "../../components/BuyerAccount";
 import { Progress, Swatch, useApi } from "../../components/ui";
 import { FileList } from "../../components/Attachments";
 import { RequestPill } from "../../components/RequestParts";
+import { BuyerMaterial, Fabric, fabricLine } from "../../lib/fabric";
 import type { FileItem } from "../../lib/types";
 import type { RequestRow } from "../../lib/requests";
 import { fmtDate, fmtDateTime, num } from "../../lib/format";
@@ -16,6 +17,8 @@ interface BuyerOrder {
   colour: string;
   colourHex: string | null;
   colourPantone: string | null;
+  fabric: Fabric;
+  materials: BuyerMaterial[];
   qty: number;
   sizes: { size: string; qty: number }[];
   exFactory: string;
@@ -107,6 +110,7 @@ export default function BuyerView() {
                   <h2>{o.poNo}</h2>
                   <div className="muted">{o.style}, <Swatch hex={o.colourHex} />{o.colour.toLowerCase()}{o.colourPantone ? ` (Pantone ${o.colourPantone})` : ""} · {num(o.qty)} pcs</div>
                   <div className="faint small">{o.sizes.map((s) => `${s.size} ${num(s.qty)}`).join(" · ")}</div>
+                  {fabricLine(o.fabric) && <div className="faint small">Fabric: {fabricLine(o.fabric)}</div>}
                   {o.state === "active" && <div className="no-print" style={{ marginTop: 6 }}><Link className="small" to={`/b/${token}/orders/${o.id}/change`}>Ask for a change</Link></div>}
                 </div>
                 <div style={{ textAlign: "right" }}>
@@ -160,6 +164,23 @@ export default function BuyerView() {
                     </ul>
                   </div>
                 </div>
+
+                {o.materials.length > 0 && (
+                  <div>
+                    <div className="section-title">Materials for your order</div>
+                    <ul className="timeline">
+                      {o.materials.map((m) => (
+                        <li key={m.name} style={{ padding: "7px 0" }}>
+                          <span className={`check ${m.received ? "done" : ""}`}>{m.received ? "✓" : ""}</span>
+                          <span>{m.name}{m.suppliedBy === "buyer" ? " (from you)" : ""}</span>
+                          <span className="small num muted">
+                            {m.received ? `Received ${fmtDate(m.receivedDate)}` : m.suppliedBy === "buyer" ? "We are waiting for this from you" : "Not yet received"}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 {o.attachments.length > 0 && (
                   <div>

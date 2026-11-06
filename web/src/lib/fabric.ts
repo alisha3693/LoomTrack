@@ -1,0 +1,99 @@
+// Fabric on an order or request, capacity results and material lines: the shapes the API returns, and small helpers.
+
+export interface Fabric {
+  type: string | null;
+  composition: string | null;
+  gsm: number | null;
+  note?: string | null;
+}
+
+/** Offered as suggestions; anything can be typed. */
+export const FABRIC_TYPES = [
+  "Single jersey",
+  "Slub jersey",
+  "Lycra jersey",
+  "Interlock",
+  "Rib 1x1",
+  "Rib 2x2",
+  "Pique",
+  "Fleece",
+  "Fleece, brushed back",
+  "French terry",
+  "Waffle",
+  "Mesh",
+];
+
+/** "Single jersey · 95% cotton, 5% elastane · 180 GSM", or null when nothing was given. */
+export function fabricLine(f: Fabric | null | undefined): string | null {
+  if (!f) return null;
+  const parts = [f.type, f.composition, f.gsm ? `${f.gsm} GSM` : null].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+export type MaterialState = "late" | "at_risk" | "on_track" | "received";
+
+export interface Material {
+  id: number;
+  orderId: number;
+  kind: "fabric" | "trim" | "packing";
+  name: string;
+  supplier: string | null;
+  suppliedBy: "us" | "buyer";
+  qty: number | null;
+  unit: string | null;
+  status: "not_ordered" | "ordered" | "received";
+  orderedDate: string | null;
+  expectedDate: string | null;
+  receivedDate: string | null;
+  neededFor: string | null;
+  neededForName: string | null;
+  neededBy: string;
+  neededLabel: string;
+  note: string | null;
+  risk: { state: MaterialState; message: string };
+}
+
+export interface MaterialSummary {
+  total: number;
+  received: number;
+  late: number;
+  atRisk: number;
+  worst: MaterialState | null;
+}
+
+export interface BuyerMaterial {
+  name: string;
+  kind: "fabric" | "trim" | "packing";
+  suppliedBy: "us" | "buyer";
+  received: boolean;
+  receivedDate: string | null;
+}
+
+export type Verdict = "fits" | "tight" | "over" | "no_window" | "unknown";
+
+export interface UnitFit {
+  unitId: number;
+  name: string;
+  capacity: number | null;
+  verdict: Verdict;
+  utilisation: number | null;
+  needed: number;
+  booked: number;
+  possible: number;
+  workingDays: number;
+  windowStart: string | null;
+  windowEnd: string | null;
+  requiredPerDay: number | null;
+  earliest: { exFactory: string; utilisation: number } | null;
+  overlapping: { orderNo: string; poNo: string; qtyLeft: number }[];
+  summary: string;
+}
+
+export interface UnitRow {
+  id: number;
+  name: string;
+  kind: "own" | "subcontract";
+  process: string | null;
+  dailyCapacity: number | null;
+  weeks: { from: string; booked: number; possible: number; utilisation: number | null }[];
+}

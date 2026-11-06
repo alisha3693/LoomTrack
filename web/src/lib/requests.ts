@@ -1,5 +1,6 @@
 // Shapes and wording for order requests, shared by the office and buyer screens.
 
+import type { Fabric } from "./fabric";
 import type { FileItem } from "./types";
 
 export type RequestStatus = "submitted" | "query" | "countered" | "accepted" | "declined" | "withdrawn";
@@ -39,6 +40,7 @@ export interface RequestDetailData {
   colour: string;
   colourHex: string | null;
   colourPantone: string | null;
+  fabric: Fabric;
   exFactory: string;
   status: RequestStatus;
   sizes: { size: string; qty: number }[];

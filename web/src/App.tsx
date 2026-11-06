@@ -10,6 +10,7 @@ import Requests from "./pages/merch/Requests";
 import RequestDetail from "./pages/merch/RequestDetail";
 import Templates from "./pages/merch/Templates";
 import TemplateEditor from "./pages/merch/TemplateEditor";
+import Units from "./pages/merch/Units";
 import SupHome from "./pages/sup/SupHome";
 import SupUpdate from "./pages/sup/SupUpdate";
 import BuyerView from "./pages/buyer/BuyerView";
@@ -66,6 +67,7 @@ export default function App() {
         <Route path="buyers" element={<Buyers />} />
         <Route path="requests" element={<Requests />} />
         <Route path="requests/:id" element={<RequestDetail />} />
+        <Route path="units" element={<Units />} />
         <Route path="templates" element={<Templates />} />
         <Route path="templates/new" element={<TemplateEditor />} />
         <Route path="templates/:id" element={<TemplateEditor />} />

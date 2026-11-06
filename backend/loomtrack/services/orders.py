@@ -12,6 +12,7 @@ from ..domain.reasons import REASON_LABEL_EN
 from ..domain.tna import Template, plan_from_template
 from ..domain.runrate import DailyQty, OrderProjection, StageInput, pretty_date, project_order
 from ..util import HttpError
+from . import materials
 from .templates import load_template
 
 
@@ -36,6 +37,15 @@ def next_order_no(db: sqlite3.Connection, today: str) -> str:
         "SELECT MAX(CAST(substr(order_no, ?) AS INTEGER)) FROM orders WHERE order_no LIKE ?", (len(prefix) + 1, prefix + "%")
     ).fetchone()[0]
     return f"{prefix}{(n or 0) + 1:04d}"
+
+
+def fabric_fields(body) -> dict:
+    """The fabric on a new order or request, cleaned. Anything left out is None."""
+    def text(v):
+        return (v or "").strip() or None
+
+    return {"type": text(getattr(body, "fabricType", None)), "composition": text(getattr(body, "fabricComposition", None)),
+            "gsm": getattr(body, "fabricGsm", None), "note": text(getattr(body, "fabricNote", None))}
 
 
 def get_order(db: sqlite3.Connection, order_id: int) -> sqlite3.Row | None:
@@ -198,12 +208,15 @@ def insert_order(db: sqlite3.Connection, body, t: Template, user_id: int, today:
     overrides = {m.code: m for m in body.milestones or []}
     subcontractor = {r["process"]: r["id"] for r in db.execute("SELECT id, process FROM units WHERE kind = 'subcontract'")}
     order_no = next_order_no(db, today)
+    fabric = fabric_fields(body)
     order_id = db.execute(
-        """INSERT INTO orders (order_no, po_no, buyer_id, style, colour, colour_hex, colour_pantone, qty_total, ex_factory, unit_id, template_key, merchandiser_id)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        """INSERT INTO orders (order_no, po_no, buyer_id, style, colour, colour_hex, colour_pantone, qty_total, ex_factory, unit_id, template_key, merchandiser_id,
+                               fabric_type, fabric_composition, fabric_gsm, fabric_note)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (order_no, body.poNo.strip(), body.buyerId, body.style.strip(), body.colour.strip(),
          body.colourHex.upper() if body.colourHex else None, (body.colourPantone or "").strip() or None,
-         sum(s.qty for s in body.sizes), body.exFactory, body.unitId, t.key, user_id),
+         sum(s.qty for s in body.sizes), body.exFactory, body.unitId, t.key, user_id,
+         fabric["type"], fabric["composition"], fabric["gsm"], fabric["note"]),
     ).lastrowid
     for n, s in enumerate(body.sizes, start=1):
         db.execute("INSERT INTO order_sizes (order_id, seq, size, qty) VALUES (?,?,?,?)", (order_id, n, s.size.strip().upper(), s.qty))
@@ -217,6 +230,7 @@ def insert_order(db: sqlite3.Connection, body, t: Template, user_id: int, today:
             "INSERT INTO milestones (order_id, seq, code, planned_start, planned_date, unit_id) VALUES (?,?,?,?,?,?)",
             (order_id, p.seq, it.code, (o.plannedStart if o else None) or p.planned_start, o.plannedDate if o else p.planned_date, unit_id),
         )
+    materials.add_main_fabric(db, order_id, user_id, body.exFactory, {p.item.code for p in plan_from_template(CALENDAR, t, body.exFactory)}, fabric)
     return order_id, order_no
 
 

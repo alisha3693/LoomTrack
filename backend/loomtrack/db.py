@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS units (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
   kind TEXT NOT NULL CHECK (kind IN ('own', 'subcontract')),
-  process TEXT                      -- for subcontractors: 'printing' | 'washing'
+  process TEXT,                     -- for subcontractors: 'printing' | 'washing'
+  daily_capacity INTEGER CHECK (daily_capacity IS NULL OR daily_capacity > 0)  -- pieces a day it can stitch; own units
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -51,6 +52,10 @@ CREATE TABLE IF NOT EXISTS orders (
   colour TEXT NOT NULL,             -- colour name as the buyer calls it
   colour_pantone TEXT,              -- e.g. 19-4024 TCX; the real colour reference
   colour_hex TEXT CHECK (colour_hex IS NULL OR colour_hex GLOB '#[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]'),
+  fabric_type TEXT,                 -- e.g. single jersey, rib 1x1, fleece
+  fabric_composition TEXT,          -- e.g. 95% cotton, 5% elastane
+  fabric_gsm INTEGER CHECK (fabric_gsm IS NULL OR fabric_gsm BETWEEN 50 AND 800),
+  fabric_note TEXT,                 -- mill, buyer's fabric code, finish
   qty_total INTEGER NOT NULL CHECK (qty_total > 0),
   ex_factory TEXT NOT NULL,
   unit_id INTEGER NOT NULL REFERENCES units(id),
@@ -205,6 +210,10 @@ CREATE TABLE IF NOT EXISTS order_requests (
   colour TEXT NOT NULL,
   colour_pantone TEXT,
   colour_hex TEXT CHECK (colour_hex IS NULL OR colour_hex GLOB '#[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]'),
+  fabric_type TEXT,                 -- e.g. single jersey, rib 1x1, fleece
+  fabric_composition TEXT,          -- e.g. 95% cotton, 5% elastane
+  fabric_gsm INTEGER CHECK (fabric_gsm IS NULL OR fabric_gsm BETWEEN 50 AND 800),
+  fabric_note TEXT,                 -- mill, buyer's fabric code, finish
   ex_factory TEXT NOT NULL,                        -- the date the buyer wants, or has agreed to
   status TEXT NOT NULL DEFAULT 'submitted'
     CHECK (status IN ('submitted', 'query', 'countered', 'accepted', 'declined', 'withdrawn')),
@@ -264,6 +273,32 @@ CREATE TABLE IF NOT EXISTS attachments (
 CREATE INDEX IF NOT EXISTS ix_attachments_request ON attachments (request_id);
 CREATE INDEX IF NOT EXISTS ix_attachments_order ON attachments (order_id);
 
+-- What an order needs before it can be made: fabric, trims, packing. When it is needed comes from
+-- the plan step that uses it (needed_for), so it follows the plan if a date moves; needed_by is only
+-- for something that belongs to no step. Nothing here changes the delay projection.
+CREATE TABLE IF NOT EXISTS order_materials (
+  id INTEGER PRIMARY KEY,
+  order_id INTEGER NOT NULL REFERENCES orders(id),
+  kind TEXT NOT NULL CHECK (kind IN ('fabric', 'trim', 'packing')),
+  name TEXT NOT NULL,
+  supplier TEXT,
+  supplied_by TEXT NOT NULL DEFAULT 'us' CHECK (supplied_by IN ('us', 'buyer')),
+  qty REAL CHECK (qty IS NULL OR qty > 0),
+  unit TEXT,                                     -- kg, m, pcs, rolls ...
+  status TEXT NOT NULL DEFAULT 'not_ordered' CHECK (status IN ('not_ordered', 'ordered', 'received')),
+  ordered_date TEXT,
+  expected_date TEXT,
+  received_date TEXT,
+  needed_for TEXT REFERENCES plan_steps(code),
+  needed_by TEXT,
+  note TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_by INTEGER REFERENCES users(id),
+  CHECK (status != 'received' OR received_date IS NOT NULL),
+  CHECK (needed_for IS NOT NULL OR needed_by IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS ix_materials_order ON order_materials (order_id);
+
 -- Mock outbound messages (email / WhatsApp to buyers).
 CREATE TABLE IF NOT EXISTS outbox_messages (
   id INTEGER PRIMARY KEY,
@@ -277,7 +312,7 @@ CREATE TABLE IF NOT EXISTS outbox_messages (
 """
 
 
-SCHEMA_VERSION = 6  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no/colour, 2 = before templates, 3 = before order requests, 4 = before attachments, 5 = before buyer accounts
+SCHEMA_VERSION = 7  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no/colour, 2 = before templates, 3 = before order requests, 4 = before attachments, 5 = before buyer accounts, 6 = before fabric, materials and unit capacity
 
 
 def _is_v0(db: sqlite3.Connection) -> bool:
@@ -409,6 +444,28 @@ def _migrate_v5(db: sqlite3.Connection, file: str) -> None:
         raise RuntimeError(f"Migration left broken references; the pre-migration copy is {file}.v5.bak")
 
 
+# v6 -> v7: columns added to tables that already exist (the new table comes from SCHEMA).
+_V7_COLUMNS = {
+    "orders": {
+        "fabric_type": "TEXT", "fabric_composition": "TEXT", "fabric_note": "TEXT",
+        "fabric_gsm": "INTEGER CHECK (fabric_gsm IS NULL OR fabric_gsm BETWEEN 50 AND 800)",
+    },
+    "order_requests": {
+        "fabric_type": "TEXT", "fabric_composition": "TEXT", "fabric_note": "TEXT",
+        "fabric_gsm": "INTEGER CHECK (fabric_gsm IS NULL OR fabric_gsm BETWEEN 50 AND 800)",
+    },
+    "units": {"daily_capacity": "INTEGER CHECK (daily_capacity IS NULL OR daily_capacity > 0)"},
+}
+
+
+def _add_v7_columns(db: sqlite3.Connection) -> None:
+    for table, columns in _V7_COLUMNS.items():
+        have = {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}
+        for name, decl in columns.items():  # names and declarations are the constants above
+            if name not in have:
+                db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+
+
 def _add_builtin_column(db: sqlite3.Connection) -> None:
     """v2 -> v3: plan_steps.builtin (the new tables come from SCHEMA)."""
     if "builtin" not in {r["name"] for r in db.execute("PRAGMA table_info(plan_steps)")}:
@@ -459,6 +516,7 @@ def open_db(file: str) -> sqlite3.Connection:
         _migrate_v5(db, file)
     db.executescript(SCHEMA)
     _add_builtin_column(db)
+    _add_v7_columns(db)
     sync_plan_steps(db)
     sync_builtin_templates(db)
     db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
