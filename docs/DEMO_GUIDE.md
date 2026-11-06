@@ -132,7 +132,7 @@ Use two windows: the office (signed in as Priya) and a private window for the bu
 ## 6h. Finding things and answering fast (both sides)
 1. Office, **Orders**: the top is **Needs you**: requests waiting, buyer messages to answer, delay warnings, late materials. Click *buyer messages to answer*: the board shows only those orders, with a chip to clear it.
 2. Press **/** anywhere in the office, type `88240` (or `Company B`, `raglan`, `LT-2026`) and press Enter. It opens the order. **Set up** holds Templates and Units; **+ New order** is always in the bar.
-3. On an order: breadcrumbs, the buyer's name (click it for all their orders), **What the buyer sees** (their view of this order), and the section bar that jumps to Conversation, Materials, Plan and so on.
+3. On an order: breadcrumbs, the buyer's name (click it for all their orders), **What the buyer sees** (their view of this order), and the tabs: Overview, Conversation, Materials, Files and requests, History and floor.
 4. Buyer window, an order, **Conversation**: write *"Can you send photos of the cartons?"* and send.
 5. Office: the board's *Needs you* now lists it, the order shows *Buyer is waiting for your reply*, and the order page opens on a highlighted conversation. Reply.
 6. Buyer, **Overview**: *New reply about …* is the first card. Open it: the dot goes away and the card does not come back.

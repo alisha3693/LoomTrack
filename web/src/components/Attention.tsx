@@ -29,7 +29,7 @@ export default function Attention({ items, clear }: { items: AttentionItem[]; cl
         const inner = (
           <>
             <b>{i.title}</b>
-            {i.detail && <span className="muted small">{i.detail}</span>}
+            {i.detail && <span className="detail">{i.detail}</span>}
             <span className="cta">{i.cta ?? "Open"} →</span>
           </>
         );

@@ -71,7 +71,7 @@ export default function Buyers() {
     download(`/api/m/exports/weekly?buyerId=${b.id}&audience=${audience}`, `${b.name.replace(/\W+/g, "-")}-weekly-${audience}.xlsx`).catch((e) => setToast(e.message));
 
   return (
-    <main className="page page-narrow">
+    <main className="page">
       <div className="page-head">
         <div>
           <h1>Buyers &amp; exports</h1>

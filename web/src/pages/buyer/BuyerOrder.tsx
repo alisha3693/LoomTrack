@@ -145,7 +145,7 @@ function Detail({ token, o }: { token: string; o: Order }) {
               {o.materials.map((m) => (
                 <li key={m.name} style={{ padding: "8px 0" }}>
                   <span className={`check ${m.received ? "done" : ""}`}>{m.received ? "✓" : ""}</span>
-                  <span>{m.name}{m.suppliedBy === "buyer" ? <span className="pill" style={{ marginLeft: 8 }}>You supply</span> : null}</span>
+                  <span>{m.name}{m.suppliedBy === "buyer" ? <span className="tag" style={{ marginLeft: 8 }}>You supply</span> : null}</span>
                   <span className={`small num ${!m.received && m.suppliedBy === "buyer" ? "t-amber" : "muted"}`}>
                     {m.received ? `Received ${fmtDate(m.receivedDate)}` : m.suppliedBy === "buyer" ? "We are waiting for this from you" : "Not yet received"}
                   </span>

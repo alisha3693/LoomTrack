@@ -4,10 +4,7 @@ import { Status, STATUS_LABEL } from "../lib/format";
 
 export function StatusPill({ status, label }: { status: Status; label?: string }) {
   return (
-    <span className={`pill pill-${status}`}>
-      <span className={`dot dot-${status}`} />
-      {label ?? STATUS_LABEL[status]}
-    </span>
+    <span className={`pill pill-${status}`}>{label ?? STATUS_LABEL[status]}</span>
   );
 }
 

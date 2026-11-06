@@ -46,7 +46,7 @@ export default function Templates() {
             <div className="row" style={{ justifyContent: "space-between" }}>
               <div className="row" style={{ gap: 10 }}>
                 <h2>{t.name}</h2>
-                {t.builtin && <span className="pill">Built in</span>}
+                {t.builtin && <span className="tag">Built in</span>}
                 {!t.active && <span className="pill pill-amber">Retired</span>}
               </div>
               <div className="row">

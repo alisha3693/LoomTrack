@@ -67,7 +67,7 @@ function Home({ token, name, today, data }: { token: string; name: string; today
           {requests.slice(0, 4).map((r) => (
             <Link key={r.id} to={`/b/${token}/requests/${r.id}`} className="order-row req">
               <div style={{ minWidth: 0 }}>
-                <div className="t">{r.poNo}{r.kind === "amendment" ? <span className="pill" style={{ marginLeft: 8 }}>Change</span> : null}</div>
+                <div className="t">{r.poNo}{r.kind === "amendment" ? <span className="tag" style={{ marginLeft: 8 }}>Change</span> : null}</div>
                 <div className="muted small">{r.style}, {r.colour.toLowerCase()} · {num(r.totalQty)} pcs</div>
               </div>
               <div className="muted small">{ago(r.updatedAt)}</div>

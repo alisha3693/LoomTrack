@@ -102,7 +102,7 @@ export default function SearchPalette({ onClose }: { onClose: () => void }) {
                 {header}
                 <button className="palette-item" role="option" aria-selected={i === active} onMouseEnter={() => setActive(i)} onClick={() => go(e)}>
                   <span className="grow"><div><b style={{ fontWeight: 600 }}>{e.title}</b></div><div className="faint small">{e.sub}</div></span>
-                  {e.tag && <span className="pill">{e.tag}</span>}
+                  {e.tag && <span className="tag">{e.tag}</span>}
                 </button>
               </div>
             );

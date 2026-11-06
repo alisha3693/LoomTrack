@@ -50,7 +50,9 @@ export default function BuyerFrame({
           </div>
         </div>
       </header>
-      <main className="page" style={{ maxWidth: wide ? 1080 : 780 }}>{children(data.buyer.name, data.today, data)}</main>
+      <main className="page" style={{ maxWidth: 1080 }}>
+        <div style={{ maxWidth: wide ? undefined : 780 }}>{children(data.buyer.name, data.today, data)}</div>
+      </main>
     </div>
   );
 }

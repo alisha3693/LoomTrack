@@ -13,11 +13,21 @@ An audit of the real screens (desktop and phone), walking one order from the buy
 | 5 | **The buyer's header had no navigation**, only the company name and a back link. | Buyer | Fixed: Overview, Orders, Requests (with a count when their answer is needed), and **+ New request** |
 | 6 | **Pages were ordered by data type, not by what to do.** On a request the *Agree* button sat under a Files card; the merchandiser's four decision buttons sat under the files too, with nothing about the buyer to decide with. | Both | Fixed: the buyer's request opens with **Your turn** and the action; the office request opens with the decision, and a side panel shows the buyer's live orders and how they are going |
 | 7 | **The office bar mixed daily work with setup** (Templates, Units) and treated "New order" as a page. | Merchandiser | Fixed: Orders, Requests, Buyers, then **Set up** (templates, units); **+ New order** is a button |
-| 8 | **The order page was about 2,600 pixels with no way to jump around**, and the buyer's name was plain text. | Merchandiser | Fixed: breadcrumbs, a sticky section bar, the buyer's name links to all their orders, the conversation sits near the top |
+| 8 | **The order page was about 2,600 pixels with no way to jump around**, and the buyer's name was plain text. | Merchandiser | Fixed: breadcrumbs, five tabs instead of one long scroll, the buyer's name links to all their orders |
 | 9 | **The office could not see what the buyer sees.** | Merchandiser | Fixed: **What the buyer sees** on every order opens the buyer's own page for it |
 | 10 | **No "new since I last looked".** | Buyer | Fixed in the browser: a "New reply" card and dot that clear once read. Open: it is remembered per browser, not on the server |
-| 11 | A buyer on a **phone**: request rows were squeezed to one letter per line, the office's "needs you" cards stacked a screen tall, the bar wrapped awkwardly. | Both | Fixed: rows reflow, the cards slide sideways, and the browser journey fails if a page scrolls sideways or a title is squeezed into a sliver |
+| 11 | A buyer on a **phone**: request rows were squeezed to one letter per line, the office's "needs you" cards stacked a screen tall, the bar wrapped awkwardly. | Both | Fixed: rows reflow, the lists stack, and the browser journey fails if a page scrolls sideways or a title is squeezed into a sliver |
 | 12 | `npm run seed` **failed once the app had been used**, because it did not clear requests and files. | Whoever resets the demo | Fixed |
+
+## Visual pass (second round)
+
+The first round fixed *where things are*; the second fixed how it *looks*, because the screens still read as busy.
+
+- **One visual language.** Flat surfaces with hairline borders, no shadows and no coloured card edges. Status is a dot and a word, not a coloured capsule. Small grey tags are only for labels (kind of file, "Change").
+- **Alerts are one list.** "Needs you" and "Needs your attention" are the same component on both sides: one line each, a dot for urgency, one action on the right. The order board no longer shows the same warning in a card, a pill and a note; each row carries its flags in one place.
+- **No sidebars, no second bar.** Every page keeps the one top bar. The request page is a single column (the buyer's other orders sit under the conversation); the order page uses tabs, not a sticky section strip.
+- **The board has five columns** (order, buyer, ex-factory, now, status) instead of six with stage bars and run-rate sentences.
+- **The top bar holds the work only.** Theme, note-translation status and sign out moved into the account menu.
 
 ## Still open
 

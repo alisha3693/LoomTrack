@@ -77,20 +77,21 @@ with sync_playwright() as p:
     check("buyer name links to their orders", office.locator("p.sub a:has-text('Company B')").count() == 1)
     href = office.locator("a:has-text('What the buyer sees')").get_attribute("href")
     check("preview link points at this buyer's page for this order", bool(href) and href.startswith(f"/b/{token}/orders/") and href.endswith(str(orders["B-PO-88213"])))
-    office.click(".anchor-nav a:has-text('Materials')")
-    office.wait_for_timeout(900)
-    box = office.locator("#materials h2").bounding_box()
-    check("section nav scrolls to Materials", box is not None and 0 <= box["y"] < 400)
+    office.click("[role=tab]:has-text('Materials')")
+    office.wait_for_selector("h2:has-text('Materials')")
+    check("the order's tabs switch to Materials (and the address remembers it)", "tab=materials" in office.url)
 
     # ---- Office answers the buyer's message on B-PO-88240
     office.goto(BASE + "/m")
     office.locator("a:visible", has_text="B-PO-88240").first.click()
-    office.wait_for_selector("text=Waiting for your reply")
-    office.fill("#messages textarea", "Will do. Photos go out the day the cartons land.")
-    office.click("#messages button:has-text('Send message')")
-    office.wait_for_selector("#messages .bubble.mine")
+    office.wait_for_selector(".attn:has-text('waiting for your reply')")
+    office.click(".attn:has-text('waiting for your reply')")
+    office.fill("textarea", "Will do. Photos go out the day the cartons land.")
+    office.click("button:has-text('Send message')")
+    office.wait_for_selector(".bubble.mine")
+    office.click("[role=tab]:has-text('Overview')")
     office.wait_for_timeout(500)
-    check("answering clears 'waiting for your reply'", office.locator("#messages >> text=Waiting for your reply").count() == 0)
+    check("answering clears 'waiting for your reply'", office.locator(".attn:has-text('waiting for your reply')").count() == 0)
 
     # ---- Buyer: sees the reply, reads it, and it stops asking for attention
     buyer.goto(f"{BASE}/b/{token}")
@@ -163,7 +164,7 @@ with sync_playwright() as p:
     for pg, path in pages:
         pg.goto(BASE + path)
         pg.wait_for_timeout(500)
-        for w in pg.evaluate("[...document.querySelectorAll('.order-row .t, .anchor-nav a, .tabs button, .attn b, .tile b')].filter(e => e.offsetParent).map(e => Math.round(e.getBoundingClientRect().width))"):
+        for w in pg.evaluate("[...document.querySelectorAll('.order-row .t, .tabs button, .attn b, .tile b')].filter(e => e.offsetParent).map(e => Math.round(e.getBoundingClientRect().width))"):
             if w < 40:
                 squeezed.append((path, w))
     check("no title is squeezed into a sliver on a phone", not squeezed)

@@ -51,7 +51,7 @@ export default function Units() {
   const weeks = own[0]?.weeks ?? [];
 
   return (
-    <main className="page page-narrow">
+    <main className="page">
       <div className="page-head">
         <div>
           <h1>Units and capacity</h1>

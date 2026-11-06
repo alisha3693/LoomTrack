@@ -130,7 +130,7 @@ export default function Materials({
                 <tr key={m.id}>
                   <td style={{ paddingLeft: 20 }}>
                     <b style={{ fontWeight: 500 }}>{m.name}</b> <span className="faint small">{KIND[m.kind]}</span>
-                    {m.suppliedBy === "buyer" && <span className="pill" style={{ marginLeft: 6 }}>Buyer supplies</span>}
+                    {m.suppliedBy === "buyer" && <span className="tag" style={{ marginLeft: 6 }}>Buyer supplies</span>}
                     <div className="faint small">
                       {[m.qty ? `${num(m.qty)} ${m.unit ?? ""}`.trim() : null, m.supplier, m.note].filter(Boolean).join(" · ")}
                     </div>

@@ -104,6 +104,7 @@ with sync_playwright() as p:
     pg.goto(f"{BASE}/m")
     pg.wait_for_selector("table.board tbody tr")
     pg.click("text=C-PO-0488")
+    pg.click("[role=tab]:has-text('History and floor')")
     pg.wait_for_selector("text=Floor updates")
     time.sleep(0.5)
     pg.screenshot(path=OUT / "10-detail-0488.png", full_page=True)

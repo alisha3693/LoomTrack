@@ -19,7 +19,7 @@ export function FileList({ files, hrefFor, actions }: { files: FileItem[]; hrefF
         <li key={f.id}>
           <div className="row" style={{ justifyContent: "space-between" }}>
             <div>
-              <span className="pill">{KIND_LABEL[f.kind]}</span>{" "}
+              <span className="tag">{KIND_LABEL[f.kind]}</span>{" "}
               <a href={hrefFor(f)} target="_blank" rel="noreferrer">{f.filename}</a>{" "}
               <span className="faint small">{fmtSize(f.size)}</span>
             </div>

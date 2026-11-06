@@ -45,7 +45,7 @@ export default function Requests() {
                 <tr key={r.id} onClick={() => nav(`/m/requests/${r.id}`)} style={{ cursor: "pointer" }}>
                   <td>
                     <b>{r.poNo}</b> <span className="faint small">{r.requestNo}</span>
-                    {r.kind === "amendment" && <span className="pill" style={{ marginLeft: 8 }}>Change to {r.orderNo}</span>}
+                    {r.kind === "amendment" && <span className="tag" style={{ marginLeft: 8 }}>Change to {r.orderNo}</span>}
                     <div className="muted">{r.style}, <Swatch hex={r.colourHex} />{r.colour.toLowerCase()} · {num(r.totalQty)} pcs</div>
                   </td>
                   <td>{r.buyer}</td>

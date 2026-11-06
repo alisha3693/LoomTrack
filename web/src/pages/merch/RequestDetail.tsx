@@ -111,7 +111,7 @@ export default function RequestDetail() {
           <div className="row">
             <h1>{r.poNo}</h1>
             <RequestPill status={r.status} audience="office" />
-            {r.kind === "amendment" && <span className="pill">Change to {r.orderNo}</span>}
+            {r.kind === "amendment" && <span className="tag">Change to {r.orderNo}</span>}
           </div>
           <p className="sub">
             {r.buyerId ? <Link to={`/m?buyer=${r.buyerId}`} title="All orders for this buyer">{r.buyer}</Link> : r.buyer} · {r.requestNo}
@@ -138,21 +138,17 @@ export default function RequestDetail() {
         )}
       </section>
 
-      <div className="split" style={{ marginTop: 16 }}>
-        <div className="stack">
-          <section className="card card-pad"><RequestSummary r={r} /></section>
-          <section className="stack" style={{ gap: 10 }}>
-            <h2>Conversation</h2>
-            <RequestThread r={r} audience="office" />
-          </section>
-        </div>
-        <aside className="stack sticky-side">
-          {r.buyerId ? <BuyerContext buyerId={r.buyerId} buyer={r.buyer ?? ""} /> : null}
-          <section className="card card-pad stack">
-            <h2>Files</h2>
-            <OfficeFiles files={r.attachments} uploadPath={`/api/m/requests/${r.id}/attachments`} onChanged={() => void reload()} />
-          </section>
-        </aside>
+      <div className="stack" style={{ marginTop: 20, gap: 24 }}>
+        <section className="card card-pad"><RequestSummary r={r} /></section>
+        <section className="stack" style={{ gap: 10 }}>
+          <h2>Conversation</h2>
+          <RequestThread r={r} audience="office" />
+        </section>
+        {r.buyerId ? <BuyerContext buyerId={r.buyerId} buyer={r.buyer ?? ""} /> : null}
+        <section className="card card-pad stack">
+          <h2>Files</h2>
+          <OfficeFiles files={r.attachments} uploadPath={`/api/m/requests/${r.id}/attachments`} onChanged={() => void reload()} />
+        </section>
       </div>
 
       {dialog === "accept" && r.kind === "amendment" && (

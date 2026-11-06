@@ -1,8 +1,7 @@
 import { FormEvent, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { OfficeFiles } from "../../components/Attachments";
 import ChangeForm from "../../components/ChangeForm";
-import AnchorNav from "../../components/AnchorNav";
 import Conversation from "../../components/Conversation";
 import Materials from "../../components/Materials";
 import { RequestPill } from "../../components/RequestParts";
@@ -13,6 +12,14 @@ import { fmtDate, fmtDateTime, num, plural, Status } from "../../lib/format";
 import type { MilestoneRow, OrderDetail as Detail, StageProjection, UpdateRow, WarningRow } from "../../lib/types";
 import { useMeta } from "./OfficeShell";
 
+const TABS = [
+  { id: "overview", label: "Overview" },
+  { id: "conversation", label: "Conversation" },
+  { id: "materials", label: "Materials" },
+  { id: "files", label: "Files and requests" },
+  { id: "history", label: "History and floor" },
+];
+
 type DateEdit = { kind: "exf"; current: string } | { kind: "ms"; m: MilestoneRow; field: "plannedDate" | "plannedStart"; current: string };
 
 export default function OrderDetail() {
@@ -21,6 +28,7 @@ export default function OrderDetail() {
   const [edit, setEdit] = useState<DateEdit | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
+  const [params, setParams] = useSearchParams();
 
   if (error) return <main className="page"><div className="banner banner-error">{error}</div></main>;
   if (!data) return <main className="page faint">Loading…</main>;
@@ -30,6 +38,8 @@ export default function OrderDetail() {
   const awaiting = lastMessage?.author === "buyer";
   const lateMaterials = data.materials.filter((m) => m.risk.state === "late").length;
   const confirmed = data.warnings.find((w) => w.state === "confirmed");
+  const tab = TABS.some((t) => t.id === params.get("tab")) ? params.get("tab")! : "overview";
+  const goTab = (id: string) => setParams(id === "overview" ? {} : { tab: id }, { replace: true });
 
   const act = async (fn: () => Promise<unknown>, msg: string) => {
     try {
@@ -59,84 +69,107 @@ export default function OrderDetail() {
           </div>
         </div>
 
-        <AnchorNav items={[
-          { id: "overview", label: "Overview" },
-          { id: "messages", label: "Conversation", badge: awaiting ? <span className="badge" title="The buyer is waiting for your reply">1</span> : data.messages.length ? <span className="faint small"> {data.messages.length}</span> : null },
-          { id: "delay", label: "Delay" },
-          { id: "materials", label: "Materials", badge: lateMaterials ? <span className="badge" style={{ background: "var(--red-bg)", color: "var(--red)" }}>{lateMaterials}</span> : null },
-          { id: "plan", label: "Plan" },
-          { id: "files", label: "Files" },
-          { id: "history", label: "Date history" },
-          { id: "updates", label: "Floor updates" },
-        ]} />
-
-        <section id="overview" data-anchor className="card card-pad">
-          <div className="kv">
-            <div><span>Ex-factory</span><b className="num">{fmtDate(order.ex_factory, true)}</b></div>
-            <div><span>Projected at current output</span><b className={`num t-${p.status === "red" ? "red" : p.status === "amber" ? "amber" : "green"}`}>{fmtDate(p.projectedExFactory, true)}</b></div>
-            <div><span>Slack</span><b className="num">{p.slackDays < 0 ? `${plural(-p.slackDays, "working day")} late` : p.slackDays === 0 ? "On plan" : `${plural(p.slackDays, "working day")} early`}</b></div>
-            <div><span>Quantity</span><b className="num">{num(order.qty_total)} pcs</b></div>
-          </div>
-          <div className="faint small" style={{ marginTop: 12 }}>{data.sizes.map((s) => `${s.size} ${num(s.qty)}`).join(" · ")}</div>
-          {fabricLine({ type: order.fabric_type, composition: order.fabric_composition, gsm: order.fabric_gsm }) && (
-            <div className="small muted" style={{ marginTop: 6 }}>
-              Fabric: {fabricLine({ type: order.fabric_type, composition: order.fabric_composition, gsm: order.fabric_gsm })}{order.fabric_note ? ` · ${order.fabric_note}` : ""}
-            </div>
-          )}
-        </section>
-
-        {pending && <PendingWarning w={pending} onDone={(msg) => { setToast(msg); void reload(); }} />}
-        {confirmed && !pending && (
-          <div className="banner">
-            <b>Buyer informed</b> {fmtDateTime(confirmed.decided_at)}: “{confirmed.buyer_message}”
+        {(pending || awaiting) && (
+          <div className="stack" style={{ gap: 12 }}>
+            {pending && <PendingWarning w={pending} onDone={(msg) => { setToast(msg); void reload(); }} />}
+            {awaiting && tab !== "conversation" && (
+              <div className="attention">
+                <button type="button" className="attn amber" onClick={() => goTab("conversation")}>
+                  <b>{order.buyer_name} is waiting for your reply</b>
+                  <span className="cta">Open conversation →</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
 
-        <section id="messages" data-anchor className="card" style={awaiting ? { borderColor: "var(--amber)" } : undefined}>
-          <div className="card-head">
-            <div>
-              <h2>Conversation with {order.buyer_name}</h2>
-              <div className="faint small">The buyer sees this on their order page. For changing a date or quantity, use Record a change.</div>
-            </div>
-            {awaiting && <span className="pill pill-amber">Waiting for your reply</span>}
-          </div>
-          <div className="card-body">
-            <Conversation path={`/api/m/orders/${order.id}/messages`} me="merchandiser" otherName={order.buyer_name} onSent={() => void reload()} hint="Ask about a sample, share an update, answer a question." />
-          </div>
-        </section>
-
-        <div id="delay" data-anchor><Projection stages={p.stages} reasons={p.reasons} keyStage={p.keyStage} status={p.status} /></div>
-
-        <div id="materials" data-anchor><Materials orderId={order.id} items={data.materials} steps={data.milestones} today={data.today} active={order.state === "active"} onChanged={reload} notify={setToast} /></div>
-
-        <div className="grid-2" style={{ alignItems: "start" }}>
-          <div id="plan" data-anchor><Milestones data={data} onEdit={setEdit} onMarkDone={(m, date) =>
-            act(() => api(`/api/m/milestones/${m.id}`, { method: "PATCH", body: date ? { actualDate: date } : { clearActual: true } }), date ? `${m.name_en} marked done` : "Marked not done")
-          } /></div>
-          {data.changeRequests.length > 0 && (
-            <section className="card">
-              <div className="card-head"><h2>Requests and changes</h2><span className="faint small">What the buyer asked for and how it was answered</span></div>
-              <div className="card-body">
-                <ul className="reasons">
-                  {data.changeRequests.map((c) => (
-                    <li key={c.id}>
-                      <Link to={`/m/requests/${c.id}`}><b style={{ fontWeight: 500 }}>{c.requestNo}</b></Link> · {c.kind === "amendment" ? "change" : "original request"} · <RequestPill status={c.status} audience="office" />
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </section>
-          )}
-          <section id="files" data-anchor className="card">
-            <div className="card-head"><h2>Files</h2><span className="faint small">Designs, patterns, prints, fabric. You choose who sees each one.</span></div>
-            <div className="card-body">
-              <OfficeFiles files={data.attachments} uploadPath={`/api/m/orders/${order.id}/attachments`} onChanged={() => void reload()} />
-            </div>
-          </section>
-          <div id="history" data-anchor><DateHistory data={data} /></div>
+        <div className="tabs no-print" role="tablist" aria-label="About this order">
+          {TABS.map((t) => (
+            <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => goTab(t.id)}>
+              {t.label}
+              {t.id === "conversation" && (awaiting ? <span className="badge" title="The buyer is waiting for your reply">1</span> : data.messages.length ? <span className="faint small"> {data.messages.length}</span> : null)}
+              {t.id === "materials" && lateMaterials > 0 && <span className="badge" title="Late materials">{lateMaterials}</span>}
+            </button>
+          ))}
         </div>
 
-        <div id="updates" data-anchor><Updates updates={data.updates} onChanged={reload} toast={setToast} /></div>
+        {tab === "overview" && (
+          <>
+            <section className="card card-pad">
+              <div className="kv">
+                <div><span>Ex-factory</span><b className="num">{fmtDate(order.ex_factory, true)}</b></div>
+                <div><span>Projected at current output</span><b className={`num t-${p.status === "red" ? "red" : p.status === "amber" ? "amber" : "green"}`}>{fmtDate(p.projectedExFactory, true)}</b></div>
+                <div><span>Slack</span><b className="num">{p.slackDays < 0 ? `${plural(-p.slackDays, "working day")} late` : p.slackDays === 0 ? "On plan" : `${plural(p.slackDays, "working day")} early`}</b></div>
+                <div><span>Quantity</span><b className="num">{num(order.qty_total)} pcs</b></div>
+              </div>
+              <div className="faint small" style={{ marginTop: 12 }}>{data.sizes.map((s) => `${s.size} ${num(s.qty)}`).join(" · ")}</div>
+              {fabricLine({ type: order.fabric_type, composition: order.fabric_composition, gsm: order.fabric_gsm }) && (
+                <div className="small muted" style={{ marginTop: 6 }}>
+                  Fabric: {fabricLine({ type: order.fabric_type, composition: order.fabric_composition, gsm: order.fabric_gsm })}{order.fabric_note ? ` · ${order.fabric_note}` : ""}
+                </div>
+              )}
+            </section>
+            {confirmed && !pending && (
+              <div className="banner">
+                <b>Buyer informed</b> {fmtDateTime(confirmed.decided_at)}: “{confirmed.buyer_message}”
+              </div>
+            )}
+            <Projection stages={p.stages} reasons={p.reasons} keyStage={p.keyStage} status={p.status} />
+            <Milestones data={data} onEdit={setEdit} onMarkDone={(m, date) =>
+              act(() => api(`/api/m/milestones/${m.id}`, { method: "PATCH", body: date ? { actualDate: date } : { clearActual: true } }), date ? `${m.name_en} marked done` : "Marked not done")
+            } />
+          </>
+        )}
+
+        {tab === "conversation" && (
+          <section className="card">
+            <div className="card-head">
+              <div>
+                <h2>Conversation with {order.buyer_name}</h2>
+                <div className="faint small">The buyer sees this on their order page. To change a date or quantity, use Record a change.</div>
+              </div>
+            </div>
+            <div className="card-body">
+              <Conversation path={`/api/m/orders/${order.id}/messages`} me="merchandiser" otherName={order.buyer_name} onSent={() => void reload()} hint="Ask about a sample, share an update, answer a question." />
+            </div>
+          </section>
+        )}
+
+        {tab === "materials" && (
+          <Materials orderId={order.id} items={data.materials} steps={data.milestones} today={data.today} active={order.state === "active"} onChanged={reload} notify={setToast} />
+        )}
+
+        {tab === "files" && (
+          <>
+            <section className="card">
+              <div className="card-head"><h2>Files</h2><span className="faint small">Designs, patterns, prints, fabric. You choose who sees each one.</span></div>
+              <div className="card-body">
+                <OfficeFiles files={data.attachments} uploadPath={`/api/m/orders/${order.id}/attachments`} onChanged={() => void reload()} />
+              </div>
+            </section>
+            {data.changeRequests.length > 0 && (
+              <section className="card">
+                <div className="card-head"><h2>Requests and changes</h2><span className="faint small">What the buyer asked for and how it was answered</span></div>
+                <div className="card-body">
+                  <ul className="reasons">
+                    {data.changeRequests.map((c) => (
+                      <li key={c.id}>
+                        <Link to={`/m/requests/${c.id}`}><b style={{ fontWeight: 500 }}>{c.requestNo}</b></Link> · {c.kind === "amendment" ? "change" : "original request"} · <RequestPill status={c.status} audience="office" />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </section>
+            )}
+          </>
+        )}
+
+        {tab === "history" && (
+          <>
+            <DateHistory data={data} />
+            <Updates updates={data.updates} onChanged={reload} toast={setToast} />
+          </>
+        )}
       </div>
 
       {recording && (
@@ -272,16 +305,18 @@ function Milestones({ data, onEdit, onMarkDone }: { data: Detail; onEdit: (e: Da
                     {m.kind === "stage" ? `${m.unit_name ?? ""} · ${s ? `${s.pct}%` : ""}` : m.actual_date ? `Done ${fmtDate(m.actual_date)}` : late ? <span className="t-red">Overdue</span> : "Milestone"}
                   </div>
                 </div>
-                <div className="row" style={{ gap: 6, justifyContent: "flex-end" }}>
+                <div className="plan-actions">
                   <button className="btn btn-ghost btn-sm num" title="Change planned date" disabled={m.code === "EXF"}
                     onClick={() => onEdit({ kind: "ms", m, field: "plannedDate", current: m.planned_date })}>
                     {fmtDate(m.planned_date, true)}
                   </button>
-                  {m.kind === "milestone" && m.code !== "EXF" && (
-                    m.actual_date
-                      ? <button className="btn btn-ghost btn-sm" onClick={() => onMarkDone(m, null)}>Undo</button>
-                      : <button className="btn btn-sm" onClick={() => onMarkDone(m, data.today)}>Mark done</button>
-                  )}
+                  <span className="plan-act">
+                    {m.kind === "milestone" && m.code !== "EXF" && (
+                      m.actual_date
+                        ? <button className="btn btn-ghost btn-sm" onClick={() => onMarkDone(m, null)}>Undo</button>
+                        : <button className="btn btn-sm" onClick={() => onMarkDone(m, data.today)}>Mark done</button>
+                    )}
+                  </span>
                 </div>
               </li>
             );

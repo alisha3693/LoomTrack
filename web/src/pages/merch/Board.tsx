@@ -1,53 +1,62 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import Attention, { AttentionItem } from "../../components/Attention";
-import { Empty, StatusPill, Swatch, useApi } from "../../components/ui";
-import { fmtDate, fmtDateTime, num, plural, Status } from "../../lib/format";
+import { Empty, Progress, StatusPill, Swatch, useApi } from "../../components/ui";
+import { fmtDate, num, plural, Status } from "../../lib/format";
 import type { BoardOrder } from "../../lib/types";
 import { useMeta } from "./OfficeShell";
 
-const COUNT_LABEL: Record<Status, string> = { red: "will miss ex-factory", amber: "behind plan", green: "on track" };
+const COUNT_LABEL: Record<Status, string> = { red: "Will miss ex-factory", amber: "Behind plan", green: "On track" };
 
-function Pipeline({ stages }: { stages: BoardOrder["stages"] }) {
+/** What the order is doing now: the stage that decides the date, how far along it is, and the rate it needs. */
+function StageCell({ o }: { o: BoardOrder }) {
+  const k = o.keyStage;
+  if (!k) return <span className="faint">All stages done</span>;
+  const tone = o.status === "green" ? "" : o.status;
+  let line: JSX.Element | string;
+  if (k.rateBasis !== "actual") line = "Not started";
+  else if (k.requiredPerDay === null) line = <span className="t-red">Past planned end</span>;
+  else line = <>needs {num(k.requiredPerDay)}/day, making {num(k.runRate)}</>;
   return (
-    <div className="pipeline" aria-label="Stage progress">
-      {stages.map((s) => (
-        <div key={s.code} className={`seg ${s.state}`} title={`${s.name}: ${s.pct}%`}>
-          <i style={{ width: `${s.pct}%` }} />
-        </div>
-      ))}
+    <div className="stage">
+      <div className="row" style={{ gap: 8, justifyContent: "space-between" }}><span>{k.name}</span><span className="num muted">{k.pct}%</span></div>
+      <Progress pct={k.pct} tone={tone} />
+      <div className="faint small num" style={{ marginTop: 4 }}>{line}</div>
     </div>
   );
 }
 
-/** One line of maths: what's needed vs what the floor is doing. */
-function Maths({ o }: { o: BoardOrder }) {
-  const k = o.keyStage;
-  if (!k) return <span className="faint">All stages done</span>;
-  if (k.rateBasis !== "actual") return <span className="muted">{k.name} not started · planned capacity</span>;
-  const behind = k.requiredPerDay !== null && k.runRate < k.requiredPerDay;
+/** Everything that wants the merchandiser's attention on one order, in one place, most urgent first. */
+function flagsFor(o: BoardOrder): { tone: "red" | "amber"; text: string }[] {
+  const out: { tone: "red" | "amber"; text: string }[] = [];
+  if (o.awaitingReply) out.push({ tone: "amber", text: "Buyer waiting for your reply" });
+  if (o.pendingWarnings > 0) out.push({ tone: "amber", text: "Delay warning to review" });
+  const m = o.materials;
+  if (m && m.late > 0) out.push({ tone: "red", text: `${plural(m.late, "material")} late` });
+  else if (m && m.atRisk > 0) out.push({ tone: "amber", text: `${plural(m.atRisk, "material")} at risk` });
+  return out;
+}
+
+function Flags({ o }: { o: BoardOrder }) {
+  return <>{flagsFor(o).map((f) => <div key={f.text} className={`flag t-${f.tone}`}>{f.text}</div>)}</>;
+}
+
+function ExFactory({ o }: { o: BoardOrder }) {
+  const moved = o.projectedExFactory !== o.exFactory;
   return (
-    <span className="maths">
-      <b>{k.name}</b> {k.pct}% ·{" "}
-      {k.requiredPerDay === null ? (
-        <span className="t-red">past planned end</span>
-      ) : (
-        <>
-          need <b className={behind ? `t-${o.status === "green" ? "amber" : o.status}` : ""}>{num(k.requiredPerDay)}</b>/day, making{" "}
-          <b>{num(k.runRate)}</b>/day
-        </>
+    <>
+      <div className="num">{fmtDate(o.exFactory, true)}</div>
+      {moved && (
+        <div className={`small num t-${o.status === "red" ? "red" : "amber"}`}>
+          {o.slackDays < 0 ? `${plural(-o.slackDays, "day")} late` : "ahead"} · {fmtDate(o.projectedExFactory, true)}
+        </div>
       )}
-    </span>
+    </>
   );
 }
 
-/** A late or at-risk material, beside the delay status (it does not change it). */
-function MaterialsNote({ o }: { o: BoardOrder }) {
-  const m = o.materials;
-  if (!m || (m.late === 0 && m.atRisk === 0)) return null;
-  return m.late > 0
-    ? <div className="small t-red" style={{ marginTop: 6 }}>{plural(m.late, "material")} late</div>
-    : <div className="small t-amber" style={{ marginTop: 6 }}>{plural(m.atRisk, "material")} at risk</div>;
+function ExFactoryInline({ o }: { o: BoardOrder }) {
+  return <>{fmtDate(o.exFactory, true)}{o.projectedExFactory !== o.exFactory ? ` → ${fmtDate(o.projectedExFactory, true)}` : ""}</>;
 }
 
 export default function Board() {
@@ -94,136 +103,103 @@ export default function Board() {
     setParams(next, { replace: true });
   };
 
+  const filtered = !!(buyer || unit || week || only || focus);
+  const total = data?.orders.length ?? 0;
+
   return (
     <main className="page">
       <div className="page-head">
         <div>
           <h1>Orders</h1>
-          <p className="sub">
-            Projected from the floor's daily numbers{data ? ` · ${fmtDate(data.today, true)}` : ""}. Trouble first.
-          </p>
+          <p className="sub muted">{data ? `${plural(total, "live order")} · as of ${fmtDate(data.today, true)}` : "\u00a0"}</p>
         </div>
       </div>
 
-      <div className="stack">
+      <div className="stack" style={{ gap: 24 }}>
         {data && (
           <section aria-label="Needs you">
             <div className="section-title">Needs you</div>
-            <Attention items={needs} clear="Nothing is waiting for you. No buyer is waiting on an answer and no warning needs a decision." />
+            <Attention items={needs} clear="Nothing is waiting for you. No buyer needs an answer and no warning needs a decision." />
           </section>
         )}
 
-        <div className="summary">
-          {(["red", "amber", "green"] as Status[]).map((s) => (
-            <button key={s} aria-pressed={only === s} onClick={() => setOnly(only === s ? null : s)}>
-              <span className={`dot dot-${s}`} style={{ alignSelf: "center" }} />
-              <span className="count num">{counts[s]}</span>
-              <span className="muted">{COUNT_LABEL[s]}</span>
-            </button>
-          ))}
-        </div>
+        <section aria-label="All orders" className="stack" style={{ gap: 12 }}>
+          <div className="filter-tabs" role="group" aria-label="Show orders">
+            <button aria-pressed={only === null} onClick={() => setOnly(null)}>All <span className="n num">{total}</span></button>
+            {(["red", "amber", "green"] as Status[]).map((st) => (
+              <button key={st} aria-pressed={only === st} onClick={() => setOnly(only === st ? null : st)}>
+                {COUNT_LABEL[st]} <span className="n num">{counts[st]}</span>
+              </button>
+            ))}
+          </div>
 
-        <div className="filters">
-          <select className="select select-sm" value={buyer} onChange={(e) => setFilter("buyer", e.target.value)} aria-label="Buyer">
-            <option value="">All buyers</option>
-            {meta?.buyers.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
-          <select className="select select-sm" value={unit} onChange={(e) => setFilter("unit", e.target.value)} aria-label="Unit">
-            <option value="">All units</option>
-            {meta?.units.filter((u) => u.kind === "own").map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-          </select>
-          <select className="select select-sm" value={week} onChange={(e) => setFilter("week", e.target.value)} aria-label="Ship week">
-            <option value="">All ship weeks</option>
-            {data?.weeks.map((w) => <option key={w} value={w}>Ship week {w.split("-W")[1]} · {w.slice(0, 4)}</option>)}
-          </select>
-          {FOCUS[focus] && (
-            <span className="chip-filter">Showing {FOCUS[focus].label}<button aria-label="Show all orders" onClick={() => setFilter("focus", "")}>×</button></span>
-          )}
-          {(buyer || unit || week || only || focus) && (
-            <button className="btn btn-ghost btn-sm" onClick={() => { setParams({}, { replace: true }); setOnly(null); }}>Clear</button>
-          )}
-          {loading && <span className="faint small">Updating…</span>}
-        </div>
+          <div className="toolbar">
+            <select className="select select-sm" value={buyer} onChange={(e) => setFilter("buyer", e.target.value)} aria-label="Buyer">
+              <option value="">All buyers</option>
+              {meta?.buyers.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+            <select className="select select-sm" value={unit} onChange={(e) => setFilter("unit", e.target.value)} aria-label="Unit">
+              <option value="">All units</option>
+              {meta?.units.filter((u) => u.kind === "own").map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+            <select className="select select-sm" value={week} onChange={(e) => setFilter("week", e.target.value)} aria-label="Ship week">
+              <option value="">All ship weeks</option>
+              {data?.weeks.map((w) => <option key={w} value={w}>Ship week {w.split("-W")[1]} · {w.slice(0, 4)}</option>)}
+            </select>
+            {FOCUS[focus] && (
+              <span className="chip-filter">{FOCUS[focus].label}<button aria-label="Show all orders" onClick={() => setFilter("focus", "")}>×</button></span>
+            )}
+            {filtered && <button className="btn btn-ghost btn-sm" onClick={() => { setParams({}, { replace: true }); setOnly(null); }}>Clear filters</button>}
+            {loading && <span className="faint small">Updating…</span>}
+          </div>
 
-        {error && <div className="banner banner-error">{error}</div>}
-        {data && orders.length === 0 && <Empty>No orders match these filters.</Empty>}
+          {error && <div className="banner banner-error">{error}</div>}
+          {data && orders.length === 0 && <Empty>No orders match these filters.</Empty>}
 
-        {orders.length > 0 && (
-          <>
-            <div className="card board-wrap">
-              <table className="board">
-                <thead>
-                  <tr>
-                    <th className="status-cell" />
-                    <th>Order</th>
-                    <th>Status</th>
-                    <th>Ex-factory</th>
-                    <th>Where it stands</th>
-                    <th>Stages</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {orders.map((o) => (
-                    <tr key={o.id} onClick={() => nav(`/m/orders/${o.id}`)}>
-                      <td className="status-cell"><div className={`status-bar bar-${o.status}`} /></td>
-                      <td>
-                        <Link to={`/m/orders/${o.id}`} className="po" onClick={(e) => e.stopPropagation()} style={{ textDecoration: "none" }}>
-                          {o.poNo}
-                        </Link>
-                        <div className="muted">{o.style}, <Swatch hex={o.colourHex} />{o.colour.toLowerCase()} · {num(o.qty)} pcs</div>
-                        <div className="faint small">{o.orderNo} · {o.buyer} · {o.unit}</div>
-                      </td>
-                      <td>
-                        <StatusPill status={o.status} />
-                        {o.pendingWarnings > 0 && <div className="small t-amber" style={{ marginTop: 6 }}>Warning to review</div>}
-                        <MaterialsNote o={o} />
-                        {o.awaitingReply && <div className="small t-amber" style={{ marginTop: 6 }}>Buyer is waiting for your reply</div>}
-                      </td>
-                      <td className="nowrap">
-                        <div className="num">{fmtDate(o.exFactory, true)}</div>
-                        {o.projectedExFactory !== o.exFactory && (
-                          <div className={`small num t-${o.status === "red" ? "red" : "green"}`}>
-                            → {fmtDate(o.projectedExFactory, true)}{o.slackDays < 0 ? ` (${plural(-o.slackDays, "day")} late)` : ""}
-                          </div>
-                        )}
-                        <div className="faint small">Wk {o.shipWeek.split("-W")[1]}</div>
-                      </td>
-                      <td style={{ maxWidth: 360 }}>
-                        <Maths o={o} />
-                        {o.headline && o.status === "amber" && <div className="faint small" style={{ marginTop: 4 }}>{o.headline}</div>}
-                      </td>
-                      <td>
-                        <Pipeline stages={o.stages} />
-                        <div className="faint small" style={{ marginTop: 6 }}>
-                          {o.lastUpdate ? `Updated ${fmtDateTime(o.lastUpdate)}` : "No floor updates yet"}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          {orders.length > 0 && (
+            <>
+              <div className="card board-wrap">
+                <table className="board">
+                  <thead>
+                    <tr><th>Order</th><th>Buyer</th><th>Ex-factory</th><th>Now</th><th>Status</th></tr>
+                  </thead>
+                  <tbody>
+                    {orders.map((o) => (
+                      <tr key={o.id} onClick={() => nav(`/m/orders/${o.id}`)}>
+                        <td>
+                          <Link to={`/m/orders/${o.id}`} className="po" onClick={(e) => e.stopPropagation()}>{o.poNo}</Link>
+                          <div className="muted">{o.style} · <Swatch hex={o.colourHex} />{o.colour.toLowerCase()}</div>
+                          <div className="faint small num">{num(o.qty)} pcs · {o.unit}</div>
+                        </td>
+                        <td>{o.buyer}</td>
+                        <td className="nowrap"><ExFactory o={o} /></td>
+                        <td><StageCell o={o} /></td>
+                        <td>
+                          <StatusPill status={o.status} />
+                          <Flags o={o} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
 
-            <div className="board-mobile">
-              {orders.map((o) => (
-                <Link key={o.id} to={`/m/orders/${o.id}`} className="card order-tile">
-                  <div className={`status-bar bar-${o.status}`} />
-                  <div className="stack" style={{ gap: 6, flex: 1, minWidth: 0 }}>
-                    <div className="row" style={{ justifyContent: "space-between" }}>
+              <div className="card board-mobile">
+                {orders.map((o) => (
+                  <Link key={o.id} to={`/m/orders/${o.id}`} className="order-tile">
+                    <div className="row" style={{ justifyContent: "space-between", flexWrap: "nowrap" }}>
                       <b>{o.poNo}</b>
                       <StatusPill status={o.status} />
                     </div>
                     <div className="muted">{o.style} · {o.buyer}</div>
-                    <Maths o={o} />
-                    <MaterialsNote o={o} />
-                    {o.awaitingReply && <div className="small t-amber">Buyer is waiting for your reply</div>}
-                    <div className="small faint">Ex-factory {fmtDate(o.exFactory, true)}{o.projectedExFactory !== o.exFactory ? ` → ${fmtDate(o.projectedExFactory)}` : ""}</div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </>
-        )}
+                    <div className="small faint num">Ex-factory <ExFactoryInline o={o} /></div>
+                    <Flags o={o} />
+                  </Link>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
       </div>
     </main>
   );

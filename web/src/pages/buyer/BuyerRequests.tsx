@@ -49,7 +49,7 @@ function List({ token }: { token: string }) {
           {shown.map((r) => (
             <Link key={r.id} to={`/b/${token}/requests/${r.id}`} className="order-row req4">
               <div style={{ minWidth: 0 }}>
-                <div className="t">{r.poNo}{r.kind === "amendment" ? <span className="pill" style={{ marginLeft: 8 }}>Change to {r.orderNo}</span> : null} <span className="faint small">{r.requestNo}</span></div>
+                <div className="t">{r.poNo}{r.kind === "amendment" ? <span className="tag" style={{ marginLeft: 8 }}>Change to {r.orderNo}</span> : null} <span className="faint small">{r.requestNo}</span></div>
                 <div className="muted small">{r.style}, {r.colour.toLowerCase()} · {num(r.totalQty)} pcs</div>
               </div>
               <div><div className="faint small">Ex-factory asked</div><b className="num">{fmtDate(r.exFactory, true)}</b></div>

@@ -35,6 +35,36 @@ function SetupMenu() {
   );
 }
 
+const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?";
+
+/** Who is signed in, and the few things that belong to the person rather than the work: theme, AI status, sign out. */
+function AccountMenu({ name, ai, onSignOut }: { name: string; ai?: Meta["ai"]; onSignOut: () => void }) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const close = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && ref.current.removeAttribute("open");
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+  return (
+    <details className="menu menu-right menu-user no-print" ref={ref}>
+      <summary aria-label={`Account: ${name}`} title={name}><span className="avatar">{initials(name)}</span></summary>
+      <div className="menu-list">
+        {ai && (
+          <div className="menu-row" title={ai.mode === "ollama" ? `Notes are translated by ${ai.model}, running locally` : ai.reason}>
+            <span>Note translation</span>
+            <span className={`pill ${ai.mode === "ollama" ? "pill-green" : "pill-amber"}`}>{ai.mode === "ollama" ? "AI on" : "Keywords only"}</span>
+          </div>
+        )}
+        <div className="menu-row"><b style={{ fontWeight: 500, color: "var(--ink)" }}>{name}</b></div>
+        <hr />
+        <div className="menu-row"><span>Theme</span><ThemeToggle /></div>
+        <hr />
+        <button className="menu-link" onClick={onSignOut}>Sign out</button>
+      </div>
+    </details>
+  );
+}
+
 export default function OfficeShell() {
   const { user, signOut } = useAuth();
   const { data: meta, reload } = useApi<Meta>("/api/m/meta");
@@ -76,18 +106,7 @@ export default function OfficeShell() {
             <kbd>/</kbd>
           </button>
           <Link to="/m/orders/new" className="btn btn-primary btn-sm">+ New order</Link>
-          {meta && (
-            <span
-              className="pill"
-              title={meta.ai.mode === "ollama" ? `Notes are translated by ${meta.ai.model}, running locally` : meta.ai.reason}
-            >
-              <span className={`dot ${meta.ai.mode === "ollama" ? "dot-green" : "dot-amber"}`} />
-              {meta.ai.mode === "ollama" ? "AI on" : "AI off"}
-            </span>
-          )}
-          <ThemeToggle />
-          <span className="muted small nowrap who-user">{user?.name}</span>
-          <button className="btn btn-ghost btn-sm" onClick={signOut}>Sign out</button>
+          <AccountMenu name={user?.name ?? ""} ai={meta?.ai} onSignOut={signOut} />
         </header>
         <Outlet />
         {searching && <SearchPalette onClose={() => setSearching(false)} />}
