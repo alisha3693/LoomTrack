@@ -1,6 +1,7 @@
 import { ReactNode, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useApi } from "../../components/ui";
+import BuyerAccount from "../../components/BuyerAccount";
 import { ThemeToggle } from "../../lib/theme";
 
 /** Header and "not a valid link" handling for the buyer's pages other than the order list. */
@@ -19,7 +20,7 @@ export default function BuyerFrame({ token, children }: { token: string; childre
             <div className="faint small"><Link to={`/b/${token}`}>← Your orders</Link></div>
             <h1>{data.buyer.name}</h1>
           </div>
-          <div className="row no-print"><ThemeToggle /></div>
+          <div className="row no-print"><BuyerAccount /><ThemeToggle /></div>
         </div>
       </header>
       <main className="page page-narrow">{children(data.buyer.name, data.today)}</main>

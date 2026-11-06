@@ -1,17 +1,18 @@
-"""Read-only buyer link.
+"""The buyer's own pages.
 
-The token is the only credential; the buyer id comes from it and from
-nowhere else, and every lookup below is scoped to it.
+Two ways in, one buyer id out. The private link token in the path is a credential by itself. A buyer
+who signed in with an account uses the word "me" in its place and the id comes from their session.
+Every lookup below is scoped to that id and nothing else.
 """
 
 from __future__ import annotations
 
 import sqlite3
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import FileResponse
 
-from ..deps import AppContext, ctx
+from ..deps import AppContext, ctx, optional_user
 from ..services.buyer_view import buyer_by_token, buyer_orders
 from ..services.export import weekly_workbook
 from ..util import HttpError, iso_week
@@ -21,7 +22,19 @@ router = APIRouter(prefix="/api/b/{token}")
 NO_STORE = {"Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer"}
 
 
-async def current_buyer(token: str, c: AppContext = Depends(ctx)) -> sqlite3.Row:
+ACCOUNT = "me"  # link tokens are 43 random characters, so this can never be one
+
+
+async def current_buyer(token: str, request: Request, c: AppContext = Depends(ctx)) -> sqlite3.Row:
+    if token == ACCOUNT:
+        user = await optional_user(request, c)
+        if user is None:
+            raise HttpError(401, "Sign in required")
+        if user.role != "buyer":
+            raise HttpError(403, "This page is for buyer accounts")
+        if user.must_change_secret:
+            raise HttpError(403, "Choose a new password first")
+        return c.db.execute("SELECT * FROM buyers WHERE id = ?", (user.buyer_id,)).fetchone()
     buyer = buyer_by_token(c.db, token)
     if buyer is None:
         raise HttpError(404, "This link is not valid. Ask your merchandiser for a new one.")

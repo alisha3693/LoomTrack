@@ -9,6 +9,7 @@ erDiagram
     buyers ||--o{ orders : "places"
     units ||--o{ orders : "runs"
     units ||--o{ users : "employs supervisors"
+    buyers ||--o{ users : "has sign-in accounts"
     units ||--o{ milestones : "does stage"
     users ||--o{ sessions : "signs in"
     users ||--o{ orders : "merchandises"
@@ -52,11 +53,13 @@ erDiagram
     users {
         INTEGER id PK
         TEXT name
-        TEXT role "merchandiser or supervisor"
+        TEXT role "merchandiser, supervisor or buyer"
         TEXT login UK "email or phone"
         TEXT secret_hash "scrypt"
         INTEGER unit_id FK "supervisors only"
         TEXT lang "en or ta"
+        INTEGER buyer_id FK "buyer accounts only"
+        INTEGER must_change_secret "1 until the buyer picks their own"
     }
     sessions {
         TEXT token PK
@@ -246,7 +249,7 @@ erDiagram
 
 | Area | Tables | Note |
 |---|---|---|
-| People and access | `buyers`, `users`, `sessions`, `units` | A buyer's `link_token` is their credential. A supervisor's `unit_id` limits which stages they see. |
+| People and access | `buyers`, `users`, `sessions`, `units` | A buyer's `link_token` is a credential, and so is a buyer account (`users.role = 'buyer'`, tied to one buyer by `buyer_id`; a CHECK keeps the two in step). A supervisor's `unit_id` limits which stages they see. |
 | The plan | `orders`, `order_sizes`, `plan_steps`, `milestones` | `plan_steps` holds each kind of step once (names, stage or milestone). `milestones` is one order's plan: a row per step with that order's dates. |
 | Requests | `order_requests`, `request_sizes`, `request_messages` | A buyer's request is a conversation, either a new order or a change to an existing one (`kind = 'amendment'`, with `order_id` set and `request_sizes` holding the full new quantities). `status` says whose turn it is: `submitted` is the merchandiser's, `query` and `countered` are the buyer's. `request_messages` is the history and is append-only (triggers). Accepting creates an `orders` row and sets `order_requests.order_id`. |
 | Files | `attachments` | Designs, patterns, print artwork, fabric references. A file belongs to a request, an order, or both: a request's files follow it onto the order it becomes. The buyer's own uploads are always visible to that buyer; ours are private unless `buyer_visible` is set; `supervisor_visible` decides what the floor can open. |
@@ -281,7 +284,7 @@ erDiagram
 
 ## Versions and migration
 
-`PRAGMA user_version` holds the schema version (now 5). Older databases are migrated in place when the app opens them, one version at a time: one transaction, a copy saved as `<db>.v0.bak` or `.v1.bak`, and a foreign-key check afterwards.
+`PRAGMA user_version` holds the schema version (now 6). Older databases are migrated in place when the app opens them, one version at a time: one transaction, a copy saved as `<db>.v0.bak`, `.v1.bak` or `.v5.bak`, and a foreign-key check afterwards.
 
 | Version | Change |
 |---|---|
@@ -290,5 +293,6 @@ erDiagram
 | 2 to 3 | `templates` and `template_steps` tables; `plan_steps.builtin`. The three built-in templates are copied in from code at startup. |
 | 3 to 4 | `order_requests`, `request_sizes`, `request_messages` (new tables only, nothing rebuilt). |
 | 4 to 5 | `attachments` (new table only). |
+| 5 to 6 | Buyer accounts: `users` gains the `buyer` role, `buyer_id` and `must_change_secret`. SQLite cannot change a CHECK in place, so the table is rebuilt and refilled; sessions and every user keep their ids. |
 
-Code: `_migrate_v0` and `_migrate_v1` in [db.py](../backend/loomtrack/db.py). Tests: [test_migration.py](../backend/tests/test_migration.py).
+Code: `_migrate_v0`, `_migrate_v1` and `_migrate_v5` in [db.py](../backend/loomtrack/db.py). Tests: [test_migration.py](../backend/tests/test_migration.py).

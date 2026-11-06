@@ -22,7 +22,7 @@ export default function Login() {
     try {
       const u = await signIn(login.trim(), secret);
       if (u.role === "supervisor") setLang(u.lang === "en" ? "en" : "ta");
-      nav(u.role === "supervisor" ? "/s" : "/m", { replace: true });
+      nav(u.must_change_secret ? "/account/password" : u.role === "supervisor" ? "/s" : u.role === "buyer" ? "/b/me" : "/m", { replace: true });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -65,6 +65,8 @@ export default function Login() {
           <summary>Demo logins</summary>
           <div className="faint" style={{ marginTop: 6, lineHeight: 1.8 }}>
             Merchandiser: priya@companya.in / loom1234
+            <br />
+            Buyer: hannah@companyb.example / buyer1234
             <br />
             Supervisor Unit 1: 9840000001 / 1111 · Unit 2: 9840000002 / 2222
             <br />

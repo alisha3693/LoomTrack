@@ -80,10 +80,10 @@ Office → C-PO-0488 → **Floor updates** (allow ~5–20 s for the local model)
 - Edit the template afterwards: the order you created does not change. Retire it: it leaves the dropdown, existing orders are unaffected.
 - Try a stage whose start is later than its end, or two steps with the same name: the server explains what's wrong.
 
-## 6c. A buyer asks for an order (landing page, request, conversation)
+## 6c. A buyer asks for an order (home page, request, conversation)
 Use two windows: the office (signed in as Priya) and a private window for the buyer.
 
-1. Buyer window: open **http://localhost:4000** signed out. **Expect:** the landing page. Paste a buyer link (**Buyers & exports → Open buyer view** shows it) and **Open my orders**.
+1. Buyer window: open **http://localhost:4000** signed out. **Expect:** the home page. Paste a buyer link (**Buyers & exports → Open buyer view** shows it) and **Open my orders**.
 2. **New order request**: PO `B-PO-91000`, style, colour (Pantone and hex optional), a date, quantities by size. **Send request.** **Expect:** *With the merchandiser*.
 3. Office: **Requests** shows a count. Open it. **Ask a question.** The status becomes *Waiting for the buyer*.
 4. Buyer: reload. **Expect:** *Question for you*. Reply. The status goes back to *With the merchandiser*.
@@ -104,6 +104,14 @@ Use two windows: the office (signed in as Priya) and a private window for the bu
 4. Try lowering a quantity below what is already made (for example cutting 2,400 on B-PO-88301, then ask for fewer than that): applying is refused and nothing changes.
 5. On the order, **Record a change** (as if the buyer emailed): it is applied at once, and the buyer sees it under *Order requests* as *Accepted*.
 6. The stage dates are deliberately not moved. Open the plan and edit any date: each edit needs a reason and is logged.
+
+## 6e. A buyer signs in with their own account, and the home page
+1. Signed out, open **http://localhost:4000**. **Expect:** the home page: what LoomTrack does, who it is for, how an order moves, a box for a private link and a **Sign in** button.
+2. Office, **Buyers & exports**, Company B: **Add a person**, name *Sam Patel*, email *sam@companyb.example*, **Create sign-in**. **Expect:** a temporary password in an amber box, with a note that it is not shown again. A second sign-in with the same email is refused.
+3. Buyer window: **Sign in** with that email and the temporary password. **Expect:** you are sent to *Choose your own password* and cannot skip it, even by typing `/b/me`. Try a password under 8 characters, then a good one.
+4. **Expect:** Company B's own orders and requests, with **Password** and **Sign out** in the header, and none of Company C's. The private link still works the same way.
+5. Office: **New password** beside Sam. **Expect:** Sam's open window is signed out at once and the account shows *Has not signed in yet* again. **Remove** ends the account the same way.
+6. Demo accounts after `npm run seed`: `hannah@companyb.example` / `buyer1234` (Company B), `jonas@companyc.example` / `buyer1234` (Company C).
 
 ## 7. Date changes leave a compliance trail
 On any order: **Change ex-factory** (or click a due date in the TNA list).
@@ -127,7 +135,7 @@ Open each of the three buyer links.
 ## Automated checks
 | Command | What it proves |
 |---|---|
-| `npm test` | 72 backend tests: run-rate maths, keyword classifier, schema migration, order requests and changes, file upload checks, buyer isolation, idempotent offline sends, unit scoping, AI fallback, confirm-before-buyer, append-only audit |
+| `npm test` | 78 backend tests: run-rate maths, keyword classifier, schema migration, order requests and changes, file upload checks, buyer isolation, idempotent offline sends, unit scoping, AI fallback, confirm-before-buyer, append-only audit |
 | `npm run explain` | Prints the run-rate maths for every order in the terminal |
 | `python e2e/walkthrough.py` | Clicks through every screen in a headless browser, saves screenshots to `e2e/shots/`, fails on any browser error (run `npm run seed` first) |
 | `python e2e/offline_test.py` | Phone offline → update queued → back online → lands exactly once |

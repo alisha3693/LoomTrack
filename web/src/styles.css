@@ -376,3 +376,30 @@ details > summary::marker { color: var(--ink-3); }
 .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--line-2); vertical-align: -1px; margin-right: 6px; }
 .swatch-lg { width: 36px; height: 36px; margin: 0; border-radius: 8px; flex: none; }
 .color-pick { width: 40px; height: 40px; padding: 2px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface); cursor: pointer; flex: none; }
+
+/* ---------- Home page ---------- */
+.home { min-height: 100vh; background: var(--bg); }
+.home-inner { width: 100%; max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+.home-nav { position: sticky; top: 0; z-index: 10; background: var(--topbar-bg); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+.home-nav .home-inner { height: 60px; }
+.home-nav .brand { text-decoration: none; color: var(--ink); }
+.home-links { gap: 20px; }
+.home-links a { color: var(--ink-2); text-decoration: none; font-size: 14px; }
+.home-links a:hover { color: var(--ink); }
+.home-hero { padding: 72px 0 56px; }
+.home-hero h1 { font-size: clamp(30px, 5vw, 48px); line-height: 1.12; max-width: 760px; margin: 0; }
+.home-kicker { margin: 0; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }
+.home-sub { margin: 0; max-width: 640px; font-size: 18px; line-height: 1.55; color: var(--ink-2); }
+.home-section { padding: 56px 0; scroll-margin-top: 60px; }
+.home-alt { background: var(--sunken); }
+.home-section h2 { font-size: 24px; margin: 0; }
+.home-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.home-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; color: var(--ink-2); }
+.home-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.home-num { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--ink); color: var(--on-ink); font-size: 14px; font-weight: 600; }
+.home-foot { border-top: 1px solid var(--line); padding: 20px 0; }
+@media (max-width: 640px) {
+  .home-links { display: none; }
+  .home-hero { padding: 44px 0 36px; }
+  .home-sub { font-size: 16px; }
+}

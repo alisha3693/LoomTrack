@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
+import BuyerAccount from "../../components/BuyerAccount";
 import { Progress, Swatch, useApi } from "../../components/ui";
 import { FileList } from "../../components/Attachments";
 import { RequestPill } from "../../components/RequestParts";
@@ -89,6 +90,7 @@ export default function BuyerView() {
           <div className="row no-print">
             <a className="btn" href={`/api/b/${token}/weekly.xlsx`}>Weekly status (Excel)</a>
             <button className="btn btn-ghost" onClick={() => window.print()}>Print / PDF</button>
+            <BuyerAccount />
             <ThemeToggle />
           </div>
         </div>

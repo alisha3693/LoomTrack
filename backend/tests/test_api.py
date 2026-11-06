@@ -769,3 +769,118 @@ def test_the_merchandiser_can_record_a_change_the_buyer_sent_by_email(env):
     events = [m for m in _buyer(env, t, f"/{r.json()['id']}").json()["messages"]]
     assert [(m["author"], m["event"]) for m in events] == [("merchandiser", "submitted"), ("merchandiser", "accepted")]
     assert env["client"].post(f"/api/m/orders/{oid}/amend", headers=env["merch"], json={"reason": "again", "exFactory": "2026-12-18"}).status_code == 400
+
+
+# --- buyer accounts ------------------------------------------------------------------
+
+
+def _new_login(env, buyer_id, email, name="Hannah"):
+    r = env["client"].post(f"/api/m/buyers/{buyer_id}/logins", headers=env["merch"], json={"name": name, "email": email})
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def _sign_in(env, email, secret):
+    env["client"].cookies.clear()
+    r = env["client"].post("/api/auth/login", json={"login": email, "secret": secret})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['token']}"}
+
+
+def test_a_buyer_account_signs_in_and_sees_only_its_own_buyer(env):
+    c = env["client"]
+    made = _new_login(env, 1, "Hannah@BuyerB.example")
+    assert made["login"] == "hannah@buyerb.example" and len(made["password"]) == 12
+    assert "password" not in str(env["db"].execute("SELECT * FROM users WHERE login = ?", (made["login"],)).fetchone()[:])
+
+    h = _sign_in(env, "HANNAH@buyerb.example", made["password"])
+    me = c.get("/api/auth/me", headers=h).json()["user"]
+    assert (me["role"], me["buyer_name"], me["must_change_secret"]) == ("buyer", "Buyer B", 1)
+    assert c.get("/api/b/me", headers=h).status_code == 403                        # the office chose this password: change it first
+
+    new = "a-better-one-1"
+    assert c.post("/api/auth/password", headers=h, json={"current": "wrong-one", "new": new}).status_code == 400
+    assert c.post("/api/auth/password", headers=h, json={"current": made["password"], "new": "short"}).status_code == 400
+    assert c.post("/api/auth/password", headers=h, json={"current": made["password"], "new": made["password"]}).status_code == 400
+    assert c.post("/api/auth/password", headers=h, json={"current": made["password"], "new": new}).status_code == 200
+
+    view = c.get("/api/b/me", headers=h).json()
+    assert view["buyer"]["name"] == "Buyer B"
+    pos = {o["poNo"] for o in view["orders"]}
+    assert "PO-B-1" in pos and "PO-C-1" not in pos
+
+    # They are a buyer, not staff: the office and floor APIs refuse them.
+    for path in ("/api/m/buyers", "/api/m/requests", "/api/s/orders", "/api/m/templates"):
+        assert c.get(path, headers=h).status_code == 403, path
+
+    # What they send is filed under their own buyer and invisible to another buyer's link.
+    rid = c.post("/api/b/me/requests", headers=h, json={"poNo": "ACC-1", "style": "Crew neck tee", "colour": "Navy", "exFactory": "2026-12-20",
+                                                         "sizes": [{"size": "M", "qty": 100}]}).json()["id"]
+    assert env["db"].execute("SELECT buyer_id FROM order_requests WHERE id = ?", (rid,)).fetchone()[0] == 1
+    assert c.get(f"/api/b/{env['tokenC']}/requests/{rid}").status_code == 404
+    assert c.get(f"/api/b/me/requests/{rid}", headers=h).status_code == 200
+
+
+def test_me_needs_a_buyer_session(env):
+    c = env["client"]
+    c.cookies.clear()
+    assert c.get("/api/b/me").status_code == 401
+    assert c.get("/api/b/me", headers=env["merch"]).status_code == 403             # staff have no buyer behind them
+    assert c.get("/api/b/me", headers=env["sup1"]).status_code == 403
+
+
+def test_the_session_cookie_works_for_a_buyer_account(env):
+    c = env["client"]
+    made = _new_login(env, 2, "jonas@buyerc.example", "Jonas")
+    c.cookies.clear()
+    c.post("/api/auth/login", json={"login": made["login"], "secret": made["password"]})
+    assert c.post("/api/auth/password", json={"current": made["password"], "new": "cookie-pass-9"}).status_code == 200
+    assert {o["poNo"] for o in c.get("/api/b/me").json()["orders"]} >= {"PO-C-1"}   # cookie only, no header
+    c.cookies.clear()
+
+
+def test_the_office_manages_buyer_logins(env):
+    c, h = env["client"], env["merch"]
+    made = _new_login(env, 1, "mgr@buyerb.example", "Manager")
+    for bad, status in (({"name": "X", "email": "not-an-email"}, 400), ({"name": " ", "email": "a@b.example"}, 400),
+                        ({"name": "Dup", "email": "MGR@buyerb.example"}, 409)):
+        assert c.post("/api/m/buyers/1/logins", headers=h, json=bad).status_code == status, bad
+    assert c.post("/api/m/buyers/999/logins", headers=h, json={"name": "X", "email": "x@y.example"}).status_code == 404
+    listed = next(b for b in c.get("/api/m/buyers", headers=h).json() if b["id"] == 1)["logins"]
+    assert any(x["login"] == made["login"] and x["pending"] == 1 for x in listed)
+
+    # Changing the password signs the other devices out.
+    first = _sign_in(env, made["login"], made["password"])
+    second = _sign_in(env, made["login"], made["password"])
+    assert c.post("/api/auth/password", headers=first, json={"current": made["password"], "new": "mgr-new-pass-1"}).status_code == 200
+    assert c.get("/api/auth/me", headers=first).status_code == 200
+    assert c.get("/api/auth/me", headers=second).status_code == 401
+
+    # A reset signs everyone out, invalidates the old password and asks for a change again.
+    uid = next(x["id"] for x in c.get("/api/m/buyers", headers=h).json()[0]["logins"] + c.get("/api/m/buyers", headers=h).json()[1]["logins"] if x["login"] == made["login"])
+    reset = c.post(f"/api/m/buyer-logins/{uid}/reset", headers=h).json()
+    assert c.get("/api/auth/me", headers=first).status_code == 401
+    c.cookies.clear()
+    assert c.post("/api/auth/login", json={"login": made["login"], "secret": "mgr-new-pass-1"}).status_code == 401
+    again = _sign_in(env, made["login"], reset["password"])
+    assert c.get("/api/auth/me", headers=again).json()["user"]["must_change_secret"] == 1
+
+    # Removing the login ends the session and the sign-in.
+    assert c.delete(f"/api/m/buyer-logins/{uid}", headers=h).status_code == 200
+    assert c.get("/api/auth/me", headers=again).status_code == 401
+    c.cookies.clear()
+    assert c.post("/api/auth/login", json={"login": made["login"], "secret": reset["password"]}).status_code == 401
+    # Only buyer accounts can be reset or removed this way, never staff.
+    staff_id = env["db"].execute("SELECT id FROM users WHERE login = '9000000001'").fetchone()[0]
+    assert c.post(f"/api/m/buyer-logins/{staff_id}/reset", headers=h).status_code == 404
+    assert c.delete(f"/api/m/buyer-logins/{staff_id}", headers=h).status_code == 404
+    assert c.post("/api/m/buyers/1/logins", json={"name": "X", "email": "q@w.example"}).status_code == 401
+    assert c.post("/api/m/buyers/1/logins", headers=env["sup1"], json={"name": "X", "email": "q@w.example"}).status_code == 403
+
+
+def test_a_buyer_account_must_belong_to_a_buyer(env):
+    db = env["db"]
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute("INSERT INTO users (name, role, login, secret_hash) VALUES ('B', 'buyer', 'x@y.example', 'h')")
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute("INSERT INTO users (name, role, login, secret_hash, buyer_id) VALUES ('M', 'merchandiser', 'm2@y.example', 'h', 1)")

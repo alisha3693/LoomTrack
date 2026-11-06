@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from ..deps import SESSION_COOKIE, AppContext, User, bearer, ctx, staff
+from ..deps import SESSION_COOKIE, AppContext, User, bearer, ctx, signed_in
+from ..services import accounts
 from ..security import session_expiry, verify_secret, verify_signed_path, new_token
 from ..util import HttpError
 
@@ -17,7 +18,7 @@ router = APIRouter(prefix="/api")
 # Per-login lockout: 5 wrong tries → 5 minutes. In memory is enough for one server.
 _attempts: dict[str, tuple[int, float]] = {}
 MAX_TRIES, LOCK_SECONDS = 5, 300
-COOKIE_DAYS = {"supervisor": 90, "merchandiser": 14}  # matches security.session_expiry
+COOKIE_DAYS = {"supervisor": 90, "merchandiser": 14, "buyer": 30}  # matches security.session_expiry
 
 
 class LoginIn(BaseModel):
@@ -34,7 +35,7 @@ async def login(body: LoginIn, request: Request, response: Response, c: AppConte
     if n >= MAX_TRIES:
         raise HttpError(429, "Too many attempts. Wait 5 minutes.")
 
-    user = c.db.execute("SELECT id, name, role, unit_id, lang, secret_hash FROM users WHERE lower(login) = ?", (key,)).fetchone()
+    user = c.db.execute("SELECT id, name, role, unit_id, lang, buyer_id, must_change_secret, secret_hash FROM users WHERE lower(login) = ?", (key,)).fetchone()
     if user is None or not verify_secret(body.secret, user["secret_hash"]):
         _attempts[key] = (n + 1, time.time() + LOCK_SECONDS)
         raise HttpError(401, "Wrong login or PIN")
@@ -48,14 +49,25 @@ async def login(body: LoginIn, request: Request, response: Response, c: AppConte
         SESSION_COOKIE, token, max_age=COOKIE_DAYS[user["role"]] * 86400,
         httponly=True, samesite="lax", secure=request.url.scheme == "https",
     )
-    safe = {k: user[k] for k in ("id", "name", "role", "unit_id", "lang")}
-    return {"token": token, "user": safe}
+    return {"token": token}
 
 
 @router.get("/auth/me")
-async def me(user: User = Depends(staff), c: AppContext = Depends(ctx)):
+async def me(user: User = Depends(signed_in), c: AppContext = Depends(ctx)):
     unit = c.db.execute("SELECT name FROM units WHERE id = ?", (user.unit_id,)).fetchone() if user.unit_id else None
-    return {"user": {**user.__dict__, "unit_name": unit["name"] if unit else None}}
+    buyer = c.db.execute("SELECT name FROM buyers WHERE id = ?", (user.buyer_id,)).fetchone() if user.buyer_id else None
+    return {"user": {**user.__dict__, "unit_name": unit["name"] if unit else None, "buyer_name": buyer["name"] if buyer else None}}
+
+
+class PasswordIn(BaseModel):
+    current: str = Field(min_length=1, max_length=100)
+    new: str = Field(min_length=1, max_length=100)
+
+
+@router.post("/auth/password")
+async def change_password(body: PasswordIn, request: Request, user: User = Depends(signed_in), c: AppContext = Depends(ctx)):
+    accounts.change_password(c.db, user.id, body.current, body.new, bearer(request))
+    return {"ok": True}
 
 
 @router.post("/auth/logout")

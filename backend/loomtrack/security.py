@@ -27,7 +27,7 @@ def new_token() -> str:
 
 
 # Supervisors stay signed in on their phone for a season; office sessions are shorter.
-SESSION_DAYS = {"supervisor": 90, "merchandiser": 14}
+SESSION_DAYS = {"supervisor": 90, "merchandiser": 14, "buyer": 30}
 
 
 def session_expiry(role: str) -> str:

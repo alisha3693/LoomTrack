@@ -4,9 +4,11 @@ import { api, getToken, setToken } from "./api";
 export interface User {
   id: number;
   name: string;
-  role: "merchandiser" | "supervisor";
+  role: "merchandiser" | "supervisor" | "buyer";
   unit_id: number | null;
   unit_name?: string | null;
+  buyer_name?: string | null;
+  must_change_secret?: number;
   lang: string;
 }
 
@@ -15,6 +17,7 @@ interface AuthState {
   loading: boolean;
   signIn: (login: string, secret: string) => Promise<User>;
   signOut: () => void;
+  refresh: () => Promise<void>;
 }
 
 const Ctx = createContext<AuthState | null>(null);
@@ -66,7 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = useCallback(async (login: string, secret: string) => {
-    const r = await api<{ token: string; user: User }>("/api/auth/login", { body: { login, secret } });
+    const r = await api<{ token: string }>("/api/auth/login", { body: { login, secret } });
     setToken(r.token);
     const me = await api<{ user: User }>("/api/auth/me");
     setUser(me.user);
@@ -81,7 +84,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
-  return <Ctx.Provider value={{ user, loading, signIn, signOut }}>{children}</Ctx.Provider>;
+  const refresh = useCallback(async () => {
+    const me = await api<{ user: User }>("/api/auth/me");
+    setUser(me.user);
+    cacheUser(me.user);
+  }, []);
+
+  return <Ctx.Provider value={{ user, loading, signIn, signOut, refresh }}>{children}</Ctx.Provider>;
 }
 
 export function useAuth() {

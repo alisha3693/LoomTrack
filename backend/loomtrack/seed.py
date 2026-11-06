@@ -33,6 +33,12 @@ BUYERS = [
     ("Company D (Netherlands)", "Netherlands"),  # synthetic
 ]
 
+# Demo sign-ins for the buyers' own people (buyer, name, email, password).
+BUYER_LOGINS = [
+    ("Company B (UK)", "Hannah Clarke", "hannah@companyb.example", "buyer1234"),
+    ("Company C (Germany)", "Jonas Weber", "jonas@companyc.example", "buyer1234"),
+]
+
 UNIT1, UNIT2, UNIT3 = "Unit 1 · Avinashi Road", "Unit 2 · Tiruppur North", "Unit 3 · Palladam"
 PRINTER, WASHER = "Sri Murugan Prints (job work)", "Velan Garment Wash (job work)"
 UNITS = [(UNIT1, "own", None), (UNIT2, "own", None), (UNIT3, "own", None), (PRINTER, "subcontract", "printing"), (WASHER, "subcontract", "washing")]
@@ -166,6 +172,10 @@ async def seed(db, today: str) -> None:
             supervisor_of[unit_id[unit]] = uid
         merch_id = merch_id or (uid if role == "merchandiser" else None)
 
+    for buyer, name, email, secret in BUYER_LOGINS:
+        db.execute("INSERT INTO users (name, role, login, secret_hash, lang, buyer_id) VALUES (?,?,?,?,?,?)",
+                   (name, "buyer", email, hash_secret(secret), "en", buyer_id[buyer]))
+
     to_classify: list[tuple[str, str]] = []
     yesterday = CALENDAR.prev_working_day(today)
 
@@ -256,7 +266,7 @@ def main() -> None:
     print("\nBuyer links (open on the web app):")
     for r in db.execute("SELECT name, link_token FROM buyers"):
         print(f"  {r['name']:<26} /b/{r['link_token']}")
-    print("\nLogins: priya@companya.in / loom1234 (merchandiser) · 9840000001 / 1111 (supervisor, Unit 1) · more in README")
+    print("\nLogins: priya@companya.in / loom1234 (merchandiser) · 9840000001 / 1111 (supervisor, Unit 1) · hannah@companyb.example / buyer1234 (buyer) · more in README")
 
 
 if __name__ == "__main__":

@@ -16,7 +16,9 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` not started. Updated as wor
 - [ ] Offer to re-plan the stage dates when an ex-factory change is applied (today they are not moved; the merchandiser edits them, each edit audited)
 - [ ] A new order whose early milestones (fit and PP approval) fall before its creation date shows amber "Behind plan" straight away. Let the merchandiser mark them already approved when creating the order
 - [ ] Virus scanning for uploaded files (none today); thumbnails and in-browser preview for more than images and PDF
-- [ ] Invited buyer accounts (today anyone holding the buyer link can send and answer requests for that buyer; rotate the link to cut access)
+- [x] Buyer accounts: the office creates a sign-in for each person at the buyer, with a one-time temporary password and a forced first change; reset and remove; the private link still works
+- [ ] Buyer accounts: email the invitation and a self-service "forgot password" (today the office passes the temporary password on and resets by hand; outbound email is still mocked)
+- [ ] Buyer accounts: retire the private link once everyone has an account, and give each account its own view of who may send and who may only read (today every account for a buyer can do everything the link can)
 - [ ] Unit management screen (subcontractors for new processes such as embroidery; today they come from the seed)
 - [ ] Next schema change: add a migration step per version (v0 to v1, v1 to v2 and v2 to v3 exist)
 - [x] Seed from sample data (3 POs from brief) + synthetic history so run-rates exist

@@ -108,6 +108,7 @@ The buyer endpoints never reuse the office responses. They build a separate resp
 - **Left out on purpose:** unit and subcontractor names, status colour, slack, supervisor names and notes, unconfirmed warnings.
 - Every query is filtered by the buyer ID found from the link's token. There's no buyer ID in the URL a buyer could change.
 - A buyer's token can't be used as a staff session, and rotating the link kills the old one at once.
+- **Buyer accounts.** A buyer's people can also sign in with an email and password the office creates (Buyers & exports → *Add a person*). The office sees a random temporary password once and passes it on; it is stored only as a hash. The first sign-in forces a new password (the server refuses the buyer pages until it is changed). Signed in, the buyer uses `/b/me`: the same pages and the same endpoints as the link, with the word `me` in place of the token and the buyer id taken from the session instead. Changing or resetting a password signs the other devices out; removing the account ends its sessions. Staff and buyer accounts are told apart by role, so a buyer can never reach an office or floor endpoint.
 
 ## The date-change trail
 
@@ -128,7 +129,11 @@ Changing ex-factory, or any planned date, requires a reason and writes a row to 
 | Files | on request, order and stage pages | `POST /api/b/:token/requests/:id/attachments`, `POST /api/m/requests/:id/attachments`, `POST /api/m/orders/:id/attachments`, `PATCH`/`DELETE /api/m/attachments/:id`, `GET /api/s/orders/:id/attachments`, `GET /api/b/:token/attachments/:id` |
 | Buyer: ask for a change | `/b/:token/orders/:id/change` | `POST /api/b/:token/orders/:id/amendments` |
 | Record a change (office) | button on the order page | `POST /api/m/orders/:id/amend` |
-| Landing | `/` (signed out) | none: staff sign in, buyers paste their link |
+| Home page | `/` (signed out) | none: explains the product, sign in, or paste a buyer link |
+| Sign in | `/login` | `POST /api/auth/login`, `GET /api/auth/me` (all three roles) |
+| Change password | `/account/password` | `POST /api/auth/password` |
+| Buyer: own page | `/b/me` (and `/b/me/...` for requests and changes) | the `/api/b/me/...` endpoints, signed in |
+| Buyer sign-in accounts (office) | Buyers & exports | `POST /api/m/buyers/:id/logins`, `POST /api/m/buyer-logins/:id/reset`, `DELETE /api/m/buyer-logins/:id` |
 | Templates | `/m/templates`, `/m/templates/new`, `/m/templates/:id` | `GET/POST /api/m/templates`, `PUT /api/m/templates/:id`, retire/restore, `POST /api/m/templates/preview`, `PATCH /api/m/steps/:code` |
 | Supervisor home | `/s` | `GET /api/s/orders` (cached on the phone) |
 | Supervisor update | `/s/update/:id` | `POST /api/s/updates` (through the offline queue) |
@@ -167,7 +172,7 @@ backend/loomtrack/
   routes/              auth, merchandiser, templates, requests (both sides), attachments, supervisor, buyer
   ai/classifier.py     Ollama call + keyword fallback
   seed.py / explain.py demo data / prints the run-rate maths for every order
-backend/tests/         72 tests
+backend/tests/         78 tests
 web/src/
   App.tsx              routes + role guards
   lib/                 api client, auth, Tamil strings, offline outbox, photo/voice helpers, theme

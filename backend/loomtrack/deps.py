@@ -33,6 +33,8 @@ class User:
     role: str
     unit_id: int | None
     lang: str
+    buyer_id: int | None = None
+    must_change_secret: int = 0
 
 
 async def ctx(request: Request) -> AppContext:
@@ -53,7 +55,7 @@ async def optional_user(request: Request, c: AppContext = Depends(ctx)) -> User 
     if not token:
         return None
     row = c.db.execute(
-        """SELECT u.id, u.name, u.role, u.unit_id, u.lang FROM sessions s JOIN users u ON u.id = s.user_id
+        """SELECT u.id, u.name, u.role, u.unit_id, u.lang, u.buyer_id, u.must_change_secret FROM sessions s JOIN users u ON u.id = s.user_id
            WHERE s.token = ? AND s.expires_at > ?""",
         (token, utc_now()),
     ).fetchone()
@@ -74,3 +76,4 @@ def require_role(*roles: str):
 merchandiser = require_role("merchandiser")
 supervisor = require_role("supervisor")
 staff = require_role("merchandiser", "supervisor")
+signed_in = require_role("merchandiser", "supervisor", "buyer")

@@ -162,3 +162,28 @@ def test_v2_database_gets_the_template_tables_and_keeps_its_orders(tmp_path):
     assert {r["key"] for r in db.execute("SELECT key FROM templates")} == {"basic", "printed", "washed"}
     assert db.execute("SELECT builtin FROM plan_steps WHERE code = 'CUT'").fetchone()[0] == 1
     assert db.execute("SELECT po_no FROM orders").fetchone()[0] == "P"  # the order is untouched
+
+
+def test_v5_database_gets_buyer_accounts_and_keeps_its_users_and_sessions(tmp_path):
+    """Before buyer accounts the users table had no buyer role, buyer_id or must_change_secret."""
+    f = tmp_path / "v5.db"
+    db = open_db(str(f))
+    db.execute("PRAGMA foreign_keys = OFF")
+    db.executescript(
+        "DROP TABLE users;"
+        "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('merchandiser', 'supervisor')),"
+        " login TEXT NOT NULL UNIQUE, secret_hash TEXT NOT NULL, unit_id INTEGER REFERENCES units(id), lang TEXT NOT NULL DEFAULT 'en');"
+        "INSERT INTO users VALUES (1, 'Priya', 'merchandiser', 'p@x.in', 'h', NULL, 'en');"
+        "INSERT INTO sessions VALUES ('tok', 1, '2999-01-01T00:00:00+00:00');"
+        "PRAGMA user_version = 5;"
+    )
+    db.close()
+
+    db = open_db(str(f))
+    assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    assert tuple(db.execute("SELECT name, buyer_id, must_change_secret FROM users").fetchone()) == ("Priya", None, 0)
+    assert db.execute("SELECT user_id FROM sessions WHERE token = 'tok'").fetchone()[0] == 1
+    assert (tmp_path / "v5.db.v5.bak").exists()
+    assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+    db.execute("INSERT INTO buyers (id, name, link_token) VALUES (1, 'B', 't')")
+    db.execute("INSERT INTO users (name, role, login, secret_hash, buyer_id) VALUES ('Hannah', 'buyer', 'h@b.example', 'h', 1)")  # the new role is accepted

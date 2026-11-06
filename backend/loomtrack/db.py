@@ -26,11 +26,14 @@ CREATE TABLE IF NOT EXISTS units (
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('merchandiser', 'supervisor')),
-  login TEXT NOT NULL UNIQUE,       -- email for office, phone for supervisors
+  role TEXT NOT NULL CHECK (role IN ('merchandiser', 'supervisor', 'buyer')),
+  login TEXT NOT NULL UNIQUE,       -- email for office and buyers, phone for supervisors
   secret_hash TEXT NOT NULL,
   unit_id INTEGER REFERENCES units(id),
-  lang TEXT NOT NULL DEFAULT 'en'
+  lang TEXT NOT NULL DEFAULT 'en',
+  buyer_id INTEGER REFERENCES buyers(id),          -- set for buyer accounts, and only for them
+  must_change_secret INTEGER NOT NULL DEFAULT 0,   -- 1 while the password is one the office chose
+  CHECK ((role = 'buyer') = (buyer_id IS NOT NULL))
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -274,7 +277,7 @@ CREATE TABLE IF NOT EXISTS outbox_messages (
 """
 
 
-SCHEMA_VERSION = 5  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no/colour, 2 = before templates, 3 = before order requests, 4 = before attachments
+SCHEMA_VERSION = 6  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no/colour, 2 = before templates, 3 = before order requests, 4 = before attachments, 5 = before buyer accounts
 
 
 def _is_v0(db: sqlite3.Connection) -> bool:
@@ -371,6 +374,41 @@ def _migrate_v1(db: sqlite3.Connection, file: str) -> None:
         raise RuntimeError(f"Migration left broken references; the pre-migration copy is {file}.v1.bak")
 
 
+def _is_v5(db: sqlite3.Connection) -> bool:
+    cols = {r["name"] for r in db.execute("PRAGMA table_info(users)")}
+    return bool(cols) and "buyer_id" not in cols
+
+
+def _migrate_v5(db: sqlite3.Connection, file: str) -> None:
+    """Buyer accounts: users gets a 'buyer' role, buyer_id and must_change_secret. SQLite cannot
+    change a CHECK in place, so users is renamed aside, recreated from SCHEMA and refilled."""
+    if file != ":memory:":
+        backup = sqlite3.connect(f"{file}.v5.bak")
+        db.backup(backup)
+        backup.close()
+    db.execute("PRAGMA foreign_keys = OFF")
+    db.execute("PRAGMA legacy_alter_table = ON")
+    try:
+        db.executescript(
+            f"""BEGIN;
+            ALTER TABLE users RENAME TO users_old;
+            {SCHEMA}
+            INSERT INTO users (id, name, role, login, secret_hash, unit_id, lang)
+              SELECT id, name, role, login, secret_hash, unit_id, lang FROM users_old;
+            DROP TABLE users_old;
+            COMMIT;"""
+        )
+    except Exception:
+        if db.in_transaction:
+            db.execute("ROLLBACK")
+        raise
+    finally:
+        db.execute("PRAGMA legacy_alter_table = OFF")
+        db.execute("PRAGMA foreign_keys = ON")
+    if db.execute("PRAGMA foreign_key_check").fetchall():
+        raise RuntimeError(f"Migration left broken references; the pre-migration copy is {file}.v5.bak")
+
+
 def _add_builtin_column(db: sqlite3.Connection) -> None:
     """v2 -> v3: plan_steps.builtin (the new tables come from SCHEMA)."""
     if "builtin" not in {r["name"] for r in db.execute("PRAGMA table_info(plan_steps)")}:
@@ -417,6 +455,8 @@ def open_db(file: str) -> sqlite3.Connection:
         _migrate_v0(db, file)
     if _is_v1(db):
         _migrate_v1(db, file)
+    if _is_v5(db):
+        _migrate_v5(db, file)
     db.executescript(SCHEMA)
     _add_builtin_column(db)
     sync_plan_steps(db)

@@ -14,6 +14,7 @@ from ..deps import AppContext, User, ctx, merchandiser
 from ..domain.reasons import REASON_CATEGORIES, REASON_CODES
 from ..domain.tna import plan_from_template
 from ..security import new_token, sign_path
+from ..services import accounts
 from ..services.export import weekly_workbook
 from ..services.attachments import for_office
 from ..services.requests import open_count
@@ -348,13 +349,16 @@ async def photo_visibility(photo_id: int, body: PhotoIn, c: AppContext = Depends
 
 @router.get("/buyers")
 async def buyers(c: AppContext = Depends(ctx)):
-    return rows(
+    result = rows(
         c.db.execute(
             """SELECT b.id, b.name, b.country, b.link_token, b.link_active,
                  (SELECT COUNT(*) FROM orders o WHERE o.buyer_id = b.id AND o.state = 'active') AS active_orders
                FROM buyers b ORDER BY b.name"""
         )
     )
+    for b in result:
+        b["logins"] = accounts.list_logins(c.db, b["id"])
+    return result
 
 
 @router.post("/buyers/{buyer_id}/rotate-link")

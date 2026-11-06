@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Outlet, Route, Routes, useParams } from "react-router-dom";
 import { useAuth } from "./lib/auth";
 import Login from "./pages/Login";
 import OfficeShell from "./pages/merch/OfficeShell";
@@ -17,12 +17,26 @@ import RequestNew from "./pages/buyer/RequestNew";
 import BuyerRequest from "./pages/buyer/BuyerRequest";
 import OrderChange from "./pages/buyer/OrderChange";
 import Landing from "./pages/Landing";
+import ChangePassword from "./pages/ChangePassword";
 
 function Home() {
   const { user, loading } = useAuth();
   if (loading) return null;
   if (!user) return <Landing />;
-  return <Navigate to={user.role === "supervisor" ? "/s" : "/m"} replace />;
+  if (user.must_change_secret) return <Navigate to="/account/password" replace />;
+  return <Navigate to={user.role === "supervisor" ? "/s" : user.role === "buyer" ? "/b/me" : "/m"} replace />;
+}
+
+/** /b/me is the signed-in buyer's own page; any other /b/<token> is a private link and needs no account. */
+function BuyerGate() {
+  const { token } = useParams();
+  const { user, loading } = useAuth();
+  if (token !== "me") return <Outlet />;
+  if (loading) return null;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== "buyer") return <Navigate to="/" replace />;
+  if (user.must_change_secret) return <Navigate to="/account/password" replace />;
+  return <Outlet />;
 }
 
 function RequireRole({ role, children }: { role: "merchandiser" | "supervisor"; children: JSX.Element }) {
@@ -58,10 +72,13 @@ export default function App() {
       </Route>
       <Route path="/s" element={<RequireRole role="supervisor"><SupHome /></RequireRole>} />
       <Route path="/s/update/:milestoneId" element={<RequireRole role="supervisor"><SupUpdate /></RequireRole>} />
-      <Route path="/b/:token" element={<BuyerView />} />
-      <Route path="/b/:token/requests/new" element={<RequestNew />} />
-      <Route path="/b/:token/orders/:orderId/change" element={<OrderChange />} />
-      <Route path="/b/:token/requests/:id" element={<BuyerRequest />} />
+      <Route path="/account/password" element={<ChangePassword />} />
+      <Route path="/b/:token" element={<BuyerGate />}>
+        <Route index element={<BuyerView />} />
+        <Route path="requests/new" element={<RequestNew />} />
+        <Route path="orders/:orderId/change" element={<OrderChange />} />
+        <Route path="requests/:id" element={<BuyerRequest />} />
+      </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
