@@ -14,7 +14,7 @@ from ..deps import AppContext, User, ctx, merchandiser
 from ..domain.reasons import REASON_CATEGORIES, REASON_CODES
 from ..domain.tna import plan_from_template
 from ..security import new_token, sign_path
-from ..services import accounts, capacity, materials, order_messages, search as search_service
+from ..services import accounts, activity, approvals, capacity, inbox, materials, notices, order_messages, search as search_service
 from ..services.export import weekly_workbook
 from ..services.attachments import for_office
 from ..services.requests import open_count
@@ -48,6 +48,8 @@ async def meta(c: AppContext = Depends(ctx)):
         "reasons": REASON_CATEGORIES,
         "today": c.today(),
         "openRequests": open_count(db),
+        "unreadMessages": inbox.unread_count(db, "merchandiser"),
+        "approvalsToAnswer": approvals.to_answer(db),
         "ai": await ai_status(),
     }
 
@@ -79,6 +81,8 @@ async def board(buyer: int | None = None, unit: int | None = None, week: str | N
 
     stock = materials.summaries_for_active_orders(db, today)
     talk = order_messages.last_by_order(db, [o["id"] for o in found])
+    approval_state = approvals.open_by_order(db)
+    unacked = set(notices.unacknowledged(db))
     orders = []
     for o in found:
         if week and iso_week(o["ex_factory"]) != week:
@@ -101,6 +105,8 @@ async def board(buyer: int | None = None, unit: int | None = None, week: str | N
                 "lastUpdate": o["last_update"],
                 "materials": stock.get(o["id"]),
                 "awaitingReply": bool(talk.get(o["id"]) and talk[o["id"]]["author"] == "buyer"),
+                "approvals": approval_state.get(o["id"], {"waiting": 0, "sentBack": 0}),
+                "noticeUnacknowledged": o["id"] in unacked,
             }
         )
     orders.sort(key=lambda o: (_RANK[o["status"]], o["slackDays"], o["exFactory"]))
@@ -218,6 +224,9 @@ async def order_detail(order_id: int, c: AppContext = Depends(ctx)):
         "attachments": [{**a, "url": sign_path(f"/api/media/attachments/{a['id']}")} for a in for_office(db, order_id=order_id)],
         "materials": materials.list_for_order(db, order_id, today),
         "messages": order_messages.thread(db, order_id),
+        "readUpTo": inbox.other_read_up_to(db, "order", order_id, "merchandiser"),
+        "approvals": approvals.for_order(db, order_id),
+        "activity": activity.for_order(db, order_id, "office"),
         "buyerPath": (lambda t: f"/b/{t['link_token']}/orders/{order_id}" if t and t["link_active"] else None)(
             db.execute("SELECT link_token, link_active FROM buyers WHERE id = ?", (order["buyer_id"],)).fetchone()),
         "dateChanges": rows(

@@ -1,25 +1,31 @@
 import { ReactNode, useEffect } from "react";
-import { Link, NavLink } from "react-router-dom";
-import BuyerAccount from "../../components/BuyerAccount";
+import { Link, useNavigate } from "react-router-dom";
+import AppShell, { NavGroup } from "../../components/AppShell";
+import Icon from "../../components/Icon";
 import { useApi } from "../../components/ui";
+import { useAuth } from "../../lib/auth";
+import { useBadgeRefresh } from "../../lib/badges";
 import type { BuyerData } from "../../lib/buyer";
-import type { RequestRow } from "../../lib/requests";
-import { ThemeToggle } from "../../lib/theme";
+
+export interface Badges { requests: number; messages: number; approvals: number }
 
 /**
- * The buyer's pages: a header with real navigation (overview, orders, requests), the way to start a new request,
- * and the "not a valid link" handling. The children get the buyer's name, today's date and all their data.
+ * The buyer's pages: a sidebar with real navigation, the way to start a new request, and the
+ * "not a valid link" handling. The children get the buyer's name, today's date and all their data.
  */
 export default function BuyerFrame({
   token, children, wide,
 }: {
   token: string;
-  children: (buyerName: string, today: string, data: BuyerData) => ReactNode;
+  children: (buyerName: string, today: string, data: BuyerData, reload: () => void) => ReactNode;
   /** Pages with lists and tables use the full width; forms and conversations stay narrow to read well. */
   wide?: boolean;
 }) {
-  const { data, error } = useApi<BuyerData>(`/api/b/${token}`);
-  const { data: requests } = useApi<{ requests: RequestRow[] }>(`/api/b/${token}/requests`);
+  const { user, signOut } = useAuth();
+  const nav = useNavigate();
+  const { data, error, reload } = useApi<BuyerData>(`/api/b/${token}`);
+  const { data: badges, reload: reloadBadges } = useApi<Badges>(`/api/b/${token}/badges`);
+  useBadgeRefresh(() => { void reloadBadges(); void reload(); });
   useEffect(() => {
     document.documentElement.lang = "en";
     if (data) document.title = `${data.buyer.name} · LoomTrack`;
@@ -28,31 +34,35 @@ export default function BuyerFrame({
   if (error) return <div className="login-wrap"><div className="card card-pad stack" style={{ maxWidth: 420 }}><b>We could not open this page.</b><span className="muted">{error}</span><Link to="/">Back to the start</Link></div></div>;
   if (!data) return <div className="login-wrap faint">Loading…</div>;
 
-  const needYou = (requests?.requests ?? []).filter((r) => r.status === "query" || r.status === "countered").length;
+  const base = `/b/${token}`;
+  const groups: NavGroup[] = [{
+    items: [
+      { to: base, label: "Overview", icon: "overview", end: true },
+      { to: `${base}/orders`, label: "Orders", icon: "orders" },
+      { to: `${base}/requests`, label: "Requests", icon: "requests", badge: badges?.requests },
+      { to: `${base}/messages`, label: "Messages", icon: "messages", badge: badges?.messages },
+      { to: `${base}/approvals`, label: "Approvals", icon: "approvals", badge: badges?.approvals },
+      { to: `${base}/documents`, label: "Documents", icon: "documents" },
+    ],
+  }];
+  const isAccount = user?.role === "buyer";
 
   return (
-    <div className="shell">
-      <header className="buyer-top no-print">
-        <div className="inner">
-          <Link to={`/b/${token}`} className="brand" style={{ color: "inherit" }}>
-            <img src="/icon.svg" alt="" />
-            <span className="who">{data.buyer.name}<small>Order status, updated daily</small></span>
-          </Link>
-          <nav className="buyer-nav" aria-label="Main">
-            <NavLink to={`/b/${token}`} end>Overview</NavLink>
-            <NavLink to={`/b/${token}/orders`}>Orders</NavLink>
-            <NavLink to={`/b/${token}/requests`}>Requests{needYou > 0 ? <span className="badge" title="Waiting for your answer">{needYou}</span> : null}</NavLink>
-          </nav>
-          <div className="actions row" style={{ marginLeft: "auto", gap: 8 }}>
-            <Link className="btn btn-primary btn-sm" to={`/b/${token}/requests/new`}>+ New request</Link>
-            <BuyerAccount />
-            <ThemeToggle />
-          </div>
-        </div>
-      </header>
+    <AppShell
+      brand="LoomTrack"
+      home={base}
+      groups={groups}
+      action={user?.can_write === 0 ? undefined : { to: `${base}/requests/new`, label: "New request" }}
+      account={{
+        name: data.buyer.name,
+        detail: isAccount ? user?.name : "Private link",
+        extras: isAccount ? <Link className="menu-link" to="/account/password"><Icon name="key" size={16} />Change password</Link> : null,
+        onSignOut: () => { if (isAccount) signOut(); nav("/", { replace: true }); },
+      }}
+    >
       <main className="page" style={{ maxWidth: 1080 }}>
-        <div style={{ maxWidth: wide ? undefined : 780 }}>{children(data.buyer.name, data.today, data)}</div>
+        <div style={{ maxWidth: wide ? undefined : 780 }}>{children(data.buyer.name, data.today, data, () => void reload())}</div>
       </main>
-    </div>
+    </AppShell>
   );
 }

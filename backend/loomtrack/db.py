@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS users (
   lang TEXT NOT NULL DEFAULT 'en',
   buyer_id INTEGER REFERENCES buyers(id),          -- set for buyer accounts, and only for them
   must_change_secret INTEGER NOT NULL DEFAULT 0,   -- 1 while the password is one the office chose
+  can_write INTEGER NOT NULL DEFAULT 1,            -- 0 = a buyer account that can look but not send, approve or change
   CHECK ((role = 'buyer') = (buyer_id IS NOT NULL))
 );
 
@@ -176,7 +177,9 @@ CREATE TABLE IF NOT EXISTS warnings (
     CHECK (state IN ('pending', 'confirmed', 'dismissed', 'superseded', 'resolved')),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   decided_by INTEGER REFERENCES users(id),
-  decided_at TEXT
+  decided_at TEXT,
+  buyer_seen_at TEXT,               -- when the buyer first opened the notice
+  buyer_ack_at TEXT                 -- when the buyer acknowledged it
 );
 
 -- Compliance trail: every planned-date change, append-only.
@@ -315,6 +318,47 @@ BEGIN SELECT RAISE(ABORT, 'order_messages is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS order_messages_no_delete BEFORE DELETE ON order_messages
 BEGIN SELECT RAISE(ABORT, 'order_messages is append-only'); END;
 
+-- How far each side has read a conversation, so both can tell "seen" from "not seen". last_id is the
+-- newest message id of that conversation the reader has opened.
+CREATE TABLE IF NOT EXISTS thread_reads (
+  kind TEXT NOT NULL CHECK (kind IN ('order', 'request')),
+  ref_id INTEGER NOT NULL,
+  reader TEXT NOT NULL CHECK (reader IN ('buyer', 'merchandiser')),
+  last_id INTEGER NOT NULL DEFAULT 0,
+  read_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (kind, ref_id, reader)
+);
+
+-- Something the buyer has to approve before work goes on: a fit or pre-production sample, a lab dip,
+-- packaging. The decision is the buyer's; every step is in approval_events and cannot be edited.
+CREATE TABLE IF NOT EXISTS approvals (
+  id INTEGER PRIMARY KEY,
+  order_id INTEGER NOT NULL REFERENCES orders(id),
+  kind TEXT NOT NULL CHECK (kind IN ('fit_sample', 'pp_sample', 'lab_dip', 'packaging', 'other')),
+  title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 120),
+  note TEXT,
+  milestone_code TEXT REFERENCES plan_steps(code),   -- the plan step this approval completes
+  status TEXT NOT NULL DEFAULT 'requested' CHECK (status IN ('requested', 'approved', 'changes', 'withdrawn')),
+  requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+  decided_at TEXT,
+  buyer_seen_at TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_approvals_order ON approvals (order_id);
+CREATE TABLE IF NOT EXISTS approval_events (
+  id INTEGER PRIMARY KEY,
+  approval_id INTEGER NOT NULL REFERENCES approvals(id),
+  actor TEXT NOT NULL CHECK (actor IN ('buyer', 'merchandiser')),
+  user_id INTEGER REFERENCES users(id),
+  action TEXT NOT NULL CHECK (action IN ('requested', 'resubmitted', 'approved', 'changes', 'withdrawn')),
+  note TEXT CHECK (note IS NULL OR length(note) <= 2000),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS ix_approval_events ON approval_events (approval_id, id);
+CREATE TRIGGER IF NOT EXISTS approval_events_no_update BEFORE UPDATE ON approval_events
+BEGIN SELECT RAISE(ABORT, 'approval_events is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS approval_events_no_delete BEFORE DELETE ON approval_events
+BEGIN SELECT RAISE(ABORT, 'approval_events is append-only'); END;
+
 -- Mock outbound messages (email / WhatsApp to buyers).
 CREATE TABLE IF NOT EXISTS outbox_messages (
   id INTEGER PRIMARY KEY,
@@ -328,7 +372,7 @@ CREATE TABLE IF NOT EXISTS outbox_messages (
 """
 
 
-SCHEMA_VERSION = 8  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no/colour, 2 = before templates, 3 = before order requests, 4 = before attachments, 5 = before buyer accounts, 6 = before fabric, materials and unit capacity, 7 = before order messages
+SCHEMA_VERSION = 9  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no/colour, 2 = before templates, 3 = before order requests, 4 = before attachments, 5 = before buyer accounts, 6 = before fabric, materials and unit capacity, 7 = before order messages, 8 = before approvals, read tracking and view-only accounts
 
 
 def _is_v0(db: sqlite3.Connection) -> bool:
@@ -482,6 +526,21 @@ def _add_v7_columns(db: sqlite3.Connection) -> None:
                 db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
 
 
+# v8 -> v9: columns added to tables that already exist (the new tables come from SCHEMA).
+_V9_COLUMNS = {
+    "users": {"can_write": "INTEGER NOT NULL DEFAULT 1"},
+    "warnings": {"buyer_seen_at": "TEXT", "buyer_ack_at": "TEXT"},
+}
+
+
+def _add_v9_columns(db: sqlite3.Connection) -> None:
+    for table, columns in _V9_COLUMNS.items():
+        have = {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}
+        for name, decl in columns.items():  # names and declarations are the constants above
+            if name not in have:
+                db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+
+
 def _add_builtin_column(db: sqlite3.Connection) -> None:
     """v2 -> v3: plan_steps.builtin (the new tables come from SCHEMA)."""
     if "builtin" not in {r["name"] for r in db.execute("PRAGMA table_info(plan_steps)")}:
@@ -533,6 +592,7 @@ def open_db(file: str) -> sqlite3.Connection:
     db.executescript(SCHEMA)
     _add_builtin_column(db)
     _add_v7_columns(db)
+    _add_v9_columns(db)
     sync_plan_steps(db)
     sync_builtin_templates(db)
     db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

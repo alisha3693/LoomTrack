@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../lib/api";
+import { refreshBadges } from "../../lib/badges";
 import { addDaysIso, fmtDate, plural } from "../../lib/format";
 import { OfficeFiles } from "../../components/Attachments";
 import CapacityCheck, { blocks } from "../../components/CapacityCheck";
@@ -51,6 +52,9 @@ export default function RequestDetail() {
   const meta = useMeta();
   const reloadMeta = useReloadMeta();
   const { data: r, error, reload } = useApi<RequestDetailData>(`/api/m/requests/${id}`);
+  useEffect(() => {
+    if (r) api(`/api/m/requests/${id}/read`, { method: "POST" }).then(refreshBadges).catch(() => {});
+  }, [id, !!r]); // eslint-disable-line react-hooks/exhaustive-deps
   const [dialog, setDialog] = useState<Dialog>(null);
   const [toast, setToast] = useState<string | null>(null);
 

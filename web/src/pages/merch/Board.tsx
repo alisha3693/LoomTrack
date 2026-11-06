@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import Attention, { AttentionItem } from "../../components/Attention";
-import { Empty, Progress, StatusPill, Swatch, useApi } from "../../components/ui";
-import { fmtDate, num, plural, Status } from "../../lib/format";
+import { EmptyState, PageHeader, Progress, Skeleton, StatusPill, Swatch, useApi } from "../../components/ui";
+import { addDaysIso, fmtDate, num, plural, Status } from "../../lib/format";
 import type { BoardOrder } from "../../lib/types";
 import { useMeta } from "./OfficeShell";
 
@@ -30,7 +30,9 @@ function StageCell({ o }: { o: BoardOrder }) {
 function flagsFor(o: BoardOrder): { tone: "red" | "amber"; text: string }[] {
   const out: { tone: "red" | "amber"; text: string }[] = [];
   if (o.awaitingReply) out.push({ tone: "amber", text: "Buyer waiting for your reply" });
+  if (o.approvals.sentBack > 0) out.push({ tone: "amber", text: "Buyer asked for changes" });
   if (o.pendingWarnings > 0) out.push({ tone: "amber", text: "Delay warning to review" });
+  if (o.noticeUnacknowledged) out.push({ tone: "amber", text: "Delay notice not acknowledged" });
   const m = o.materials;
   if (m && m.late > 0) out.push({ tone: "red", text: `${plural(m.late, "material")} late` });
   else if (m && m.atRisk > 0) out.push({ tone: "amber", text: `${plural(m.atRisk, "material")} at risk` });
@@ -81,8 +83,24 @@ export default function Board() {
     messages: { label: "orders where the buyer is waiting for your reply", test: (o) => o.awaitingReply },
     warnings: { label: "orders with a delay warning to review", test: (o) => o.pendingWarnings > 0 },
     materials: { label: "orders with late materials", test: (o) => !!o.materials && o.materials.late > 0 },
+    approvals: { label: "orders where the buyer sent an approval back", test: (o) => o.approvals.sentBack > 0 },
+    notices: { label: "orders whose delay notice the buyer has not acknowledged", test: (o) => o.noticeUnacknowledged },
+    soon: { label: "orders shipping in the next 7 days", test: (o) => !!data && o.exFactory <= addDaysIso(data.today, 7) },
   };
-  const orders = (data?.orders ?? []).filter((o) => (!only || o.status === only) && (!FOCUS[focus] || FOCUS[focus].test(o)));
+  const [sort, setSort] = useState<{ key: "order" | "exFactory" | "progress"; dir: 1 | -1 } | null>(null);
+  const filtered0 = (data?.orders ?? []).filter((o) => (!only || o.status === only) && (!FOCUS[focus] || FOCUS[focus].test(o)));
+  const orders = !sort ? filtered0 : [...filtered0].sort((a, b) => {
+    const va = sort.key === "order" ? a.poNo : sort.key === "exFactory" ? a.exFactory : a.keyStage?.pct ?? 101;
+    const vb = sort.key === "order" ? b.poNo : sort.key === "exFactory" ? b.exFactory : b.keyStage?.pct ?? 101;
+    return va < vb ? -sort.dir : va > vb ? sort.dir : 0;
+  });
+  const sortable = (key: "order" | "exFactory" | "progress", label: string) => (
+    <th aria-sort={sort?.key === key ? (sort.dir === 1 ? "ascending" : "descending") : "none"}>
+      <button className="th-sort" onClick={() => setSort((s) => (s?.key === key ? (s.dir === 1 ? { key, dir: -1 } : null) : { key, dir: 1 }))}>
+        {label}{sort?.key === key ? (sort.dir === 1 ? " ↑" : " ↓") : ""}
+      </button>
+    </th>
+  );
 
   // What needs you, in the order you would act on it. Each card goes straight to the thing.
   const needs: AttentionItem[] = [];
@@ -91,9 +109,13 @@ export default function Board() {
   const waiting = all.filter(FOCUS.messages.test);
   const warned = all.filter(FOCUS.warnings.test);
   const short = all.filter(FOCUS.materials.test);
+  const sentBack = all.filter(FOCUS.approvals.test);
+  const unacked = all.filter(FOCUS.notices.test);
   if (meta && meta.openRequests > 0) needs.push({ key: "req", tone: "amber", title: `${plural(meta.openRequests, "buyer request")} waiting for your answer`, detail: "New orders and replies to your questions", cta: "Open requests", to: "/m/requests" });
   if (waiting.length) needs.push({ key: "msg", tone: "amber", title: `${plural(waiting.length, "buyer message")} to answer`, detail: named(waiting), cta: "Show these orders", onSelect: () => setFilter("focus", "messages") });
+  if (sentBack.length) needs.push({ key: "apr", tone: "amber", title: `${plural(sentBack.length, "approval")} sent back by the buyer`, detail: named(sentBack), cta: "Answer them", to: "/m/approvals" });
   if (warned.length) needs.push({ key: "warn", tone: "red", title: `${plural(warned.length, "delay warning")} to review`, detail: `${named(warned)}. The buyer is told nothing until you confirm.`, cta: "Show these orders", onSelect: () => setFilter("focus", "warnings") });
+  if (unacked.length) needs.push({ key: "ack", tone: "amber", title: `${plural(unacked.length, "delay notice")} the buyer has not acknowledged`, detail: named(unacked), cta: "Show these orders", onSelect: () => setFilter("focus", "notices") });
   if (short.length) needs.push({ key: "mat", tone: "red", title: `${plural(short.length, "order")} with late materials`, detail: named(short), cta: "Show these orders", onSelect: () => setFilter("focus", "materials") });
 
   const setFilter = (key: string, value: string) => {
@@ -108,12 +130,7 @@ export default function Board() {
 
   return (
     <main className="page">
-      <div className="page-head">
-        <div>
-          <h1>Orders</h1>
-          <p className="sub muted">{data ? `${plural(total, "live order")} · as of ${fmtDate(data.today, true)}` : "\u00a0"}</p>
-        </div>
-      </div>
+      <PageHeader title="Orders" sub={data ? `${plural(total, "live order")} · as of ${fmtDate(data.today, true)}` : " "} />
 
       <div className="stack" style={{ gap: 24 }}>
         {data && (
@@ -146,7 +163,11 @@ export default function Board() {
               <option value="">All ship weeks</option>
               {data?.weeks.map((w) => <option key={w} value={w}>Ship week {w.split("-W")[1]} · {w.slice(0, 4)}</option>)}
             </select>
-            {FOCUS[focus] && (
+            <span className="toolbar-sep" aria-hidden="true" />
+            {([["soon", "Ships in 7 days"], ["messages", "Needs a reply"], ["materials", "Late materials"]] as [string, string][]).map(([k, label]) => (
+              <button key={k} className={`chip${focus === k ? " on" : ""}`} aria-pressed={focus === k} onClick={() => setFilter("focus", focus === k ? "" : k)}>{label}</button>
+            ))}
+            {FOCUS[focus] && !["soon", "messages", "materials"].includes(focus) && (
               <span className="chip-filter">{FOCUS[focus].label}<button aria-label="Show all orders" onClick={() => setFilter("focus", "")}>×</button></span>
             )}
             {filtered && <button className="btn btn-ghost btn-sm" onClick={() => { setParams({}, { replace: true }); setOnly(null); }}>Clear filters</button>}
@@ -154,14 +175,15 @@ export default function Board() {
           </div>
 
           {error && <div className="banner banner-error">{error}</div>}
-          {data && orders.length === 0 && <Empty>No orders match these filters.</Empty>}
+          {!data && !error && <Skeleton rows={5} />}
+          {data && orders.length === 0 && <EmptyState title="No orders match" hint="Clear a filter to see more." action={<button className="btn btn-sm" onClick={() => { setParams({}, { replace: true }); setOnly(null); }}>Clear filters</button>} />}
 
           {orders.length > 0 && (
             <>
               <div className="card board-wrap">
                 <table className="board">
                   <thead>
-                    <tr><th>Order</th><th>Buyer</th><th>Ex-factory</th><th>Now</th><th>Status</th></tr>
+                    <tr>{sortable("order", "Order")}<th>Buyer</th>{sortable("exFactory", "Ex-factory")}{sortable("progress", "Now")}<th>Status</th></tr>
                   </thead>
                   <tbody>
                     {orders.map((o) => (

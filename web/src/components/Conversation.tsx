@@ -1,42 +1,59 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
-import { fmtDateTime } from "../lib/format";
-import { useApi } from "./ui";
+import { refreshBadges } from "../lib/badges";
+import { ago, fmtDate, fmtDateTime } from "../lib/format";
+import { useApi, useCanWrite } from "./ui";
 
 interface Message {
-  id: number;
+  key: string;
+  source: "order" | "request";
+  id: number | null;
+  event?: string;
   author: "buyer" | "merchandiser";
-  body: string;
+  body: string | null;
+  proposedExFactory?: string | null;
+  requestNo?: string;
   at: string;
 }
 
+const EVENT_TEXT: Record<string, string> = {
+  submitted: "Request submitted", message: "Wrote on the request", query: "Asked a question", counter: "Proposed another date",
+  agreed: "Agreed to the proposed date", accepted: "Request accepted", declined: "Request declined", withdrawn: "Request withdrawn",
+};
+
 /**
- * The conversation about an order, the same thread on both sides. `me` says which side is looking, so
- * its messages sit on the right. `path` is the messages endpoint: GET to read, POST {message} to write.
+ * The conversation about an order, the same thread on both sides. It opens with what was said while the
+ * order was still a request. `me` says which side is looking, so its messages sit on the right. Opening it
+ * marks it read, and the other side then sees "Seen". `path` is the messages endpoint.
  */
 export default function Conversation({
-  path, me, otherName, onRead, onSent, hint,
+  path, me, otherName, onSent, hint,
 }: {
   path: string;
   me: "buyer" | "merchandiser";
   otherName: string;
-  /** Called with the time of the newest message once it is on screen. */
-  onRead?: (latestAt: string | null) => void;
   onSent?: () => void;
   hint?: string;
 }) {
-  const { data, error, reload } = useApi<{ messages: Message[] }>(path);
+  const { data, error, reload } = useApi<{ messages: Message[]; readUpTo: number }>(path);
+  const canWrite = useCanWrite();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
   const messages = data?.messages ?? [];
-  const last = messages[messages.length - 1];
+  const said = messages.filter((m) => m.source === "order");
+  const last = said[said.length - 1];
+  const ownLast = [...said].reverse().find((m) => m.author === me);
+  const seen = !!ownLast && !!data && ownLast.id !== null && ownLast.id <= data.readUpTo;
+  const newestId = last?.id ?? 0;
 
+  // Opening the conversation marks it read; the sidebar's count follows.
   useEffect(() => {
-    if (data) onRead?.(last?.at ?? null);
+    if (!data) return;
     end.current?.scrollIntoView({ block: "nearest" });
-  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+    api(`${path}/read`, { method: "POST" }).then(refreshBadges).catch(() => {});
+  }, [path, newestId, !!data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function send() {
     const message = text.trim();
@@ -55,6 +72,7 @@ export default function Conversation({
     }
   }
 
+  const name = otherName.charAt(0).toUpperCase() + otherName.slice(1);
   return (
     <div className="stack" style={{ gap: 12 }}>
       {error && <div className="banner banner-error">{error}</div>}
@@ -63,30 +81,49 @@ export default function Conversation({
       )}
       <div className="chat" aria-live="polite">
         {messages.map((m) => {
+          if (m.source === "request") {
+            const who = m.author === me ? "You" : name;
+            return (
+              <div key={m.key} className="chat-event">
+                <span>{who}: {EVENT_TEXT[m.event ?? ""] ?? m.event}{m.proposedExFactory ? ` (${fmtDate(m.proposedExFactory, true)})` : ""}{m.body ? ` — “${m.body}”` : ""}</span>
+                <time>{fmtDateTime(m.at)}{m.requestNo ? ` · ${m.requestNo}` : ""}</time>
+              </div>
+            );
+          }
           const mine = m.author === me;
           return (
-            <div key={m.id} className={`bubble ${mine ? "mine" : ""}`}>
-              <div className="who">{mine ? "You" : otherName.charAt(0).toUpperCase() + otherName.slice(1)} · {fmtDateTime(m.at)}</div>
+            <div key={m.key} className={`bubble ${mine ? "mine" : ""}`}>
+              <div className="who">{mine ? "You" : name} · {fmtDateTime(m.at)}</div>
               <p>{m.body}</p>
             </div>
           );
         })}
         <div ref={end} />
       </div>
-      {last && last.author === me && <div className="faint small">Sent. {otherName} will see it the next time they open this order.</div>}
-      <label className="field">
-        <span className="sr-only">Your message</span>
-        <textarea
-          className="textarea" rows={3} maxLength={2000} value={text} placeholder={`Write to ${otherName}…`}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") void send(); }}
-        />
-      </label>
-      {err && <div className="banner banner-error">{err}</div>}
-      <div className="row" style={{ justifyContent: "space-between" }}>
-        <span className="faint small">Ctrl + Enter to send</span>
-        <button className="btn btn-primary" disabled={busy || !text.trim()} onClick={() => void send()}>Send message</button>
-      </div>
+      {ownLast && last === ownLast && (
+        <div className="faint small" style={{ textAlign: "right" }}>
+          {seen ? `Seen by ${otherName}` : `Sent ${ago(ownLast.at)}. ${name} has not opened it yet.`}
+        </div>
+      )}
+      {canWrite ? (
+        <>
+          <label className="field">
+            <span className="sr-only">Your message</span>
+            <textarea
+              className="textarea" rows={3} maxLength={2000} value={text} placeholder={`Write to ${otherName}…`}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") void send(); }}
+            />
+          </label>
+          {err && <div className="banner banner-error">{err}</div>}
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <span className="faint small">Ctrl + Enter to send</span>
+            <button className="btn btn-primary" disabled={busy || !text.trim()} onClick={() => void send()}>Send message</button>
+          </div>
+        </>
+      ) : (
+        <div className="banner">Your account can read this conversation but not write in it.</div>
+      )}
     </div>
   );
 }

@@ -13,7 +13,7 @@ from ..security import sign_path, verify_signed_path
 from ..services import attachments as svc
 from ..services.requests import find_request, require_open
 from ..util import HttpError
-from .buyer import NO_STORE, current_buyer
+from .buyer import NO_STORE, current_buyer, writable_buyer
 
 SAFE_HEADERS = {**NO_STORE, "X-Content-Type-Options": "nosniff"}
 
@@ -40,7 +40,7 @@ buyer_router = APIRouter(prefix="/api/b/{token}")
 @buyer_router.post("/requests/{request_id}/attachments", status_code=201)
 async def buyer_upload(
     request_id: int, kind: str = Form(...), file: UploadFile = File(...),
-    buyer: sqlite3.Row = Depends(current_buyer), c: AppContext = Depends(ctx),
+    buyer: sqlite3.Row = Depends(writable_buyer), c: AppContext = Depends(ctx),
 ):
     require_open(find_request(c.db, request_id, buyer["id"]))
     aid = await svc.store(c.db, c.upload_dir, file, kind=kind, uploaded_by="buyer", user_id=None, request_id=request_id)
@@ -48,7 +48,7 @@ async def buyer_upload(
 
 
 @buyer_router.delete("/requests/{request_id}/attachments/{attachment_id}")
-async def buyer_delete(request_id: int, attachment_id: int, buyer: sqlite3.Row = Depends(current_buyer), c: AppContext = Depends(ctx)):
+async def buyer_delete(request_id: int, attachment_id: int, buyer: sqlite3.Row = Depends(writable_buyer), c: AppContext = Depends(ctx)):
     require_open(find_request(c.db, request_id, buyer["id"]))
     row = _one(c.db, attachment_id)
     if row["request_id"] != request_id or row["uploaded_by"] != "buyer":

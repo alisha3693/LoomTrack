@@ -1,169 +1,69 @@
-import { FormEvent, useState } from "react";
-import { Toast, useApi } from "../../components/ui";
-import { api, download } from "../../lib/api";
-import { fmtDateTime } from "../../lib/format";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { EmptyState, PageHeader, Skeleton, useApi } from "../../components/ui";
+import { fmtDateTime, plural } from "../../lib/format";
 
-interface LoginRow { id: number; name: string; login: string; pending: number }
-interface BuyerRow { id: number; name: string; country: string | null; link_token: string; link_active: number; active_orders: number; logins: LoginRow[] }
+export interface LoginRow { id: number; name: string; login: string; pending: number; canWrite: number }
+export interface BuyerRow { id: number; name: string; country: string | null; link_token: string; link_active: number; active_orders: number; logins: LoginRow[] }
+export interface OutboxRow { id: number; buyer: string; subject: string; body: string; channel: string; created_at: string }
 
-/** A temporary password, shown once. It is not kept anywhere the office can look it up again. */
-interface Issued { who: string; login: string; password: string }
-interface OutboxRow { id: number; buyer: string; subject: string; body: string; channel: string; created_at: string }
+/** What was sent to buyers (mock email in this demo). Used on the buyers page and on each buyer's profile. */
+export function SentLog({ rows }: { rows: OutboxRow[] | null }) {
+  if (!rows) return <Skeleton rows={3} />;
+  if (rows.length === 0) return <EmptyState title="Nothing sent yet" hint="Replies, approval requests and confirmed delay notices that go to a buyer are recorded here." />;
+  return (
+    <div className="card">
+      {rows.map((m) => (
+        <div key={m.id} className="sent-row">
+          <div className="row" style={{ justifyContent: "space-between", flexWrap: "nowrap" }}>
+            <b style={{ fontWeight: 500 }}>{m.subject}</b>
+            <span className="faint small nowrap">{m.buyer} · {fmtDateTime(m.created_at)}</span>
+          </div>
+          <div className="muted small">{m.body}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function Buyers() {
-  const { data: buyers, reload } = useApi<BuyerRow[]>("/api/m/buyers");
+  const nav = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") === "sent" ? "sent" : "buyers";
+  const { data: buyers } = useApi<BuyerRow[]>("/api/m/buyers");
   const { data: outbox } = useApi<OutboxRow[]>("/api/m/outbox");
-  const [toast, setToast] = useState<string | null>(null);
-  const [issued, setIssued] = useState<Issued | null>(null);
-  const [adding, setAdding] = useState<number | null>(null);
-  const [form, setForm] = useState({ name: "", email: "" });
-  const [formError, setFormError] = useState<string | null>(null);
-  const link = (token: string) => `${window.location.origin}/b/${token}`;
-
-  const copy = async (token: string) => {
-    try {
-      await navigator.clipboard.writeText(link(token));
-      setToast("Link copied");
-    } catch {
-      setToast(link(token));
-    }
-  };
-  const rotate = async (b: BuyerRow) => {
-    if (!confirm(`Make a new link for ${b.name}? The old link stops working immediately.`)) return;
-    await api(`/api/m/buyers/${b.id}/rotate-link`, { method: "POST" });
-    setToast("New link created. Send it to the buyer.");
-    void reload();
-  };
-  const addLogin = async (e: FormEvent, b: BuyerRow) => {
-    e.preventDefault();
-    setFormError(null);
-    try {
-      const r = await api<{ login: string; password: string }>(`/api/m/buyers/${b.id}/logins`, { body: { name: form.name, email: form.email } });
-      setIssued({ who: form.name.trim(), ...r });
-      setAdding(null);
-      setForm({ name: "", email: "" });
-      void reload();
-    } catch (err) {
-      setFormError((err as Error).message);
-    }
-  };
-  const resetLogin = async (l: LoginRow) => {
-    if (!confirm(`Make a new temporary password for ${l.name}? They are signed out everywhere and must choose a new password.`)) return;
-    const r = await api<{ password: string }>(`/api/m/buyer-logins/${l.id}/reset`, { method: "POST" });
-    setIssued({ who: l.name, login: l.login, password: r.password });
-    void reload();
-  };
-  const removeLogin = async (l: LoginRow) => {
-    if (!confirm(`Remove the sign-in for ${l.name}? They are signed out now and can no longer sign in.`)) return;
-    await api(`/api/m/buyer-logins/${l.id}`, { method: "DELETE" });
-    setToast("Sign-in removed");
-    void reload();
-  };
-  const copyText = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setToast("Copied");
-    } catch {
-      setToast("Select the text and copy it");
-    }
-  };
-  const exportXlsx = (b: BuyerRow, audience: "buyer" | "internal") =>
-    download(`/api/m/exports/weekly?buyerId=${b.id}&audience=${audience}`, `${b.name.replace(/\W+/g, "-")}-weekly-${audience}.xlsx`).catch((e) => setToast(e.message));
 
   return (
     <main className="page">
-      <div className="page-head">
-        <div>
-          <h1>Buyers &amp; exports</h1>
-          <p className="sub">Each buyer can use a private link, or sign in with their own account. Either way they see only their own orders, and delays appear only after you confirm them.</p>
+      <PageHeader title="Buyers" sub="Each buyer has a private link and can have their own people sign in. They see only their own orders, and delays appear only after you confirm them." />
+      <div className="stack" style={{ gap: 14 }}>
+        <div className="filter-tabs" role="group" aria-label="Show">
+          <button aria-pressed={tab === "buyers"} onClick={() => setParams({}, { replace: true })}>Buyers <span className="n num">{buyers?.length ?? 0}</span></button>
+          <button aria-pressed={tab === "sent"} onClick={() => setParams({ tab: "sent" }, { replace: true })}>Sent messages <span className="n num">{outbox?.length ?? 0}</span></button>
         </div>
-      </div>
-      {issued && (
-        <section className="card card-pad stack" role="status" style={{ marginBottom: 16, borderColor: "var(--amber-line)", background: "var(--amber-bg)" }}>
-          <b style={{ fontWeight: 500 }}>Sign-in for {issued.who}. Send this to them now: it is not shown again.</b>
-          <div className="mono" style={{ lineHeight: 1.8 }}>
-            Email: {issued.login}<br />Temporary password: <b>{issued.password}</b>
-          </div>
-          <div className="small muted">They will be asked to choose their own password the first time they sign in, at {window.location.origin}/login.</div>
-          <div className="row">
-            <button className="btn btn-sm" onClick={() => copyText(`${window.location.origin}/login
-Email: ${issued.login}
-Temporary password: ${issued.password}`)}>Copy details</button>
-            <button className="btn btn-ghost btn-sm" onClick={() => setIssued(null)}>Done</button>
-          </div>
-        </section>
-      )}
-      <div className="stack">
-        {buyers?.map((b) => (
-          <section key={b.id} className="card card-pad stack" style={{ gap: 12 }}>
-            <div className="row" style={{ justifyContent: "space-between" }}>
-              <div>
-                <h2>{b.name}</h2>
-                <div className="faint small">{b.country} · {b.active_orders} active orders</div>
-              </div>
-              <a className="btn btn-sm" href={`/b/${b.link_token}`} target="_blank" rel="noreferrer">Open buyer view ↗</a>
-            </div>
-            <div className="row">
-              <input className="input input-sm mono" readOnly value={link(b.link_token)} style={{ flex: 1, minWidth: 220 }} onFocus={(e) => e.target.select()} aria-label="Buyer link" />
-              <button className="btn btn-sm" onClick={() => copy(b.link_token)}>Copy</button>
-              <button className="btn btn-ghost btn-sm" onClick={() => rotate(b)}>New link</button>
-            </div>
-            <div className="stack" style={{ gap: 8 }}>
-              <div className="row" style={{ justifyContent: "space-between" }}>
-                <b style={{ fontWeight: 500 }}>Sign-in accounts</b>
-                <button className="btn btn-sm" onClick={() => { setAdding(adding === b.id ? null : b.id); setFormError(null); }}>Add a person</button>
-              </div>
-              {b.logins.length === 0 && adding !== b.id && <p className="faint small" style={{ margin: 0 }}>No one has an account yet. They can still use the link above.</p>}
-              {b.logins.map((l) => (
-                <div key={l.id} className="row" style={{ justifyContent: "space-between" }}>
-                  <div>
-                    {l.name} <span className="faint small">{l.login}</span>
-                    {l.pending ? <span className="pill pill-amber" style={{ marginLeft: 8 }}>Has not signed in yet</span> : null}
-                  </div>
-                  <div className="row">
-                    <button className="btn btn-ghost btn-sm" onClick={() => resetLogin(l)}>New password</button>
-                    <button className="btn btn-ghost btn-sm" onClick={() => removeLogin(l)}>Remove</button>
-                  </div>
-                </div>
-              ))}
-              {adding === b.id && (
-                <form className="row" onSubmit={(e) => addLogin(e, b)} style={{ alignItems: "flex-end" }}>
-                  <label className="field" style={{ flex: 1, minWidth: 140 }}><span>Name</span>
-                    <input className="input input-sm" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required autoFocus />
-                  </label>
-                  <label className="field" style={{ flex: 1, minWidth: 200 }}><span>Email (their sign-in)</span>
-                    <input className="input input-sm" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
-                  </label>
-                  <button className="btn btn-primary btn-sm">Create sign-in</button>
-                </form>
-              )}
-              {adding === b.id && formError && <div className="banner banner-error">{formError}</div>}
-            </div>
-            <div className="row">
-              <span className="small muted">Weekly status (Excel):</span>
-              <button className="btn btn-sm" onClick={() => exportXlsx(b, "buyer")}>Buyer edition</button>
-              <button className="btn btn-ghost btn-sm" onClick={() => exportXlsx(b, "internal")}>Internal edition</button>
-            </div>
-          </section>
-        ))}
-
-        <section className="card">
-          <div className="card-head"><h2>Sent to buyers</h2><span className="faint small">Demo: messages are recorded here instead of emailed</span></div>
-          <div className="card-body">
-            {!outbox?.length ? <p className="faint">Nothing sent yet.</p> : (
-              <ul className="reasons">
-                {outbox.map((m) => (
-                  <li key={m.id}>
-                    <b style={{ fontWeight: 500 }}>{m.subject}</b> <span className="faint small">→ {m.buyer} · {fmtDateTime(m.created_at)}</span>
-                    <div className="muted small">{m.body}</div>
-                  </li>
+        {tab === "sent" ? (
+          <>
+            <p className="faint small" style={{ margin: 0 }}>Demo: messages are recorded here instead of emailed.</p>
+            <SentLog rows={outbox} />
+          </>
+        ) : !buyers ? <Skeleton rows={3} /> : (
+          <div className="card table-scroll">
+            <table className="table rows-link">
+              <thead><tr><th style={{ paddingLeft: 20 }}>Buyer</th><th>Country</th><th className="r">Active orders</th><th>People</th><th /></tr></thead>
+              <tbody>
+                {buyers.map((b) => (
+                  <tr key={b.id} onClick={() => nav(`/m/buyers/${b.id}`)}>
+                    <td style={{ paddingLeft: 20 }}><Link to={`/m/buyers/${b.id}`} className="po" onClick={(e) => e.stopPropagation()}>{b.name}</Link></td>
+                    <td>{b.country ?? "—"}</td>
+                    <td className="r num">{b.active_orders}</td>
+                    <td className="muted">{b.logins.length ? plural(b.logins.length, "sign-in") : "Link only"}</td>
+                    <td className="r" style={{ paddingRight: 20 }}><span className="faint small">Open →</span></td>
+                  </tr>
                 ))}
-              </ul>
-            )}
+              </tbody>
+            </table>
           </div>
-        </section>
+        )}
       </div>
-      <Toast message={toast} onDone={() => setToast(null)} />
     </main>
   );
 }

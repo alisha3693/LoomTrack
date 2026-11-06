@@ -25,7 +25,7 @@ from .db import SCHEMA, open_db, transaction
 from .domain.tna import plan_from_template
 from .security import hash_secret, new_token
 from .services.orders import next_order_no, refresh_all_active
-from .services import materials
+from .services import approvals, materials
 from .services.templates import load_template
 
 BUYERS = [
@@ -39,6 +39,8 @@ BUYER_LOGINS = [
     ("Company B (UK)", "Hannah Clarke", "hannah@companyb.example", "buyer1234"),
     ("Company C (Germany)", "Jonas Weber", "jonas@companyc.example", "buyer1234"),
 ]
+# A buyer's QC colleague who can look at everything but not send, approve or change anything.
+VIEW_ONLY_LOGINS = [("Company B (UK)", "Maya Singh (QC)", "qc@companyb.example", "buyer1234")]
 
 UNIT1, UNIT2, UNIT3 = "Unit 1 · Avinashi Road", "Unit 2 · Tiruppur North", "Unit 3 · Palladam"
 PRINTER, WASHER = "Sri Murugan Prints (job work)", "Velan Garment Wash (job work)"
@@ -211,9 +213,9 @@ COLOUR_HEX = {"Navy": "#1F2A44", "White": "#FFFFFF", "Yellow": "#F2C400", "Black
 
 async def seed(db, today: str) -> None:
     # The append-only trails refuse deletes; lift that for the reset and restore it from the schema afterwards.
-    for trigger in ("date_changes_no_delete", "request_messages_no_delete", "order_messages_no_delete"):
+    for trigger in ("date_changes_no_delete", "request_messages_no_delete", "order_messages_no_delete", "approval_events_no_delete"):
         db.execute(f"DROP TRIGGER IF EXISTS {trigger}")
-    for t in ["attachments", "request_messages", "request_sizes", "order_requests", "order_messages", "date_changes", "outbox_messages", "warnings",
+    for t in ["approval_events", "approvals", "thread_reads", "attachments", "request_messages", "request_sizes", "order_requests", "order_messages", "date_changes", "outbox_messages", "warnings",
               "issue_reasons", "photos", "daily_updates", "order_materials", "milestones", "order_sizes", "orders", "sessions", "users", "units", "buyers"]:
         db.execute(f"DELETE FROM {t}")
     db.executescript(SCHEMA)
@@ -233,6 +235,9 @@ async def seed(db, today: str) -> None:
 
     for buyer, name, email, secret in BUYER_LOGINS:
         db.execute("INSERT INTO users (name, role, login, secret_hash, lang, buyer_id) VALUES (?,?,?,?,?,?)",
+                   (name, "buyer", email, hash_secret(secret), "en", buyer_id[buyer]))
+    for buyer, name, email, secret in VIEW_ONLY_LOGINS:
+        db.execute("INSERT INTO users (name, role, login, secret_hash, lang, buyer_id, can_write) VALUES (?,?,?,?,?,?,0)",
                    (name, "buyer", email, hash_secret(secret), "en", buyer_id[buyer]))
 
     to_classify: list[tuple[str, str]] = []
@@ -316,6 +321,16 @@ async def seed(db, today: str) -> None:
             "INSERT INTO outbox_messages (buyer_id, order_id, channel, subject, body) VALUES (?,?,?,?,?)",
             (w["buyer_id"], w["order_id"], "email", f"Production update: {w['po_no']}", w["buyer_message"]),
         )
+
+    # Demo: a pre-production sample waits on Company B, and Company C sent a fit sample back with changes.
+    def order_of(po: str):
+        return db.execute("SELECT id, buyer_id FROM orders WHERE po_no = ?", (po,)).fetchone()
+
+    crew = order_of("B-PO-88213")
+    approvals.request_approval(db, crew["id"], merch_id, "pp_sample", "Pre-production sample, navy crew neck", "Sent by courier on 3 Nov. Please check the neck rib and the print placement.")
+    kids = order_of("C-PO-0488")
+    aid = approvals.request_approval(db, kids["id"], merch_id, "fit_sample", "Fit sample, kids printed tee", "Size 6 and size 10 on the fit model.")
+    approvals.decide(db, kids["buyer_id"], aid, False, "The neck rib is too wide on both sizes. Please narrow it by 5 mm and send again.", today)
 
 
 def main() -> None:

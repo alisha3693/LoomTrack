@@ -9,11 +9,11 @@ from pydantic import BaseModel, Field
 
 from ..deps import AppContext, User, ctx, merchandiser
 from ..security import sign_path
-from ..services import order_messages
+from ..services import inbox, order_messages
 from ..services import requests as svc
 from ..services.attachments import for_buyer, for_office
 from ..services.orders import refresh_order
-from .buyer import NO_STORE, current_buyer
+from .buyer import NO_STORE, current_buyer, writable_buyer
 from .merchandiser import IsoDate, SizeIn
 
 # --- The buyer's side: the private link is the credential, every query is scoped to its buyer ---------
@@ -56,12 +56,12 @@ async def buyer_list(response: Response, buyer: sqlite3.Row = Depends(current_bu
 
 
 @buyer_router.post("", status_code=201)
-async def buyer_submit(body: RequestIn, buyer: sqlite3.Row = Depends(current_buyer), c: AppContext = Depends(ctx)):
+async def buyer_submit(body: RequestIn, buyer: sqlite3.Row = Depends(writable_buyer), c: AppContext = Depends(ctx)):
     return {"id": svc.submit_request(c.db, buyer["id"], body, c.today())}
 
 
 @buyer_orders_router.post("/{order_id}/amendments", status_code=201)
-async def buyer_amend(order_id: int, body: AmendmentIn, buyer: sqlite3.Row = Depends(current_buyer), c: AppContext = Depends(ctx)):
+async def buyer_amend(order_id: int, body: AmendmentIn, buyer: sqlite3.Row = Depends(writable_buyer), c: AppContext = Depends(ctx)):
     return {"id": svc.submit_amendment(c.db, buyer["id"], order_id, body, c.today())}
 
 
@@ -72,11 +72,11 @@ class OrderMessageIn(BaseModel):
 @buyer_orders_router.get("/{order_id}/messages")
 async def buyer_messages(order_id: int, response: Response, buyer: sqlite3.Row = Depends(current_buyer), c: AppContext = Depends(ctx)):
     response.headers.update(NO_STORE)
-    return {"messages": order_messages.thread(c.db, order_id, buyer["id"])}
+    return {"messages": order_messages.thread(c.db, order_id, buyer["id"]), "readUpTo": inbox.other_read_up_to(c.db, "order", order_id, "buyer")}
 
 
 @buyer_orders_router.post("/{order_id}/messages", status_code=201)
-async def buyer_send_message(order_id: int, body: OrderMessageIn, buyer: sqlite3.Row = Depends(current_buyer), c: AppContext = Depends(ctx)):
+async def buyer_send_message(order_id: int, body: OrderMessageIn, buyer: sqlite3.Row = Depends(writable_buyer), c: AppContext = Depends(ctx)):
     return {"id": order_messages.post(c.db, order_id, "buyer", body.message, buyer_id=buyer["id"])}
 
 
@@ -87,19 +87,19 @@ async def buyer_detail(request_id: int, response: Response, buyer: sqlite3.Row =
 
 
 @buyer_router.post("/{request_id}/reply")
-async def buyer_reply(request_id: int, body: MessageIn, buyer: sqlite3.Row = Depends(current_buyer), c: AppContext = Depends(ctx)):
+async def buyer_reply(request_id: int, body: MessageIn, buyer: sqlite3.Row = Depends(writable_buyer), c: AppContext = Depends(ctx)):
     svc.buyer_reply(c.db, buyer["id"], request_id, body.message)
     return {"ok": True}
 
 
 @buyer_router.post("/{request_id}/agree")
-async def buyer_agree(request_id: int, buyer: sqlite3.Row = Depends(current_buyer), c: AppContext = Depends(ctx)):
+async def buyer_agree(request_id: int, buyer: sqlite3.Row = Depends(writable_buyer), c: AppContext = Depends(ctx)):
     svc.buyer_agree(c.db, buyer["id"], request_id, c.today())
     return {"ok": True}
 
 
 @buyer_router.post("/{request_id}/withdraw")
-async def buyer_withdraw(request_id: int, buyer: sqlite3.Row = Depends(current_buyer), c: AppContext = Depends(ctx)):
+async def buyer_withdraw(request_id: int, buyer: sqlite3.Row = Depends(writable_buyer), c: AppContext = Depends(ctx)):
     svc.buyer_withdraw(c.db, buyer["id"], request_id)
     return {"ok": True}
 
@@ -161,7 +161,7 @@ async def office_accept(request_id: int, body: AcceptIn | None = None, user: Use
 
 @order_router.get("/{order_id}/messages")
 async def office_messages(order_id: int, c: AppContext = Depends(ctx)):
-    return {"messages": order_messages.thread(c.db, order_id)}
+    return {"messages": order_messages.thread(c.db, order_id), "readUpTo": inbox.other_read_up_to(c.db, "order", order_id, "merchandiser")}
 
 
 @order_router.post("/{order_id}/messages", status_code=201)

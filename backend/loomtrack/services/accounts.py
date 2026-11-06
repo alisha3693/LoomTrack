@@ -29,10 +29,10 @@ def _buyer_user(db: sqlite3.Connection, user_id: int) -> sqlite3.Row:
 
 def list_logins(db: sqlite3.Connection, buyer_id: int) -> list[dict]:
     return [dict(r) for r in db.execute(
-        "SELECT id, name, login, must_change_secret AS pending FROM users WHERE buyer_id = ? ORDER BY name", (buyer_id,))]
+        "SELECT id, name, login, must_change_secret AS pending, can_write AS canWrite FROM users WHERE buyer_id = ? ORDER BY name", (buyer_id,))]
 
 
-def create_login(db: sqlite3.Connection, buyer_id: int, name: str, email: str) -> dict:
+def create_login(db: sqlite3.Connection, buyer_id: int, name: str, email: str, can_write: bool = True) -> dict:
     """Returns the new login with its temporary password, which is shown once and never stored."""
     name, login = name.strip(), email.strip().lower()
     if not name:
@@ -45,8 +45,8 @@ def create_login(db: sqlite3.Connection, buyer_id: int, name: str, email: str) -
         raise HttpError(409, "That email already has an account")
     password = temporary_password()
     db.execute(
-        "INSERT INTO users (name, role, login, secret_hash, lang, buyer_id, must_change_secret) VALUES (?,?,?,?,?,?,1)",
-        (name, "buyer", login, hash_secret(password), "en", buyer_id),
+        "INSERT INTO users (name, role, login, secret_hash, lang, buyer_id, must_change_secret, can_write) VALUES (?,?,?,?,?,?,1,?)",
+        (name, "buyer", login, hash_secret(password), "en", buyer_id, 1 if can_write else 0),
     )
     return {"login": login, "password": password}
 
@@ -58,6 +58,12 @@ def reset_password(db: sqlite3.Connection, user_id: int) -> dict:
         db.execute("UPDATE users SET secret_hash = ?, must_change_secret = 1 WHERE id = ?", (hash_secret(password), user_id))
         db.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
     return {"password": password}
+
+
+def set_access(db: sqlite3.Connection, user_id: int, can_write: bool) -> None:
+    """Switch an account between full access and view-only. Takes effect on its next request."""
+    _buyer_user(db, user_id)
+    db.execute("UPDATE users SET can_write = ? WHERE id = ?", (1 if can_write else 0, user_id))
 
 
 def remove_login(db: sqlite3.Connection, user_id: int) -> None:

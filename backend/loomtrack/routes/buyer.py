@@ -41,6 +41,16 @@ async def current_buyer(token: str, request: Request, c: AppContext = Depends(ct
     return buyer
 
 
+async def writable_buyer(token: str, request: Request, c: AppContext = Depends(ctx)) -> sqlite3.Row:
+    """The buyer, for something that changes data. A view-only account can look but not send, approve or change."""
+    buyer = await current_buyer(token, request, c)
+    if token == ACCOUNT:
+        user = await optional_user(request, c)
+        if user is not None and not user.can_write:
+            raise HttpError(403, "Your account can view orders but not make changes. Ask your merchandiser.")
+    return buyer
+
+
 @router.get("")
 async def view(response: Response, buyer=Depends(current_buyer), c: AppContext = Depends(ctx)):
     response.headers.update(NO_STORE)

@@ -1,20 +1,26 @@
 import { FormEvent, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import Activity from "../../components/Activity";
+import { ApprovalCard, AskForApproval, NoApprovals, OfficeDecision } from "../../components/Approvals";
 import { OfficeFiles } from "../../components/Attachments";
 import ChangeForm from "../../components/ChangeForm";
 import Conversation from "../../components/Conversation";
 import Materials from "../../components/Materials";
 import { RequestPill } from "../../components/RequestParts";
 import { fabricLine } from "../../lib/fabric";
-import { Modal, Progress, StatusPill, Swatch, Toast, useApi } from "../../components/ui";
+import { Modal, PageHeader, Progress, Skeleton, StatusPill, Swatch, Toast, useApi } from "../../components/ui";
 import { api } from "../../lib/api";
-import { fmtDate, fmtDateTime, num, plural, Status } from "../../lib/format";
+import { ago, fmtDate, fmtDateTime, num, plural, Status } from "../../lib/format";
 import type { MilestoneRow, OrderDetail as Detail, StageProjection, UpdateRow, WarningRow } from "../../lib/types";
+import { useBadgeRefresh } from "../../lib/badges";
+import { isOpenApproval } from "../../lib/flow";
 import { useMeta } from "./OfficeShell";
 
 const TABS = [
   { id: "overview", label: "Overview" },
+  { id: "plan", label: "Plan and delay" },
   { id: "conversation", label: "Conversation" },
+  { id: "approvals", label: "Approvals" },
   { id: "materials", label: "Materials" },
   { id: "files", label: "Files and requests" },
   { id: "history", label: "History and floor" },
@@ -25,19 +31,23 @@ type DateEdit = { kind: "exf"; current: string } | { kind: "ms"; m: MilestoneRow
 export default function OrderDetail() {
   const { id } = useParams();
   const { data, error, reload } = useApi<Detail>(`/api/m/orders/${id}`);
+  useBadgeRefresh(() => void reload());
   const [edit, setEdit] = useState<DateEdit | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [params, setParams] = useSearchParams();
 
   if (error) return <main className="page"><div className="banner banner-error">{error}</div></main>;
-  if (!data) return <main className="page faint">Loading…</main>;
+  if (!data) return <main className="page"><Skeleton rows={6} /></main>;
   const { order, projection: p } = data;
   const pending = data.warnings.find((w) => w.state === "pending");
   const lastMessage = data.messages[data.messages.length - 1];
-  const awaiting = lastMessage?.author === "buyer";
+  const awaiting = !!lastMessage && lastMessage.source === "order" && lastMessage.author === "buyer";
+  const openApprovals = data.approvals.filter(isOpenApproval);
+  const sentBack = data.approvals.filter((a) => a.status === "changes");
   const lateMaterials = data.materials.filter((m) => m.risk.state === "late").length;
   const confirmed = data.warnings.find((w) => w.state === "confirmed");
+  const receipt = confirmed && (confirmed.buyer_ack_at ? `Acknowledged by the buyer ${ago(confirmed.buyer_ack_at)}` : confirmed.buyer_seen_at ? `Opened by the buyer ${ago(confirmed.buyer_seen_at)}, not acknowledged yet` : "Not opened by the buyer yet");
   const tab = TABS.some((t) => t.id === params.get("tab")) ? params.get("tab")! : "overview";
   const goTab = (id: string) => setParams(id === "overview" ? {} : { tab: id }, { replace: true });
 
@@ -54,32 +64,34 @@ export default function OrderDetail() {
   return (
     <main className="page">
       <div className="stack" style={{ gap: 20 }}>
-        <div>
-          <div className="crumbs"><Link to="/m">Orders</Link><i>/</i><span>{order.po_no}</span></div>
-          <div className="page-head" style={{ marginTop: 6, marginBottom: 0 }}>
-            <div>
-              <div className="row"><h1>{order.po_no}</h1><StatusPill status={p.status} /></div>
-              <p className="sub">{order.order_no} · {order.style}, <Swatch hex={order.colour_hex} />{order.colour.toLowerCase()}{order.colour_pantone ? ` (Pantone ${order.colour_pantone})` : ""} · <Link to={`/m?buyer=${order.buyer_id}`} title="All orders for this buyer">{order.buyer_name}</Link> · {order.unit_name}</p>
-            </div>
-            <div className="row no-print">
-              {data.buyerPath && <a className="btn btn-sm" href={data.buyerPath} target="_blank" rel="noreferrer" title="Opens the page your buyer sees, in a new tab">What the buyer sees ↗</a>}
-              <button className="btn btn-sm" onClick={() => setRecording(true)}>Record a change</button>
-              <button className="btn btn-sm" onClick={() => setEdit({ kind: "exf", current: order.ex_factory })}>Change ex-factory</button>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          crumbs={[{ label: "Orders", to: "/m" }, { label: order.po_no }]}
+          title={order.po_no}
+          status={<StatusPill status={p.status} />}
+          sub={<>{order.order_no} · {order.style}, <Swatch hex={order.colour_hex} />{order.colour.toLowerCase()}{order.colour_pantone ? ` (Pantone ${order.colour_pantone})` : ""} · <Link to={`/m/buyers/${order.buyer_id}`} title="This buyer's profile">{order.buyer_name}</Link> · {order.unit_name}</>}
+          actions={<>
+            {data.buyerPath && <a className="btn btn-sm" href={data.buyerPath} target="_blank" rel="noreferrer" title="Opens the page your buyer sees, in a new tab">What the buyer sees ↗</a>}
+            <button className="btn btn-sm" onClick={() => setRecording(true)}>Record a change</button>
+            <button className="btn btn-sm" onClick={() => setEdit({ kind: "exf", current: order.ex_factory })}>Change ex-factory</button>
+          </>}
+        />
 
-        {(pending || awaiting) && (
-          <div className="stack" style={{ gap: 12 }}>
-            {pending && <PendingWarning w={pending} onDone={(msg) => { setToast(msg); void reload(); }} />}
-            {awaiting && tab !== "conversation" && (
-              <div className="attention">
-                <button type="button" className="attn amber" onClick={() => goTab("conversation")}>
-                  <b>{order.buyer_name} is waiting for your reply</b>
-                  <span className="cta">Open conversation →</span>
-                </button>
-              </div>
+        {pending && <PendingWarning w={pending} onDone={(msg) => { setToast(msg); void reload(); }} />}
+        {(awaiting || sentBack.length > 0) && (
+          <div className="attention">
+            {awaiting && (
+              <button type="button" className="attn amber" onClick={() => goTab("conversation")}>
+                <b>{order.buyer_name} is waiting for your reply</b>
+                <span className="cta">Open conversation →</span>
+              </button>
             )}
+            {sentBack.map((a) => (
+              <button key={a.id} type="button" className="attn amber" onClick={() => goTab("approvals")}>
+                <b>The buyer asked for changes: {a.title}</b>
+                <span className="detail">{a.events[a.events.length - 1]?.note}</span>
+                <span className="cta">Answer →</span>
+              </button>
+            ))}
           </div>
         )}
 
@@ -88,6 +100,7 @@ export default function OrderDetail() {
             <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => goTab(t.id)}>
               {t.label}
               {t.id === "conversation" && (awaiting ? <span className="badge" title="The buyer is waiting for your reply">1</span> : data.messages.length ? <span className="faint small"> {data.messages.length}</span> : null)}
+              {t.id === "approvals" && (sentBack.length ? <span className="badge" title="Sent back by the buyer">{sentBack.length}</span> : openApprovals.length ? <span className="faint small"> {openApprovals.length}</span> : null)}
               {t.id === "materials" && lateMaterials > 0 && <span className="badge" title="Late materials">{lateMaterials}</span>}
             </button>
           ))}
@@ -109,11 +122,33 @@ export default function OrderDetail() {
                 </div>
               )}
             </section>
-            {confirmed && !pending && (
-              <div className="banner">
-                <b>Buyer informed</b> {fmtDateTime(confirmed.decided_at)}: “{confirmed.buyer_message}”
-              </div>
+            {p.reasons.length > 0 && (
+              <section className="card card-pad stack" style={{ gap: 8 }}>
+                <div className="row" style={{ justifyContent: "space-between" }}><h2>Why the date is where it is</h2><button className="btn btn-ghost btn-sm" onClick={() => goTab("plan")}>Plan and delay →</button></div>
+                <ul className="reasons">{p.reasons.map((r) => <li key={r}>{r}</li>)}</ul>
+              </section>
             )}
+            {confirmed && !pending && (
+              <section className="card card-pad stack" style={{ gap: 6 }}>
+                <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div><b>Buyer informed</b> <span className="faint small">{fmtDateTime(confirmed.decided_at)}</span></div>
+                  <span className={`pill ${confirmed.buyer_ack_at ? "pill-green" : confirmed.buyer_seen_at ? "pill-amber" : "pill-red"}`}>{receipt}</span>
+                </div>
+                <p className="muted" style={{ margin: 0 }}>“{confirmed.buyer_message}”</p>
+              </section>
+            )}
+            <section className="card card-pad stack" style={{ gap: 10 }}>
+              <div className="row" style={{ justifyContent: "space-between" }}>
+                <h2>Recent activity</h2>
+                <button className="btn btn-ghost btn-sm" onClick={() => goTab("history")}>Everything →</button>
+              </div>
+              <Activity items={data.activity.slice(0, 5)} />
+            </section>
+          </>
+        )}
+
+        {tab === "plan" && (
+          <>
             <Projection stages={p.stages} reasons={p.reasons} keyStage={p.keyStage} status={p.status} />
             <Milestones data={data} onEdit={setEdit} onMarkDone={(m, date) =>
               act(() => api(`/api/m/milestones/${m.id}`, { method: "PATCH", body: date ? { actualDate: date } : { clearActual: true } }), date ? `${m.name_en} marked done` : "Marked not done")
@@ -133,6 +168,15 @@ export default function OrderDetail() {
               <Conversation path={`/api/m/orders/${order.id}/messages`} me="merchandiser" otherName={order.buyer_name} onSent={() => void reload()} hint="Ask about a sample, share an update, answer a question." />
             </div>
           </section>
+        )}
+
+        {tab === "approvals" && (
+          <div className="stack">
+            <div><AskForApproval orderId={order.id} onAsked={(m) => { setToast(m); void reload(); }} /></div>
+            {data.approvals.length === 0 ? <NoApprovals side="office" /> : data.approvals.map((a) => (
+              <ApprovalCard key={a.id} a={a} side="office" actions={<OfficeDecision a={a} onDone={(m) => { setToast(m); void reload(); }} />} />
+            ))}
+          </div>
         )}
 
         {tab === "materials" && (
@@ -166,6 +210,10 @@ export default function OrderDetail() {
 
         {tab === "history" && (
           <>
+            <section className="card card-pad stack" style={{ gap: 10 }}>
+              <h2>Everything that happened on this order</h2>
+              <Activity items={data.activity} />
+            </section>
             <DateHistory data={data} />
             <Updates updates={data.updates} onChanged={reload} toast={setToast} />
           </>

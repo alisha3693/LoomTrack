@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from . import materials, order_messages
+from . import inbox, materials, order_messages
 from .attachments import for_buyer
 from .orders import compute_projection, get_milestones
 
@@ -19,6 +19,14 @@ def buyer_by_token(db: sqlite3.Connection, token: str) -> sqlite3.Row | None:
     if not token or len(token) < 20:
         return None
     return db.execute("SELECT id, name, country FROM buyers WHERE link_token = ? AND link_active = 1", (token,)).fetchone()
+
+
+def _with_unread(db: sqlite3.Connection, order_id: int, last: dict | None) -> dict | None:
+    """The newest message of an order, marked unread when the office wrote it and the buyer has not opened it yet."""
+    if last is None:
+        return None
+    unread = last["author"] == "merchandiser" and last["id"] > inbox.seen_by(db, "order", order_id, "buyer")
+    return {"author": last["author"], "at": last["at"], "count": last["count"], "unread": unread}
 
 
 def buyer_orders(db: sqlite3.Connection, buyer_id: int, today: str) -> list[dict]:
@@ -46,7 +54,7 @@ def buyer_orders(db: sqlite3.Connection, buyer_id: int, today: str) -> list[dict
             )
 
         warning = db.execute(
-            "SELECT buyer_message, projected_ex_factory, decided_at, state FROM warnings WHERE order_id = ? AND state IN ('confirmed','resolved') ORDER BY id DESC LIMIT 1",
+            "SELECT buyer_message, projected_ex_factory, decided_at, state, buyer_seen_at, buyer_ack_at FROM warnings WHERE order_id = ? AND state IN ('confirmed','resolved') ORDER BY id DESC LIMIT 1",
             (o["id"],),
         ).fetchone()
 
@@ -79,14 +87,14 @@ def buyer_orders(db: sqlite3.Connection, buyer_id: int, today: str) -> list[dict
                 "colourPantone": o["colour_pantone"],
                 "fabric": {"type": o["fabric_type"], "composition": o["fabric_composition"], "gsm": o["fabric_gsm"]},
                 "materials": materials.for_buyer(db, o["id"]),
-                "lastMessage": talk.get(o["id"]),
+                "lastMessage": _with_unread(db, o["id"], talk.get(o["id"])),
                 "qty": o["qty_total"],
                 "sizes": [dict(s) for s in sizes],
                 "exFactory": o["ex_factory"],
                 "state": o["state"],
                 # Buyers see a delay only once a merchandiser has confirmed it.
                 "notice": (
-                    {"message": warning["buyer_message"], "expectedExFactory": warning["projected_ex_factory"], "at": warning["decided_at"]}
+                    {"message": warning["buyer_message"], "expectedExFactory": warning["projected_ex_factory"], "at": warning["decided_at"], "seenAt": warning["buyer_seen_at"], "acknowledgedAt": warning["buyer_ack_at"]}
                     if warning and warning["state"] == "confirmed"
                     else None
                 ),

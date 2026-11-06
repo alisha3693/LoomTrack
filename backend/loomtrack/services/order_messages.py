@@ -32,11 +32,23 @@ def _order(db: sqlite3.Connection, order_id: int, buyer_id: int | None) -> sqlit
 
 
 def thread(db: sqlite3.Connection, order_id: int, buyer_id: int | None = None) -> list[dict]:
+    """The whole conversation about an order: what was said while it was still a request, then the messages
+    since. Request items come first (they happened first) and carry `source: "request"` and their event."""
     _order(db, order_id, buyer_id)
-    return [
-        {"id": m["id"], "author": m["author"], "body": m["body"], "at": m["created_at"]}
+    out: list[dict] = [
+        {"key": f"r{m['id']}", "source": "request", "id": None, "event": m["event"], "author": m["author"], "body": m["body"],
+         "proposedExFactory": m["proposed_ex_factory"], "requestNo": m["request_no"], "at": m["created_at"]}
+        for m in db.execute(
+            """SELECT m.id, m.event, m.author, m.body, m.proposed_ex_factory, m.created_at, q.request_no
+               FROM request_messages m JOIN order_requests q ON q.id = m.request_id WHERE q.order_id = ? ORDER BY m.id""",
+            (order_id,),
+        )
+    ]
+    out += [
+        {"key": f"o{m['id']}", "source": "order", "id": m["id"], "author": m["author"], "body": m["body"], "at": m["created_at"]}
         for m in db.execute("SELECT id, author, body, created_at FROM order_messages WHERE order_id = ? ORDER BY id", (order_id,))
     ]
+    return out
 
 
 def post(db: sqlite3.Connection, order_id: int, author: str, body: str, *, buyer_id: int | None = None, user_id: int | None = None) -> int:
@@ -59,8 +71,8 @@ def last_by_order(db: sqlite3.Connection, order_ids: list[int]) -> dict[int, dic
         return {}
     marks = ",".join("?" * len(order_ids))
     rows = db.execute(
-        f"""SELECT m.order_id, m.author, m.created_at, (SELECT COUNT(*) FROM order_messages x WHERE x.order_id = m.order_id) AS n
+        f"""SELECT m.id AS mid, m.order_id, m.author, m.created_at, (SELECT COUNT(*) FROM order_messages x WHERE x.order_id = m.order_id) AS n
             FROM order_messages m WHERE m.id IN (SELECT MAX(id) FROM order_messages WHERE order_id IN ({marks}) GROUP BY order_id)""",
         order_ids,
     )
-    return {r["order_id"]: {"author": r["author"], "at": r["created_at"], "count": r["n"]} for r in rows}
+    return {r["order_id"]: {"id": r["mid"], "author": r["author"], "at": r["created_at"], "count": r["n"]} for r in rows}

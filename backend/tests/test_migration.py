@@ -244,3 +244,34 @@ def test_v7_database_gets_order_messages_and_keeps_its_orders(tmp_path):
         db.execute("INSERT INTO order_messages (order_id, author, body) VALUES (1, 'stranger', 'x')")
     with pytest.raises(sqlite3.IntegrityError):
         db.execute("INSERT INTO order_messages (order_id, author, body) VALUES (1, 'buyer', '')")
+
+
+def test_v8_database_gets_approvals_read_marks_and_view_only_accounts_and_keeps_its_data(tmp_path):
+    """Before this version there were no approvals, no read marks, and every buyer account could make changes."""
+    f = tmp_path / "v8.db"
+    db = open_db(str(f))
+    db.execute("INSERT INTO buyers (id, name, link_token) VALUES (1, 'B', 't')")
+    db.execute("INSERT INTO units (id, name, kind) VALUES (1, 'U', 'own')")
+    db.execute("INSERT INTO orders (id, order_no, po_no, buyer_id, style, colour, qty_total, ex_factory, unit_id, template_key) VALUES (1,'LT-2026-0001','P',1,'s','c',10,'2026-11-20',1,'basic')")
+    db.execute("INSERT INTO users (name, role, login, secret_hash, buyer_id) VALUES ('Hannah', 'buyer', 'h@b.example', 'x', 1)")
+    db.execute("INSERT INTO warnings (order_id, level, projected_ex_factory, slack_days, summary, state) VALUES (1, 'red', '2026-12-01', -3, 'x', 'confirmed')")
+    for table in ("approval_events", "approvals", "thread_reads"):
+        db.execute(f"DROP TABLE {table}")
+    for table, column in (("users", "can_write"), ("warnings", "buyer_seen_at"), ("warnings", "buyer_ack_at")):
+        db.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+    db.execute("PRAGMA user_version = 8")
+    db.close()
+
+    db = open_db(str(f))
+    assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    assert db.execute("SELECT po_no FROM orders").fetchone()[0] == "P"
+    assert db.execute("SELECT can_write FROM users").fetchone()[0] == 1                     # existing accounts keep full access
+    assert db.execute("SELECT buyer_seen_at, buyer_ack_at FROM warnings").fetchone()[:] == (None, None)
+    db.execute("INSERT INTO approvals (order_id, kind, title) VALUES (1, 'fit_sample', 'Fit sample')")
+    db.execute("INSERT INTO approval_events (approval_id, actor, action) VALUES (1, 'merchandiser', 'requested')")
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute("UPDATE approval_events SET note = 'edited'")                            # append-only
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute("INSERT INTO approvals (order_id, kind, title) VALUES (1, 'nonsense', 'x')")
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute("INSERT INTO thread_reads (kind, ref_id, reader) VALUES ('order', 1, 'stranger')")

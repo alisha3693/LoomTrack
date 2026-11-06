@@ -1,23 +1,27 @@
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { FileList } from "../../components/Attachments";
+import Activity from "../../components/Activity";
+import { ApprovalCard, BuyerDecision, NoApprovals } from "../../components/Approvals";
 import Conversation from "../../components/Conversation";
-import { Progress, Swatch } from "../../components/ui";
-import { BuyerOrder as Order, orderChip, seenKey } from "../../lib/buyer";
+import NoticeCard from "../../components/NoticeCard";
+import { PageHeader, Progress, Swatch, useApi, useCanWrite } from "../../components/ui";
+import { useBadgeRefresh } from "../../lib/badges";
+import { BuyerOrder as Order, orderChip } from "../../lib/buyer";
 import { fabricLine } from "../../lib/fabric";
+import type { ActivityItem, Approval } from "../../lib/flow";
 import { fmtDate, fmtDateTime, num } from "../../lib/format";
-import { markSeen, unseen } from "../../lib/seen";
 import BuyerFrame from "./BuyerFrame";
 
 const FIELD: Record<string, string> = { ex_factory: "Ex-factory", planned_date: "Due date", planned_start: "Start date", actual_date: "Completed" };
-type Tab = "progress" | "messages" | "materials" | "files" | "history";
+type Tab = "progress" | "messages" | "approvals" | "materials" | "files" | "history";
 
 export default function BuyerOrder() {
   const { token = "", orderId } = useParams();
   return (
     <BuyerFrame token={token} wide>
-      {(_n, _t, data) => {
+      {(_n, _t, data, reload) => {
         const o = data.orders.find((x) => String(x.id) === orderId);
-        return o ? <Detail token={token} o={o} /> : (
+        return o ? <Detail token={token} o={o} onChanged={reload} /> : (
           <div className="card card-pad stack" style={{ alignItems: "flex-start" }}>
             <b>We could not find that order.</b>
             <Link className="btn" to={`/b/${token}/orders`}>Back to your orders</Link>
@@ -28,40 +32,43 @@ export default function BuyerOrder() {
   );
 }
 
-function Detail({ token, o }: { token: string; o: Order }) {
+function Detail({ token, o, onChanged }: { token: string; o: Order; onChanged: () => void }) {
+  const canWrite = useCanWrite();
+  const { data: apr, reload: reloadApr } = useApi<{ approvals: Approval[] }>(`/api/b/${token}/approvals`);
+  const { data: act } = useApi<{ activity: ActivityItem[] }>(`/api/b/${token}/orders/${o.id}/activity`);
+  useBadgeRefresh(() => void reloadApr());
+  const approvals = (apr?.approvals ?? []).filter((a) => a.orderId === o.id);
+  const toDecide = approvals.filter((a) => a.status === "requested").length;
   const [params, setParams] = useSearchParams();
   const tab = (params.get("tab") as Tab) || "progress";
   const setTab = (t: Tab) => setParams(t === "progress" ? {} : { tab: t }, { replace: true });
   const chip = orderChip(o);
   const fabric = fabricLine(o.fabric);
-  const newReply = o.lastMessage?.author === "merchandiser" && unseen(seenKey(token, o.id), o.lastMessage.at);
+  const newReply = !!o.lastMessage?.unread;
   const received = o.materials.filter((m) => m.received).length;
   const owed = o.materials.filter((m) => m.suppliedBy === "buyer" && !m.received);
 
   const TABS: { id: Tab; label: string; extra?: React.ReactNode }[] = [
     { id: "progress", label: "Progress" },
     { id: "messages", label: "Conversation", extra: newReply ? <span className="dot-new" title="New reply" /> : o.lastMessage ? <span className="faint small"> {o.lastMessage.count}</span> : null },
+    { id: "approvals", label: "Approvals", extra: toDecide ? <span className="badge" title="Waiting for your decision">{toDecide}</span> : approvals.length ? <span className="faint small"> {approvals.length}</span> : null },
     { id: "materials", label: "Materials", extra: o.materials.length ? <span className="faint small"> {received}/{o.materials.length}</span> : null },
     { id: "files", label: "Files and photos", extra: o.attachments.length + o.photos.length ? <span className="faint small"> {o.attachments.length + o.photos.length}</span> : null },
-    { id: "history", label: "Date history", extra: o.dateChanges.length ? <span className="faint small"> {o.dateChanges.length}</span> : null },
+    { id: "history", label: "History" },
   ];
 
   return (
     <div className="stack" style={{ gap: 18 }}>
-      <div>
-        <div className="crumbs no-print"><Link to={`/b/${token}/orders`}>Orders</Link><i>/</i><span>{o.poNo}</span></div>
-        <div className="page-head" style={{ marginBottom: 0 }}>
-          <div>
-            <div className="row"><h1>{o.poNo}</h1><span className={`pill ${chip.tone ? `pill-${chip.tone}` : ""}`}>{chip.text}</span></div>
-            <p className="sub">{o.style}, <Swatch hex={o.colourHex} />{o.colour.toLowerCase()}{o.colourPantone ? ` (Pantone ${o.colourPantone})` : ""}</p>
-            {fabric && <p className="faint small">Fabric: {fabric}</p>}
-          </div>
-          <div className="row no-print">
-            {o.state === "active" && <Link className="btn btn-sm" to={`/b/${token}/orders/${o.id}/change`} title="A new date or different quantities">Ask for a change</Link>}
-            <button className="btn btn-ghost btn-sm" onClick={() => window.print()}>Print / PDF</button>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        crumbs={[{ label: "Orders", to: `/b/${token}/orders` }, { label: o.poNo }]}
+        title={o.poNo}
+        status={<span className={`pill ${chip.tone ? `pill-${chip.tone}` : ""}`}>{chip.text}</span>}
+        sub={<>{o.style}, <Swatch hex={o.colourHex} />{o.colour.toLowerCase()}{o.colourPantone ? ` (Pantone ${o.colourPantone})` : ""}{fabric ? ` · ${fabric}` : ""}</>}
+        actions={<>
+          {o.state === "active" && canWrite && <Link className="btn btn-sm" to={`/b/${token}/orders/${o.id}/change`} title="A new date or different quantities">Ask for a change</Link>}
+          <button className="btn btn-ghost btn-sm" onClick={() => window.print()}>Print / PDF</button>
+        </>}
+      />
 
       <section className="card card-pad">
         <div className="kv">
@@ -74,13 +81,7 @@ function Detail({ token, o }: { token: string; o: Order }) {
         <div className="faint small" style={{ marginTop: 10 }}>{o.sizes.map((s) => `${s.size} ${num(s.qty)}`).join(" · ")}</div>
       </section>
 
-      {o.notice && (
-        <div className="banner banner-warn">
-          <b>Update from your merchandiser</b> · {fmtDateTime(o.notice.at)}
-          <div style={{ marginTop: 4, color: "var(--ink)" }}>{o.notice.message}</div>
-          <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => setTab("messages")}>Reply about this</button>
-        </div>
-      )}
+      {o.notice && <NoticeCard token={token} orderId={o.id} exFactory={o.exFactory} notice={o.notice} onChanged={onChanged} />}
       {owed.length > 0 && (
         <div className="banner banner-warn">
           <b>We are waiting for {owed.map((m) => m.name.toLowerCase()).join(", ")} from you.</b> Production cannot use it until it arrives.
@@ -130,11 +131,16 @@ function Detail({ token, o }: { token: string; o: Order }) {
             <h2>Conversation with your merchandiser</h2>
             <p className="faint small" style={{ marginTop: 2 }}>Ask about a sample, a delivery or a detail. To change the date or the quantities, use “Ask for a change” instead.</p>
           </div>
-          <Conversation
-            path={`/api/b/${token}/orders/${o.id}/messages`} me="buyer" otherName="your merchandiser"
-            onRead={(at) => markSeen(seenKey(token, o.id), at)} hint="Your merchandiser will answer here."
-          />
+          <Conversation path={`/api/b/${token}/orders/${o.id}/messages`} me="buyer" otherName="your merchandiser" onSent={onChanged} hint="Your merchandiser will answer here." />
         </section>
+      )}
+
+      {tab === "approvals" && (
+        <div className="stack">
+          {!apr ? null : approvals.length === 0 ? <NoApprovals side="buyer" /> : approvals.map((a) => (
+            <ApprovalCard key={a.id} a={a} side="buyer" actions={<BuyerDecision token={token} a={a} onDone={() => { void reloadApr(); onChanged(); }} />} />
+          ))}
+        </div>
       )}
 
       {tab === "materials" && (
@@ -179,19 +185,25 @@ function Detail({ token, o }: { token: string; o: Order }) {
       )}
 
       {tab === "history" && (
-        <section className="card card-pad">
-          <div className="section-title">Every date that moved, and why</div>
-          {o.dateChanges.length === 0 ? <p className="muted" style={{ margin: 0 }}>No planned dates have changed on this order.</p> : (
-            <ul className="reasons small">
-              {o.dateChanges.map((d, i) => (
-                <li key={i}>
-                  {d.milestone ?? "Order"} · {FIELD[d.field] ?? d.field}: {fmtDate(d.oldValue)} → {fmtDate(d.newValue)}
-                  <span className="faint"> · “{d.reason}” · {fmtDateTime(d.changedAt)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        <div className="stack">
+          <section className="card card-pad stack">
+            <div className="section-title" style={{ margin: 0 }}>What happened on this order</div>
+            <Activity items={act?.activity ?? null} />
+          </section>
+          <section className="card card-pad">
+            <div className="section-title">Every date that moved, and why</div>
+            {o.dateChanges.length === 0 ? <p className="muted" style={{ margin: 0 }}>No planned dates have changed on this order.</p> : (
+              <ul className="reasons small">
+                {o.dateChanges.map((d, i) => (
+                  <li key={i}>
+                    {d.milestone ?? "Order"} · {FIELD[d.field] ?? d.field}: {fmtDate(d.oldValue)} → {fmtDate(d.newValue)}
+                    <span className="faint"> · “{d.reason}” · {fmtDateTime(d.changedAt)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
       )}
     </div>
   );

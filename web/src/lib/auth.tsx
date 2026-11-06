@@ -9,6 +9,8 @@ export interface User {
   unit_name?: string | null;
   buyer_name?: string | null;
   must_change_secret?: number;
+  /** 0 for a view-only buyer account; everyone else can make changes. */
+  can_write?: number;
   lang: string;
 }
 

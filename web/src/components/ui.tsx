@@ -1,5 +1,7 @@
 import { ReactNode, useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { Status, STATUS_LABEL } from "../lib/format";
 
 export function StatusPill({ status, label }: { status: Status; label?: string }) {
@@ -69,6 +71,59 @@ export function useApi<T>(path: string | null) {
 
 export function Empty({ children }: { children: ReactNode }) {
   return <div className="card card-pad muted" style={{ textAlign: "center", padding: 40 }}>{children}</div>;
+}
+
+/** An empty list that says what it is for and what to do about it. */
+export function EmptyState({ title, hint, action }: { title: string; hint?: string; action?: ReactNode }) {
+  return (
+    <div className="empty-state">
+      <b>{title}</b>
+      {hint && <p className="muted">{hint}</p>}
+      {action}
+    </div>
+  );
+}
+
+/** Grey bars where a list will be, so the page does not jump when it arrives. */
+export function Skeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <div className="skeleton" role="status" aria-label="Loading">
+      {Array.from({ length: rows }, (_, i) => <span key={i} style={{ width: `${92 - (i % 3) * 14}%` }} />)}
+    </div>
+  );
+}
+
+export interface Crumb { label: string; to?: string }
+
+/** The top of every page: where you are, what this is, and its one or two actions. */
+export function PageHeader({ title, sub, crumbs, status, actions }: { title: ReactNode; sub?: ReactNode; crumbs?: Crumb[]; status?: ReactNode; actions?: ReactNode }) {
+  return (
+    <header className="page-top">
+      {crumbs && crumbs.length > 0 && (
+        <nav className="crumbs no-print" aria-label="Breadcrumb">
+          {crumbs.map((c, i) => (
+            <span key={c.label} className="crumb">
+              {c.to ? <Link to={c.to}>{c.label}</Link> : <span aria-current="page">{c.label}</span>}
+              {i < crumbs.length - 1 && <i>/</i>}
+            </span>
+          ))}
+        </nav>
+      )}
+      <div className="page-head" style={{ marginBottom: 0 }}>
+        <div>
+          <div className="row"><h1>{title}</h1>{status}</div>
+          {sub && <p className="sub">{sub}</p>}
+        </div>
+        {actions && <div className="row no-print">{actions}</div>}
+      </div>
+    </header>
+  );
+}
+
+/** False for a view-only buyer account, so the page can hide what it would refuse. */
+export function useCanWrite(): boolean {
+  const { user } = useAuth();
+  return user?.can_write !== 0;
 }
 
 /** Small colour chip. Hex on a screen is approximate; the Pantone reference is the real spec. */

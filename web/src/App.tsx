@@ -6,6 +6,9 @@ import Board from "./pages/merch/Board";
 import OrderNew from "./pages/merch/OrderNew";
 import OrderDetail from "./pages/merch/OrderDetail";
 import Buyers from "./pages/merch/Buyers";
+import BuyerProfile from "./pages/merch/BuyerProfile";
+import Approvals from "./pages/merch/Approvals";
+import Messages from "./pages/merch/Messages";
 import Requests from "./pages/merch/Requests";
 import RequestDetail from "./pages/merch/RequestDetail";
 import Templates from "./pages/merch/Templates";
@@ -17,6 +20,9 @@ import BuyerHome from "./pages/buyer/BuyerHome";
 import BuyerOrder from "./pages/buyer/BuyerOrder";
 import BuyerOrders from "./pages/buyer/BuyerOrders";
 import BuyerRequests from "./pages/buyer/BuyerRequests";
+import BuyerMessages from "./pages/buyer/BuyerMessages";
+import BuyerApprovals from "./pages/buyer/BuyerApprovals";
+import BuyerDocuments from "./pages/buyer/BuyerDocuments";
 import RequestNew from "./pages/buyer/RequestNew";
 import BuyerRequest from "./pages/buyer/BuyerRequest";
 import OrderChange from "./pages/buyer/OrderChange";
@@ -68,6 +74,9 @@ export default function App() {
         <Route path="orders/new" element={<OrderNew />} />
         <Route path="orders/:id" element={<OrderDetail />} />
         <Route path="buyers" element={<Buyers />} />
+        <Route path="buyers/:id" element={<BuyerProfile />} />
+        <Route path="messages" element={<Messages />} />
+        <Route path="approvals" element={<Approvals />} />
         <Route path="requests" element={<Requests />} />
         <Route path="requests/:id" element={<RequestDetail />} />
         <Route path="units" element={<Units />} />
@@ -83,6 +92,9 @@ export default function App() {
         <Route path="orders" element={<BuyerOrders />} />
         <Route path="orders/:orderId" element={<BuyerOrder />} />
         <Route path="requests" element={<BuyerRequests />} />
+        <Route path="messages" element={<BuyerMessages />} />
+        <Route path="approvals" element={<BuyerApprovals />} />
+        <Route path="documents" element={<BuyerDocuments />} />
         <Route path="requests/new" element={<RequestNew />} />
         <Route path="orders/:orderId/change" element={<OrderChange />} />
         <Route path="requests/:id" element={<BuyerRequest />} />

@@ -5,6 +5,8 @@ import type { Status } from "./format";
 import type { Material, MaterialSummary } from "./fabric";
 import type { RequestStatus } from "./requests";
 
+import type { ActivityItem, Approval } from "./flow";
+
 export interface Meta {
   buyers: { id: number; name: string; country: string | null }[];
   units: { id: number; name: string; kind: "own" | "subcontract"; process: string | null }[];
@@ -12,6 +14,10 @@ export interface Meta {
   reasons: { code: string; en: string; ta: string }[];
   today: string;
   openRequests: number;
+  /** Conversations where the buyer wrote last and nobody has read it yet. */
+  unreadMessages: number;
+  /** Approvals where the buyer asked for changes, so the office has to answer. */
+  approvalsToAnswer: number;
   ai: { mode: "ollama" | "keywords"; model?: string; reason?: string };
 }
 
@@ -45,6 +51,10 @@ export interface BoardOrder {
   lastUpdate: string | null;
   materials: MaterialSummary | null;
   awaitingReply: boolean;
+  /** Approvals waiting on the buyer, and ones the buyer sent back to the office. */
+  approvals: { waiting: number; sentBack: number };
+  /** The latest delay notice was confirmed and the buyer has not acknowledged it. */
+  noticeUnacknowledged: boolean;
 }
 
 export interface StageProjection {
@@ -123,6 +133,8 @@ export interface WarningRow {
   state: "pending" | "confirmed" | "dismissed" | "superseded" | "resolved";
   created_at: string;
   decided_at: string | null;
+  buyer_seen_at: string | null;
+  buyer_ack_at: string | null;
 }
 
 export interface DateChangeRow {
@@ -166,7 +178,10 @@ export interface OrderDetail {
   dateChanges: DateChangeRow[];
   attachments: FileItem[];
   materials: Material[];
-  messages: { id: number; author: "buyer" | "merchandiser"; body: string; at: string }[];
+  messages: { source: "order" | "request"; id: number | null; author: "buyer" | "merchandiser"; body: string | null; at: string }[];
+  readUpTo: number;
+  approvals: Approval[];
+  activity: ActivityItem[];
   buyerPath: string | null;
   changeRequests: { id: number; requestNo: string; kind: "new_order" | "amendment"; status: RequestStatus; exFactory: string; updatedAt: string }[];
 }
