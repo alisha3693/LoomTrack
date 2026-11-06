@@ -13,7 +13,10 @@ import TemplateEditor from "./pages/merch/TemplateEditor";
 import Units from "./pages/merch/Units";
 import SupHome from "./pages/sup/SupHome";
 import SupUpdate from "./pages/sup/SupUpdate";
-import BuyerView from "./pages/buyer/BuyerView";
+import BuyerHome from "./pages/buyer/BuyerHome";
+import BuyerOrder from "./pages/buyer/BuyerOrder";
+import BuyerOrders from "./pages/buyer/BuyerOrders";
+import BuyerRequests from "./pages/buyer/BuyerRequests";
 import RequestNew from "./pages/buyer/RequestNew";
 import BuyerRequest from "./pages/buyer/BuyerRequest";
 import OrderChange from "./pages/buyer/OrderChange";
@@ -76,7 +79,10 @@ export default function App() {
       <Route path="/s/update/:milestoneId" element={<RequireRole role="supervisor"><SupUpdate /></RequireRole>} />
       <Route path="/account/password" element={<ChangePassword />} />
       <Route path="/b/:token" element={<BuyerGate />}>
-        <Route index element={<BuyerView />} />
+        <Route index element={<BuyerHome />} />
+        <Route path="orders" element={<BuyerOrders />} />
+        <Route path="orders/:orderId" element={<BuyerOrder />} />
+        <Route path="requests" element={<BuyerRequests />} />
         <Route path="requests/new" element={<RequestNew />} />
         <Route path="orders/:orderId/change" element={<OrderChange />} />
         <Route path="requests/:id" element={<BuyerRequest />} />

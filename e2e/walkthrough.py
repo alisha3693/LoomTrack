@@ -48,7 +48,7 @@ with sync_playwright() as p:
     time.sleep(0.5)
     pg.screenshot(path=OUT / "02-board.png", full_page=True)
 
-    pg.click("text=B-PO-88213")
+    pg.click("a.po:has-text('B-PO-88213')")
     pg.wait_for_selector("text=Delay projection")
     time.sleep(0.5)
     pg.screenshot(path=OUT / "03-detail-88213.png", full_page=True)
@@ -113,9 +113,12 @@ with sync_playwright() as p:
     bp = bc.new_page()
     bp.on("pageerror", lambda e: errors.append(f"buyer pageerror: {e}"))
     bp.goto(f"{BASE}/b/{token}")
-    bp.wait_for_selector("article")
+    bp.wait_for_selector(".order-row")                                  # the overview lists the orders
     time.sleep(0.8)
     bp.screenshot(path=OUT / "11-buyer.png", full_page=True)
+    bp.locator(".order-row").first.click()                              # and each order opens on its own page
+    bp.wait_for_selector("text=Production")
+    bp.screenshot(path=OUT / "12-buyer-order.png", full_page=True)
     b.close()
 
 print("browser errors:", errors or "none")

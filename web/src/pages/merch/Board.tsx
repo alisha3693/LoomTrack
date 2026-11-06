@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import Attention, { AttentionItem } from "../../components/Attention";
 import { Empty, StatusPill, Swatch, useApi } from "../../components/ui";
 import { fmtDate, fmtDateTime, num, plural, Status } from "../../lib/format";
 import type { BoardOrder } from "../../lib/types";
@@ -56,6 +57,7 @@ export default function Board() {
   const buyer = params.get("buyer") ?? "";
   const unit = params.get("unit") ?? "";
   const week = params.get("week") ?? "";
+  const focus = params.get("focus") ?? "";
   const [only, setOnly] = useState<Status | null>(null);
 
   const qs = new URLSearchParams(Object.entries({ buyer, unit, week }).filter(([, v]) => v)).toString();
@@ -66,7 +68,24 @@ export default function Board() {
     data?.orders.forEach((o) => c[o.status]++);
     return c;
   }, [data]);
-  const orders = (data?.orders ?? []).filter((o) => !only || o.status === only);
+  const FOCUS: Record<string, { label: string; test: (o: BoardOrder) => boolean }> = {
+    messages: { label: "orders where the buyer is waiting for your reply", test: (o) => o.awaitingReply },
+    warnings: { label: "orders with a delay warning to review", test: (o) => o.pendingWarnings > 0 },
+    materials: { label: "orders with late materials", test: (o) => !!o.materials && o.materials.late > 0 },
+  };
+  const orders = (data?.orders ?? []).filter((o) => (!only || o.status === only) && (!FOCUS[focus] || FOCUS[focus].test(o)));
+
+  // What needs you, in the order you would act on it. Each card goes straight to the thing.
+  const needs: AttentionItem[] = [];
+  const all = data?.orders ?? [];
+  const named = (list: BoardOrder[]) => list.slice(0, 3).map((o) => o.poNo).join(", ") + (list.length > 3 ? ` and ${list.length - 3} more` : "");
+  const waiting = all.filter(FOCUS.messages.test);
+  const warned = all.filter(FOCUS.warnings.test);
+  const short = all.filter(FOCUS.materials.test);
+  if (meta && meta.openRequests > 0) needs.push({ key: "req", tone: "amber", title: `${plural(meta.openRequests, "buyer request")} waiting for your answer`, detail: "New orders and replies to your questions", cta: "Open requests", to: "/m/requests" });
+  if (waiting.length) needs.push({ key: "msg", tone: "amber", title: `${plural(waiting.length, "buyer message")} to answer`, detail: named(waiting), cta: "Show these orders", onSelect: () => setFilter("focus", "messages") });
+  if (warned.length) needs.push({ key: "warn", tone: "red", title: `${plural(warned.length, "delay warning")} to review`, detail: `${named(warned)}. The buyer is told nothing until you confirm.`, cta: "Show these orders", onSelect: () => setFilter("focus", "warnings") });
+  if (short.length) needs.push({ key: "mat", tone: "red", title: `${plural(short.length, "order")} with late materials`, detail: named(short), cta: "Show these orders", onSelect: () => setFilter("focus", "materials") });
 
   const setFilter = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -84,10 +103,16 @@ export default function Board() {
             Projected from the floor's daily numbers{data ? ` · ${fmtDate(data.today, true)}` : ""}. Trouble first.
           </p>
         </div>
-        <Link to="/m/orders/new" className="btn btn-primary">New order</Link>
       </div>
 
       <div className="stack">
+        {data && (
+          <section aria-label="Needs you">
+            <div className="section-title">Needs you</div>
+            <Attention items={needs} clear="Nothing is waiting for you. No buyer is waiting on an answer and no warning needs a decision." />
+          </section>
+        )}
+
         <div className="summary">
           {(["red", "amber", "green"] as Status[]).map((s) => (
             <button key={s} aria-pressed={only === s} onClick={() => setOnly(only === s ? null : s)}>
@@ -111,7 +136,10 @@ export default function Board() {
             <option value="">All ship weeks</option>
             {data?.weeks.map((w) => <option key={w} value={w}>Ship week {w.split("-W")[1]} · {w.slice(0, 4)}</option>)}
           </select>
-          {(buyer || unit || week || only) && (
+          {FOCUS[focus] && (
+            <span className="chip-filter">Showing {FOCUS[focus].label}<button aria-label="Show all orders" onClick={() => setFilter("focus", "")}>×</button></span>
+          )}
+          {(buyer || unit || week || only || focus) && (
             <button className="btn btn-ghost btn-sm" onClick={() => { setParams({}, { replace: true }); setOnly(null); }}>Clear</button>
           )}
           {loading && <span className="faint small">Updating…</span>}
@@ -149,6 +177,7 @@ export default function Board() {
                         <StatusPill status={o.status} />
                         {o.pendingWarnings > 0 && <div className="small t-amber" style={{ marginTop: 6 }}>Warning to review</div>}
                         <MaterialsNote o={o} />
+                        {o.awaitingReply && <div className="small t-amber" style={{ marginTop: 6 }}>Buyer is waiting for your reply</div>}
                       </td>
                       <td className="nowrap">
                         <div className="num">{fmtDate(o.exFactory, true)}</div>
@@ -187,6 +216,7 @@ export default function Board() {
                     <div className="muted">{o.style} · {o.buyer}</div>
                     <Maths o={o} />
                     <MaterialsNote o={o} />
+                    {o.awaitingReply && <div className="small t-amber">Buyer is waiting for your reply</div>}
                     <div className="small faint">Ex-factory {fmtDate(o.exFactory, true)}{o.projectedExFactory !== o.exFactory ? ` → ${fmtDate(o.projectedExFactory)}` : ""}</div>
                   </div>
                 </Link>

@@ -299,6 +299,22 @@ CREATE TABLE IF NOT EXISTS order_materials (
 );
 CREATE INDEX IF NOT EXISTS ix_materials_order ON order_materials (order_id);
 
+-- Messages between the buyer and the merchandiser about an order that exists (a request has its own
+-- conversation in request_messages). Append-only.
+CREATE TABLE IF NOT EXISTS order_messages (
+  id INTEGER PRIMARY KEY,
+  order_id INTEGER NOT NULL REFERENCES orders(id),
+  author TEXT NOT NULL CHECK (author IN ('buyer', 'merchandiser')),
+  user_id INTEGER REFERENCES users(id),
+  body TEXT NOT NULL CHECK (length(body) BETWEEN 1 AND 2000),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS ix_order_messages ON order_messages (order_id, id);
+CREATE TRIGGER IF NOT EXISTS order_messages_no_update BEFORE UPDATE ON order_messages
+BEGIN SELECT RAISE(ABORT, 'order_messages is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS order_messages_no_delete BEFORE DELETE ON order_messages
+BEGIN SELECT RAISE(ABORT, 'order_messages is append-only'); END;
+
 -- Mock outbound messages (email / WhatsApp to buyers).
 CREATE TABLE IF NOT EXISTS outbox_messages (
   id INTEGER PRIMARY KEY,
@@ -312,7 +328,7 @@ CREATE TABLE IF NOT EXISTS outbox_messages (
 """
 
 
-SCHEMA_VERSION = 7  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no/colour, 2 = before templates, 3 = before order requests, 4 = before attachments, 5 = before buyer accounts, 6 = before fabric, materials and unit capacity
+SCHEMA_VERSION = 8  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no/colour, 2 = before templates, 3 = before order requests, 4 = before attachments, 5 = before buyer accounts, 6 = before fabric, materials and unit capacity, 7 = before order messages
 
 
 def _is_v0(db: sqlite3.Connection) -> bool:

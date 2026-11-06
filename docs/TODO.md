@@ -19,6 +19,9 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` not started. Updated as wor
 - [x] Buyer accounts: the office creates a sign-in for each person at the buyer, with a one-time temporary password and a forced first change; reset and remove; the private link still works
 - [ ] Buyer accounts: email the invitation and a self-service "forgot password" (today the office passes the temporary password on and resets by hand; outbound email is still mocked)
 - [ ] Buyer accounts: retire the private link once everyone has an account, and give each account its own view of who may send and who may only read (today every account for a buyer can do everything the link can)
+- [x] Navigation and flow between buyer and merchandiser: global search, "needs you" on both sides, grouped office navigation, per-order pages and tabs for the buyer, a conversation about live orders, whose-turn banners, previews of what the buyer sees (see docs/UX_GAPS.md)
+- [ ] Notifications that reach people outside the app (email, WhatsApp) when the other side answers; today "new" is in-app only and the buyer's "seen" memory lives in the browser
+- [ ] Read receipts for the office (has the buyer seen the delay notice or the reply?)
 - [x] Fabric (type, composition, GSM, note) on requests and orders; materials tracking with late and at-risk flags, buyer-supplied items, fabric in-house milestone kept in step
 - [x] Capacity check before accepting a request or creating an order: per-unit stitching capacity, what is booked, the first workable ship date, confirmation required to go over; Units page
 - [ ] Unit management screen: add units and job-work units (subcontractors for new processes such as embroidery); today units come from the seed and only their capacity can be edited

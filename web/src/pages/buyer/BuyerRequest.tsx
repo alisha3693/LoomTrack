@@ -1,7 +1,7 @@
-import { useState } from "react";
-import { useLocation, useParams } from "react-router-dom";
+import { useRef, useState } from "react";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { api } from "../../lib/api";
-import { fmtDate } from "../../lib/format";
+import { ago, fmtDate } from "../../lib/format";
 import { FileList, FileUpload } from "../../components/Attachments";
 import { Toast, useApi } from "../../components/ui";
 import { RequestPill, RequestSummary, RequestThread } from "../../components/RequestParts";
@@ -14,17 +14,19 @@ export default function BuyerRequest() {
 }
 
 function Detail({ token, id }: { token: string; id: string }) {
-  const { data: r, error, reload } = useApi<RequestDetailData>(`/api/b/${token}/requests/${id}`);
+  const { data: r, error, reload } = useApi<RequestDetailData & { orderId?: number }>(`/api/b/${token}/requests/${id}`);
   const [message, setMessage] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const composer = useRef<HTMLTextAreaElement>(null);
   const uploadErrors: string[] = (useLocation().state as { uploadErrors?: string[] } | null)?.uploadErrors ?? [];
 
   if (error) return <div className="banner banner-error">{error}</div>;
   if (!r) return <p className="faint">Loading…</p>;
 
   const proposed = [...r.messages].reverse().find((m) => m.event === "counter")?.proposedExFactory;
+  const lastQuestion = [...r.messages].reverse().find((m) => m.event === "query" || m.event === "counter");
 
   async function act(path: string, body?: object, done?: string, method = "POST") {
     setBusy(true);
@@ -40,20 +42,88 @@ function Detail({ token, id }: { token: string; id: string }) {
       setBusy(false);
     }
   }
+  const writeBack = () => { composer.current?.focus(); composer.current?.scrollIntoView({ behavior: "smooth", block: "center" }); };
 
   return (
-    <div className="stack">
-      <div className="page-head" style={{ marginBottom: 0 }}>
-        <div>
-          <div className="row"><h2 style={{ fontSize: 22 }}>{r.poNo}</h2><RequestPill status={r.status} audience="buyer" /></div>
-          <p className="sub">Request {r.requestNo}{r.orderNo ? ` · our order number ${r.orderNo}` : ""}</p>
+    <div className="stack" style={{ gap: 18 }}>
+      <div>
+        <div className="crumbs"><Link to={`/b/${token}/requests`}>Requests</Link><i>/</i><span>{r.poNo}</span></div>
+        <div className="page-head" style={{ marginBottom: 0 }}>
+          <div>
+            <div className="row"><h1>{r.poNo}</h1><RequestPill status={r.status} audience="buyer" /></div>
+            <p className="sub">Request {r.requestNo}{r.orderNo ? ` · our order number ${r.orderNo}` : ""} · last activity {ago(r.updatedAt)}</p>
+          </div>
+          {r.orderId && <Link className="btn btn-primary" to={`/b/${token}/orders/${r.orderId}`}>Open your order</Link>}
         </div>
       </div>
 
       {uploadErrors.length > 0 && (
         <div className="banner banner-error">Your request was sent, but some files could not be added: {uploadErrors.join("; ")}. You can add them again below.</div>
       )}
+
+      {/* Whose turn it is, and the one thing to do about it, before anything else. */}
+      {r.status === "countered" && proposed && (
+        <section className="turn you" aria-label="Your turn">
+          <span className="badge-turn" aria-hidden="true">!</span>
+          <div className="stack">
+            <h2>Your turn: your merchandiser proposes {fmtDate(proposed, true)}</h2>
+            <p className="muted">You asked for {fmtDate(r.exFactory, true)}. Agreeing updates your request to the new date. If it does not work for you, write back and say why.</p>
+            {lastQuestion?.body && <p style={{ whiteSpace: "pre-wrap" }}>“{lastQuestion.body}”</p>}
+            <div className="row">
+              <button className="btn btn-primary" disabled={busy} onClick={() => act("agree", undefined, "You agreed to the new date")}>Agree to {fmtDate(proposed)}</button>
+              <button className="btn" onClick={writeBack}>Write back instead</button>
+            </div>
+          </div>
+        </section>
+      )}
+      {r.status === "query" && (
+        <section className="turn you" aria-label="Your turn">
+          <span className="badge-turn" aria-hidden="true">?</span>
+          <div className="stack">
+            <h2>Your turn: your merchandiser has a question</h2>
+            {lastQuestion?.body && <p style={{ whiteSpace: "pre-wrap" }}>“{lastQuestion.body}”</p>}
+            <div className="row"><button className="btn btn-primary" onClick={writeBack}>Answer now</button></div>
+          </div>
+        </section>
+      )}
+      {r.status === "submitted" && (
+        <section className="turn" aria-label="Waiting">
+          <span className="badge-turn" aria-hidden="true">…</span>
+          <div className="stack">
+            <h2>With your merchandiser</h2>
+            <p className="muted">They will confirm it, ask a question, or suggest another date. You will see the answer here and on your overview. Nothing else is needed from you.</p>
+          </div>
+        </section>
+      )}
+      {r.status === "accepted" && (
+        <section className="turn done" aria-label="Accepted">
+          <span className="badge-turn" aria-hidden="true">✓</span>
+          <div className="stack">
+            <h2>{r.kind === "amendment" ? "The change was applied" : "Accepted. It is now an order."}</h2>
+            {r.orderId && <div className="row"><Link className="btn btn-primary" to={`/b/${token}/orders/${r.orderId}`}>See progress on your order</Link></div>}
+          </div>
+        </section>
+      )}
+
       <section className="card card-pad"><RequestSummary r={r} /></section>
+
+      <section className="stack" style={{ gap: 10 }}>
+        <h2>Conversation</h2>
+        <RequestThread r={r} audience="buyer" />
+        {r.canReply && (
+          <div className="card card-pad stack">
+            <label className="field"><span>{r.status === "query" ? "Your answer" : "Write to your merchandiser"}</span>
+              <textarea ref={composer} className="textarea" rows={3} maxLength={2000} value={message} onChange={(e) => setMessage(e.target.value)} />
+            </label>
+            {err && <div className="banner banner-error">{err}</div>}
+            <div className="row" style={{ justifyContent: "space-between" }}>
+              {r.canWithdraw ? <button className="btn btn-ghost" disabled={busy} onClick={() => window.confirm("Withdraw this request?") && void act("withdraw", undefined, "Request withdrawn")}>Withdraw request</button> : <span />}
+              <button className="btn btn-primary" disabled={busy || !message.trim()} onClick={() => act("reply", { message: message.trim() }, "Message sent")}>Send</button>
+            </div>
+          </div>
+        )}
+        {!r.canReply && err && <div className="banner banner-error">{err}</div>}
+      </section>
 
       <section className="card card-pad stack">
         <h2>Files</h2>
@@ -74,31 +144,6 @@ function Detail({ token, id }: { token: string; id: string }) {
           }} />
         )}
       </section>
-
-      {r.status === "countered" && proposed && (
-        <section className="card card-pad stack" style={{ borderColor: "var(--amber)" }}>
-          <b>The merchandiser proposes ex-factory {fmtDate(proposed, true)}</b>
-          <p className="muted" style={{ margin: 0 }}>Agreeing updates your request to this date. Or reply below if it does not work.</p>
-          <div className="row"><button className="btn btn-primary" disabled={busy} onClick={() => act("agree", undefined, "You agreed to the new date")}>Agree to {fmtDate(proposed)}</button></div>
-        </section>
-      )}
-
-      {r.canReply && (
-        <section className="card card-pad stack">
-          <label className="field"><span>{r.status === "query" ? "Your answer" : "Write to the merchandiser"}</span>
-            <textarea className="textarea" rows={3} maxLength={2000} value={message} onChange={(e) => setMessage(e.target.value)} />
-          </label>
-          {err && <div className="banner banner-error">{err}</div>}
-          <div className="row" style={{ justifyContent: "space-between" }}>
-            {r.canWithdraw ? <button className="btn btn-ghost" disabled={busy} onClick={() => window.confirm("Withdraw this request?") && void act("withdraw", undefined, "Request withdrawn")}>Withdraw request</button> : <span />}
-            <button className="btn btn-primary" disabled={busy || !message.trim()} onClick={() => act("reply", { message: message.trim() }, "Message sent")}>Send</button>
-          </div>
-        </section>
-      )}
-      {!r.canReply && err && <div className="banner banner-error">{err}</div>}
-
-      <h2>History</h2>
-      <RequestThread r={r} audience="buyer" />
       <Toast message={toast} onDone={() => setToast(null)} />
     </div>
   );

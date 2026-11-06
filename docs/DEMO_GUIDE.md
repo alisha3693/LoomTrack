@@ -129,6 +129,15 @@ Use two windows: the office (signed in as Priya) and a private window for the bu
 5. Choose *Unit 3* instead: *Room to spare · 50%*, no tick needed. Create the order: it carries the fabric and starts a *Main fabric* line.
 6. On **New order**, type 9,000 pcs and a 15 Dec date and pick *Unit 1*: the same check appears, and the same tick is required.
 
+## 6h. Finding things and answering fast (both sides)
+1. Office, **Orders**: the top is **Needs you**: requests waiting, buyer messages to answer, delay warnings, late materials. Click *buyer messages to answer*: the board shows only those orders, with a chip to clear it.
+2. Press **/** anywhere in the office, type `88240` (or `Company B`, `raglan`, `LT-2026`) and press Enter. It opens the order. **Set up** holds Templates and Units; **+ New order** is always in the bar.
+3. On an order: breadcrumbs, the buyer's name (click it for all their orders), **What the buyer sees** (their view of this order), and the section bar that jumps to Conversation, Materials, Plan and so on.
+4. Buyer window, an order, **Conversation**: write *"Can you send photos of the cartons?"* and send.
+5. Office: the board's *Needs you* now lists it, the order shows *Buyer is waiting for your reply*, and the order page opens on a highlighted conversation. Reply.
+6. Buyer, **Overview**: *New reply about …* is the first card. Open it: the dot goes away and the card does not come back.
+7. A buyer's request that the office has countered: the buyer's overview has *Agree to a new date* first; the request page opens with **Your turn** and the *Agree* button before anything else. Agreeing hands it back; the office request page shows **The buyer is waiting for your answer**, with the buyer's other orders beside it.
+
 ## 7. Date changes leave a compliance trail
 On any order: **Change ex-factory** (or click a due date in the TNA list).
 
@@ -139,7 +148,7 @@ On any order: **Change ex-factory** (or click a due date in the TNA list).
 ## 8. Buyer view: only their own orders (Must have #5)
 Open each of the three buyer links.
 
-- **Expect:** each shows only its own orders. No unit names, no internal colours, no raw supervisor notes.
+- **Expect:** the overview opens with **Needs your attention**, then tiles, a compact list of orders and their requests. Each shows only its own orders. No unit names, no internal colours, no raw supervisor notes. Open an order for its tabs.
 - **Weekly status (Excel)** downloads the buyer edition. **Print / PDF** gives a clean printout.
 - Office → Buyers & exports → **New link** revokes the old link immediately (try the old one: *This link is not valid*).
 
@@ -151,7 +160,7 @@ Open each of the three buyer links.
 ## Automated checks
 | Command | What it proves |
 |---|---|
-| `npm test` | 114 backend tests: run-rate maths, keyword classifier, schema migration, order requests and changes, file upload checks, buyer isolation, idempotent offline sends, unit scoping, AI fallback, confirm-before-buyer, append-only audit |
+| `npm test` | 124 backend tests: run-rate maths, keyword classifier, schema migration, order requests and changes, file upload checks, buyer isolation, idempotent offline sends, unit scoping, AI fallback, confirm-before-buyer, append-only audit |
 | `npm run explain` | Prints the run-rate maths for every order in the terminal |
 | `python e2e/walkthrough.py` | Clicks through every screen in a headless browser, saves screenshots to `e2e/shots/`, fails on any browser error (run `npm run seed` first) |
 | `python e2e/offline_test.py` | Phone offline → update queued → back online → lands exactly once |

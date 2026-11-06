@@ -219,3 +219,28 @@ def test_v6_database_gets_fabric_materials_and_unit_capacity_and_keeps_its_order
         db.execute("INSERT INTO order_materials (order_id, kind, name) VALUES (1, 'trim', 'x')")
     with pytest.raises(sqlite3.IntegrityError):
         db.execute("INSERT INTO order_materials (order_id, kind, name, needed_by, status) VALUES (1, 'trim', 'x', '2026-11-01', 'received')")
+
+
+def test_v7_database_gets_order_messages_and_keeps_its_orders(tmp_path):
+    """Before this version there was no conversation about an existing order."""
+    f = tmp_path / "v7.db"
+    db = open_db(str(f))
+    db.execute("INSERT INTO buyers (id, name, link_token) VALUES (1, 'B', 't')")
+    db.execute("INSERT INTO units (id, name, kind) VALUES (1, 'U', 'own')")
+    db.execute("INSERT INTO orders (id, order_no, po_no, buyer_id, style, colour, qty_total, ex_factory, unit_id, template_key) VALUES (1,'LT-2026-0001','P',1,'s','c',10,'2026-11-20',1,'basic')")
+    db.execute("DROP TABLE order_messages")
+    db.execute("PRAGMA user_version = 7")
+    db.close()
+
+    db = open_db(str(f))
+    assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    assert db.execute("SELECT po_no FROM orders").fetchone()[0] == "P"                     # the order is untouched
+    db.execute("INSERT INTO order_messages (order_id, author, body) VALUES (1, 'buyer', 'hello')")
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute("UPDATE order_messages SET body = 'edited'")                            # append-only
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute("DELETE FROM order_messages")
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute("INSERT INTO order_messages (order_id, author, body) VALUES (1, 'stranger', 'x')")
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute("INSERT INTO order_messages (order_id, author, body) VALUES (1, 'buyer', '')")

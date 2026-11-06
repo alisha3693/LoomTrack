@@ -143,8 +143,11 @@ def request_detail(db: sqlite3.Connection, rid: int, buyer_id: int | None = None
         out["change"] = _change_summary(db, r, sizes)
     if buyer_id is None:
         out["buyer"] = db.execute("SELECT name FROM buyers WHERE id = ?", (r["buyer_id"],)).fetchone()["name"]
+        out["buyerId"] = r["buyer_id"]
         out["orderId"] = r["order_id"]
     else:
+        if r["order_id"]:
+            out["orderId"] = r["order_id"]  # their own order, so the page can link to it once the request has become one
         out["canReply"] = r["status"] in OPEN
         out["canAgree"] = r["status"] == "countered"
         out["canWithdraw"] = r["status"] in OPEN

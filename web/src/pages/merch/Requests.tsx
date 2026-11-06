@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Empty, Swatch, useApi } from "../../components/ui";
 import { RequestPill } from "../../components/RequestParts";
-import { fmtDate, num } from "../../lib/format";
+import { ago, fmtDate, num } from "../../lib/format";
 import type { RequestRow } from "../../lib/requests";
 
 const TABS = [
@@ -35,11 +35,11 @@ export default function Requests() {
       </div>
 
       {error && <div className="banner banner-error">{error}</div>}
-      {data && data.requests.length === 0 && <Empty>{tab === "mine" ? "Nothing needs an answer right now." : "No requests here."}</Empty>}
+      {data && data.requests.length === 0 && <Empty>{tab === "mine" ? "Nothing needs an answer right now. New buyer requests and replies to your questions appear here." : "No requests here."}</Empty>}
       {data && data.requests.length > 0 && (
         <div className="card table-scroll">
           <table className="table board">
-            <thead><tr><th>Request</th><th>Buyer</th><th>Ex-factory asked</th><th>Status</th></tr></thead>
+            <thead><tr><th>Request</th><th>Buyer</th><th>Ex-factory asked</th><th>Status</th><th>Last activity</th></tr></thead>
             <tbody>
               {data.requests.map((r) => (
                 <tr key={r.id} onClick={() => nav(`/m/requests/${r.id}`)} style={{ cursor: "pointer" }}>
@@ -51,6 +51,7 @@ export default function Requests() {
                   <td>{r.buyer}</td>
                   <td>{fmtDate(r.exFactory, true)}</td>
                   <td><RequestPill status={r.status} audience="office" /></td>
+                  <td className="muted small nowrap">{ago(r.updatedAt)}</td>
                 </tr>
               ))}
             </tbody>

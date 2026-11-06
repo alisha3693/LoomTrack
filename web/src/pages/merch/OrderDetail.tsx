@@ -2,6 +2,8 @@ import { FormEvent, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { OfficeFiles } from "../../components/Attachments";
 import ChangeForm from "../../components/ChangeForm";
+import AnchorNav from "../../components/AnchorNav";
+import Conversation from "../../components/Conversation";
 import Materials from "../../components/Materials";
 import { RequestPill } from "../../components/RequestParts";
 import { fabricLine } from "../../lib/fabric";
@@ -24,6 +26,9 @@ export default function OrderDetail() {
   if (!data) return <main className="page faint">Loading…</main>;
   const { order, projection: p } = data;
   const pending = data.warnings.find((w) => w.state === "pending");
+  const lastMessage = data.messages[data.messages.length - 1];
+  const awaiting = lastMessage?.author === "buyer";
+  const lateMaterials = data.materials.filter((m) => m.risk.state === "late").length;
   const confirmed = data.warnings.find((w) => w.state === "confirmed");
 
   const act = async (fn: () => Promise<unknown>, msg: string) => {
@@ -40,20 +45,32 @@ export default function OrderDetail() {
     <main className="page">
       <div className="stack" style={{ gap: 20 }}>
         <div>
-          <Link to="/m" className="faint small" style={{ textDecoration: "none" }}>← Orders</Link>
+          <div className="crumbs"><Link to="/m">Orders</Link><i>/</i><span>{order.po_no}</span></div>
           <div className="page-head" style={{ marginTop: 6, marginBottom: 0 }}>
             <div>
               <div className="row"><h1>{order.po_no}</h1><StatusPill status={p.status} /></div>
-              <p className="sub">{order.order_no} · {order.style}, <Swatch hex={order.colour_hex} />{order.colour.toLowerCase()}{order.colour_pantone ? ` (Pantone ${order.colour_pantone})` : ""} · {order.buyer_name} · {order.unit_name}</p>
+              <p className="sub">{order.order_no} · {order.style}, <Swatch hex={order.colour_hex} />{order.colour.toLowerCase()}{order.colour_pantone ? ` (Pantone ${order.colour_pantone})` : ""} · <Link to={`/m?buyer=${order.buyer_id}`} title="All orders for this buyer">{order.buyer_name}</Link> · {order.unit_name}</p>
             </div>
             <div className="row no-print">
+              {data.buyerPath && <a className="btn btn-sm" href={data.buyerPath} target="_blank" rel="noreferrer" title="Opens the page your buyer sees, in a new tab">What the buyer sees ↗</a>}
               <button className="btn btn-sm" onClick={() => setRecording(true)}>Record a change</button>
               <button className="btn btn-sm" onClick={() => setEdit({ kind: "exf", current: order.ex_factory })}>Change ex-factory</button>
             </div>
           </div>
         </div>
 
-        <section className="card card-pad">
+        <AnchorNav items={[
+          { id: "overview", label: "Overview" },
+          { id: "messages", label: "Conversation", badge: awaiting ? <span className="badge" title="The buyer is waiting for your reply">1</span> : data.messages.length ? <span className="faint small"> {data.messages.length}</span> : null },
+          { id: "delay", label: "Delay" },
+          { id: "materials", label: "Materials", badge: lateMaterials ? <span className="badge" style={{ background: "var(--red-bg)", color: "var(--red)" }}>{lateMaterials}</span> : null },
+          { id: "plan", label: "Plan" },
+          { id: "files", label: "Files" },
+          { id: "history", label: "Date history" },
+          { id: "updates", label: "Floor updates" },
+        ]} />
+
+        <section id="overview" data-anchor className="card card-pad">
           <div className="kv">
             <div><span>Ex-factory</span><b className="num">{fmtDate(order.ex_factory, true)}</b></div>
             <div><span>Projected at current output</span><b className={`num t-${p.status === "red" ? "red" : p.status === "amber" ? "amber" : "green"}`}>{fmtDate(p.projectedExFactory, true)}</b></div>
@@ -75,14 +92,27 @@ export default function OrderDetail() {
           </div>
         )}
 
-        <Projection stages={p.stages} reasons={p.reasons} keyStage={p.keyStage} status={p.status} />
+        <section id="messages" data-anchor className="card" style={awaiting ? { borderColor: "var(--amber)" } : undefined}>
+          <div className="card-head">
+            <div>
+              <h2>Conversation with {order.buyer_name}</h2>
+              <div className="faint small">The buyer sees this on their order page. For changing a date or quantity, use Record a change.</div>
+            </div>
+            {awaiting && <span className="pill pill-amber">Waiting for your reply</span>}
+          </div>
+          <div className="card-body">
+            <Conversation path={`/api/m/orders/${order.id}/messages`} me="merchandiser" otherName={order.buyer_name} onSent={() => void reload()} hint="Ask about a sample, share an update, answer a question." />
+          </div>
+        </section>
 
-        <Materials orderId={order.id} items={data.materials} steps={data.milestones} today={data.today} active={order.state === "active"} onChanged={reload} notify={setToast} />
+        <div id="delay" data-anchor><Projection stages={p.stages} reasons={p.reasons} keyStage={p.keyStage} status={p.status} /></div>
+
+        <div id="materials" data-anchor><Materials orderId={order.id} items={data.materials} steps={data.milestones} today={data.today} active={order.state === "active"} onChanged={reload} notify={setToast} /></div>
 
         <div className="grid-2" style={{ alignItems: "start" }}>
-          <Milestones data={data} onEdit={setEdit} onMarkDone={(m, date) =>
+          <div id="plan" data-anchor><Milestones data={data} onEdit={setEdit} onMarkDone={(m, date) =>
             act(() => api(`/api/m/milestones/${m.id}`, { method: "PATCH", body: date ? { actualDate: date } : { clearActual: true } }), date ? `${m.name_en} marked done` : "Marked not done")
-          } />
+          } /></div>
           {data.changeRequests.length > 0 && (
             <section className="card">
               <div className="card-head"><h2>Requests and changes</h2><span className="faint small">What the buyer asked for and how it was answered</span></div>
@@ -97,16 +127,16 @@ export default function OrderDetail() {
               </div>
             </section>
           )}
-          <section className="card">
+          <section id="files" data-anchor className="card">
             <div className="card-head"><h2>Files</h2><span className="faint small">Designs, patterns, prints, fabric. You choose who sees each one.</span></div>
             <div className="card-body">
               <OfficeFiles files={data.attachments} uploadPath={`/api/m/orders/${order.id}/attachments`} onChanged={() => void reload()} />
             </div>
           </section>
-          <DateHistory data={data} />
+          <div id="history" data-anchor><DateHistory data={data} /></div>
         </div>
 
-        <Updates updates={data.updates} onChanged={reload} toast={setToast} />
+        <div id="updates" data-anchor><Updates updates={data.updates} onChanged={reload} toast={setToast} /></div>
       </div>
 
       {recording && (

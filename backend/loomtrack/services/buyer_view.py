@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from . import materials
+from . import materials, order_messages
 from .attachments import for_buyer
 from .orders import compute_projection, get_milestones
 
@@ -24,6 +24,7 @@ def buyer_by_token(db: sqlite3.Connection, token: str) -> sqlite3.Row | None:
 def buyer_orders(db: sqlite3.Connection, buyer_id: int, today: str) -> list[dict]:
     orders = db.execute("SELECT * FROM orders WHERE buyer_id = ? AND state != 'cancelled' ORDER BY ex_factory", (buyer_id,)).fetchall()
     result = []
+    talk = order_messages.last_by_order(db, [o["id"] for o in orders])
     for o in orders:
         p = compute_projection(db, o, today).p
         stage_by_code = {s.code: s for s in p.stages}
@@ -78,6 +79,7 @@ def buyer_orders(db: sqlite3.Connection, buyer_id: int, today: str) -> list[dict
                 "colourPantone": o["colour_pantone"],
                 "fabric": {"type": o["fabric_type"], "composition": o["fabric_composition"], "gsm": o["fabric_gsm"]},
                 "materials": materials.for_buyer(db, o["id"]),
+                "lastMessage": talk.get(o["id"]),
                 "qty": o["qty_total"],
                 "sizes": [dict(s) for s in sizes],
                 "exFactory": o["ex_factory"],

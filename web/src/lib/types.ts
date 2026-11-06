@@ -44,6 +44,7 @@ export interface BoardOrder {
   pendingWarnings: number;
   lastUpdate: string | null;
   materials: MaterialSummary | null;
+  awaitingReply: boolean;
 }
 
 export interface StageProjection {
@@ -139,6 +140,7 @@ export interface OrderDetail {
   today: string;
   order: {
     id: number;
+    buyer_id: number;
     order_no: string;
     po_no: string;
     style: string;
@@ -164,6 +166,8 @@ export interface OrderDetail {
   dateChanges: DateChangeRow[];
   attachments: FileItem[];
   materials: Material[];
+  messages: { id: number; author: "buyer" | "merchandiser"; body: string; at: string }[];
+  buyerPath: string | null;
   changeRequests: { id: number; requestNo: string; kind: "new_order" | "amendment"; status: RequestStatus; exFactory: string; updatedAt: string }[];
 }
 

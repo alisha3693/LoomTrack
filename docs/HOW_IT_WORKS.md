@@ -66,6 +66,15 @@ A buyer reaches only their own requests: another buyer's request is "not found".
 - When a request is **accepted**, its files move onto the new order. Buyers see their files on their order page, supervisors under "Files for this order" on a stage screen.
 - Office and floor links are short-lived signed links; buyers open files through their own link, scoped to their own requests and orders.
 
+## Finding your way: search, "needs you" and the conversation
+
+- **Office navigation.** The bar keeps to daily work: Orders, Requests (with the count waiting for you), Buyers. Rarely changed things (plan templates, units and capacity) sit under **Set up**. **+ New order** is an action, not a page. **Search** (press `/` or Ctrl+K anywhere) finds an order, request or buyer by PO, our LT number, request number, style, colour or buyer name, and opens it with Enter (`services/search.py`).
+- **Needs you** is the top of the order board: buyer requests waiting for your answer, buyer messages to answer, delay warnings to review, orders with late materials. Each card goes straight to the thing (or filters the board to those orders), and "nothing is waiting for you" is said plainly when that is true.
+- **Order page.** Breadcrumbs, a link from the buyer's name to all their orders, **What the buyer sees** (opens the buyer's own page for this order), and a sticky section bar (Overview, Conversation, Delay, Materials, Plan, Files, Date history, Floor updates). The conversation sits high on the page, with an amber "Waiting for your reply" when the buyer wrote last.
+- **Request page (office).** The decision (accept, ask, propose another date, decline) is at the top; the request and conversation are in the middle; the side panel shows the buyer's live orders and how they are going, so the answer can take that into account.
+- **Conversation about an order** (`services/order_messages.py`). A buyer can write to the merchandiser from any order (anything that is not a change of date or quantity, which stays a *change request*), and the merchandiser answers in the same thread. It is append-only, capped at 500 messages and 2,000 characters each, and scoped by buyer like everything else: another buyer's order and a cancelled order are simply "not found". The merchandiser's reply also lands in the buyer's inbox (mock email). The board and the order page show who owes a reply.
+- **Buyer navigation.** A header with Overview, Orders and Requests (a count when their answer is needed) and **+ New request**. The **overview** starts with **Needs your attention**: a countered date to agree, a question to answer, a new reply, a delay notice, items the buyer must supply. Then summary tiles, a compact orders list and their requests. Each order has its own page with tabs (Progress, Conversation, Materials, Files and photos, Date history); a request page begins with whose turn it is and the one thing to do. "New reply" dots are remembered in the browser only.
+
 ## Fabric and materials (`services/materials.py`, `domain/materials.py`)
 
 - **Fabric** (type, composition, GSM, a note) is optional on a buyer's request and on a new order, and goes from the request onto the order when it is accepted. An order created with fabric starts with a **Main fabric** line under Materials. The buyer sees type, composition and GSM on their order; the note stays internal.
@@ -156,7 +165,12 @@ Changing ex-factory, or any planned date, requires a reason and writes a row to 
 | Templates | `/m/templates`, `/m/templates/new`, `/m/templates/:id` | `GET/POST /api/m/templates`, `PUT /api/m/templates/:id`, retire/restore, `POST /api/m/templates/preview`, `PATCH /api/m/steps/:code` |
 | Supervisor home | `/s` | `GET /api/s/orders` (cached on the phone) |
 | Supervisor update | `/s/update/:id` | `POST /api/s/updates` (through the offline queue) |
-| Buyer view | `/b/:token` | `GET /api/b/:token` |
+| Buyer: overview | `/b/:token` | `GET /api/b/:token`, `GET /api/b/:token/requests` |
+| Buyer: orders | `/b/:token/orders` | `GET /api/b/:token` |
+| Buyer: one order | `/b/:token/orders/:id?tab=` | `GET /api/b/:token`, `GET`/`POST /api/b/:token/orders/:id/messages` |
+| Buyer: requests | `/b/:token/requests` | `GET /api/b/:token/requests` |
+| Office: search | `/` or Ctrl+K anywhere | `GET /api/m/search?q=` |
+| Order conversation (office) | `/m/orders/:id` | `GET`/`POST /api/m/orders/:id/messages` |
 
 Live API docs with every endpoint: http://localhost:4000/api/docs
 
@@ -191,7 +205,7 @@ backend/loomtrack/
   routes/              auth, merchandiser, templates, requests (both sides), attachments, supervisor, buyer
   ai/classifier.py     Ollama call + keyword fallback
   seed.py / explain.py demo data / prints the run-rate maths for every order
-backend/tests/         114 tests
+backend/tests/         124 tests
 web/src/
   App.tsx              routes + role guards
   lib/                 api client, auth, Tamil strings, offline outbox, photo/voice helpers, theme

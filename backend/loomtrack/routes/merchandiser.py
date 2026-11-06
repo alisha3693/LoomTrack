@@ -14,7 +14,7 @@ from ..deps import AppContext, User, ctx, merchandiser
 from ..domain.reasons import REASON_CATEGORIES, REASON_CODES
 from ..domain.tna import plan_from_template
 from ..security import new_token, sign_path
-from ..services import accounts, capacity, materials
+from ..services import accounts, capacity, materials, order_messages, search as search_service
 from ..services.export import weekly_workbook
 from ..services.attachments import for_office
 from ..services.requests import open_count
@@ -31,6 +31,11 @@ XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 def rows(cur) -> list[dict]:
     return [dict(r) for r in cur.fetchall()]
+
+
+@router.get("/search")
+async def search(q: str = "", c: AppContext = Depends(ctx)):
+    return search_service.search(c.db, q)
 
 
 @router.get("/meta")
@@ -73,6 +78,7 @@ async def board(buyer: int | None = None, unit: int | None = None, week: str | N
     ).fetchall()
 
     stock = materials.summaries_for_active_orders(db, today)
+    talk = order_messages.last_by_order(db, [o["id"] for o in found])
     orders = []
     for o in found:
         if week and iso_week(o["ex_factory"]) != week:
@@ -94,6 +100,7 @@ async def board(buyer: int | None = None, unit: int | None = None, week: str | N
                 "pendingWarnings": o["pending_warnings"],
                 "lastUpdate": o["last_update"],
                 "materials": stock.get(o["id"]),
+                "awaitingReply": bool(talk.get(o["id"]) and talk[o["id"]]["author"] == "buyer"),
             }
         )
     orders.sort(key=lambda o: (_RANK[o["status"]], o["slackDays"], o["exFactory"]))
@@ -210,6 +217,9 @@ async def order_detail(order_id: int, c: AppContext = Depends(ctx)):
         )),
         "attachments": [{**a, "url": sign_path(f"/api/media/attachments/{a['id']}")} for a in for_office(db, order_id=order_id)],
         "materials": materials.list_for_order(db, order_id, today),
+        "messages": order_messages.thread(db, order_id),
+        "buyerPath": (lambda t: f"/b/{t['link_token']}/orders/{order_id}" if t and t["link_active"] else None)(
+            db.execute("SELECT link_token, link_active FROM buyers WHERE id = ?", (order["buyer_id"],)).fetchone()),
         "dateChanges": rows(
             db.execute(
                 """SELECT d.*, s.name_en AS milestone, u.name AS changed_by_name FROM date_changes d

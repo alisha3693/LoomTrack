@@ -58,6 +58,7 @@ export interface RequestDetailData {
     qtyChanged: boolean;
   };
   // office only
+  buyerId?: number;
   buyer?: string;
   orderId?: number | null;
   // buyer only

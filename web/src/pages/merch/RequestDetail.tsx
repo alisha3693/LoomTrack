@@ -1,14 +1,47 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../lib/api";
-import { addDaysIso } from "../../lib/format";
+import { addDaysIso, fmtDate, plural } from "../../lib/format";
 import { OfficeFiles } from "../../components/Attachments";
 import CapacityCheck, { blocks } from "../../components/CapacityCheck";
 import type { UnitFit } from "../../lib/fabric";
 import { Modal, Toast, useApi } from "../../components/ui";
 import { RequestPill, RequestSummary, RequestThread } from "../../components/RequestParts";
 import type { RequestDetailData } from "../../lib/requests";
+import type { BoardOrder } from "../../lib/types";
 import { useMeta, useReloadMeta } from "./OfficeShell";
+
+/** What the merchandiser should know about this buyer before deciding: their live orders and how they are going. */
+function BuyerContext({ buyerId, buyer }: { buyerId: number; buyer: string }) {
+  const { data } = useApi<{ orders: BoardOrder[] }>(`/api/m/board?buyer=${buyerId}`);
+  const orders = data?.orders ?? [];
+  const count = (s: string) => orders.filter((o) => o.status === s).length;
+  const waiting = orders.filter((o) => o.awaitingReply).length;
+  return (
+    <section className="card card-pad stack" style={{ gap: 10 }}>
+      <h2>About {buyer}</h2>
+      {!data ? <p className="faint small">Loading…</p> : orders.length === 0 ? <p className="faint small">No live orders with us yet. This would be their first.</p> : (
+        <>
+          <p className="muted small" style={{ margin: 0 }}>
+            {plural(orders.length, "live order")}
+            {count("red") ? <> · <span className="t-red">{count("red")} will miss ex-factory</span></> : null}
+            {count("amber") ? <> · <span className="t-amber">{count("amber")} behind plan</span></> : null}
+            {waiting ? <> · <span className="t-amber">{plural(waiting, "message")} to answer</span></> : null}
+          </p>
+          <div>
+            {orders.slice(0, 5).map((o) => (
+              <Link key={o.id} to={`/m/orders/${o.id}`} className="linkrow">
+                <span><span className={`dot dot-${o.status}`} style={{ marginRight: 8 }} /><b style={{ fontWeight: 500 }}>{o.poNo}</b> <span className="faint small">{o.style}</span></span>
+                <span className="faint small nowrap">{fmtDate(o.exFactory)}</span>
+              </Link>
+            ))}
+          </div>
+          <Link className="small" to={`/m?buyer=${buyerId}`}>All of {buyer}'s orders →</Link>
+        </>
+      )}
+    </section>
+  );
+}
 
 type Dialog = "query" | "counter" | "accept" | "decline" | null;
 
@@ -59,37 +92,67 @@ export default function RequestDetail() {
     }
   }
 
+  const outcome = {
+    accepted: r.orderNo ? `Accepted. It became order ${r.orderNo}.` : "Accepted.",
+    declined: "Declined. The buyer has the reason.",
+    withdrawn: "The buyer withdrew this request.",
+  }[r.status as "accepted" | "declined" | "withdrawn"];
+  const hint = {
+    submitted: "Accept it into an order, ask a question, or propose another date. The buyer sees your answer on their page.",
+    query: "You asked a question and the buyer has not answered yet. You can still act.",
+    countered: "You proposed another date and the buyer has not agreed yet. You can still act.",
+  }[r.status as "submitted" | "query" | "countered"];
+
   return (
-    <main className="page page-narrow">
-      <Link to="/m/requests" className="small muted">← All requests</Link>
-      <div className="page-head" style={{ marginTop: 6 }}>
+    <main className="page">
+      <div className="crumbs"><Link to="/m/requests">Requests</Link><i>/</i><span>{r.poNo}</span></div>
+      <div className="page-head" style={{ marginBottom: 14 }}>
         <div>
-          <div className="row"><h1>{r.poNo}</h1><RequestPill status={r.status} audience="office" /></div>
-          <p className="sub">{r.buyer} · {r.requestNo}{r.orderNo ? ` · became order ${r.orderNo}` : ""}</p>
+          <div className="row">
+            <h1>{r.poNo}</h1>
+            <RequestPill status={r.status} audience="office" />
+            {r.kind === "amendment" && <span className="pill">Change to {r.orderNo}</span>}
+          </div>
+          <p className="sub">
+            {r.buyerId ? <Link to={`/m?buyer=${r.buyerId}`} title="All orders for this buyer">{r.buyer}</Link> : r.buyer} · {r.requestNo}
+            {r.kind !== "amendment" && r.orderNo ? ` · became order ${r.orderNo}` : ""}
+          </p>
         </div>
-        {r.orderId && <Link className="btn" to={`/m/orders/${r.orderId}`}>Open the order</Link>}
+        {r.orderId && <Link className="btn btn-primary" to={`/m/orders/${r.orderId}`}>Open the order</Link>}
       </div>
 
-      <div className="stack">
-        <section className="card card-pad"><RequestSummary r={r} /></section>
-
-        <section className="card card-pad stack">
-          <h2>Files</h2>
-          <OfficeFiles files={r.attachments} uploadPath={`/api/m/requests/${r.id}/attachments`} onChanged={() => void reload()} />
-        </section>
-
-        {open && (
-          <section className="card card-pad row">
+      <section className="card decision" style={open && r.status === "submitted" ? { borderColor: "var(--amber)" } : undefined} aria-label="What to do with this request">
+        {open ? (
+          <>
+            <div className="grow">
+              <b>{r.status === "submitted" ? "The buyer is waiting for your answer" : "You are waiting for the buyer"}</b>
+              <div className="muted small">{hint}</div>
+            </div>
             <button className="btn btn-primary" onClick={() => openDialog("accept")}>{r.kind === "amendment" ? "Apply the change" : "Accept into an order"}</button>
             <button className="btn" onClick={() => openDialog("query")}>Ask a question</button>
             <button className="btn" onClick={() => openDialog("counter")}>Propose another date</button>
             <button className="btn btn-ghost" onClick={() => openDialog("decline")}>Decline</button>
-            {r.status !== "submitted" && <span className="faint small">The buyer has not answered yet. You can still act.</span>}
-          </section>
+          </>
+        ) : (
+          <div className="grow"><b>{outcome}</b></div>
         )}
+      </section>
 
-        <h2>History</h2>
-        <RequestThread r={r} audience="office" />
+      <div className="split" style={{ marginTop: 16 }}>
+        <div className="stack">
+          <section className="card card-pad"><RequestSummary r={r} /></section>
+          <section className="stack" style={{ gap: 10 }}>
+            <h2>Conversation</h2>
+            <RequestThread r={r} audience="office" />
+          </section>
+        </div>
+        <aside className="stack sticky-side">
+          {r.buyerId ? <BuyerContext buyerId={r.buyerId} buyer={r.buyer ?? ""} /> : null}
+          <section className="card card-pad stack">
+            <h2>Files</h2>
+            <OfficeFiles files={r.attachments} uploadPath={`/api/m/requests/${r.id}/attachments`} onChanged={() => void reload()} />
+          </section>
+        </aside>
       </div>
 
       {dialog === "accept" && r.kind === "amendment" && (

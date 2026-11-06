@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from . import config
 from .ai.classifier import classify_by_keywords, classify_note, ai_status
 from .config import CALENDAR
-from .db import open_db, transaction
+from .db import SCHEMA, open_db, transaction
 from .domain.tna import plan_from_template
 from .security import hash_secret, new_token
 from .services.orders import next_order_no, refresh_all_active
@@ -210,10 +210,13 @@ COLOUR_HEX = {"Navy": "#1F2A44", "White": "#FFFFFF", "Yellow": "#F2C400", "Black
 
 
 async def seed(db, today: str) -> None:
-    db.execute("DROP TRIGGER IF EXISTS date_changes_no_delete")
-    for t in ["date_changes", "outbox_messages", "warnings", "issue_reasons", "photos", "daily_updates", "order_materials", "milestones", "order_sizes", "orders", "sessions", "users", "units", "buyers"]:
+    # The append-only trails refuse deletes; lift that for the reset and restore it from the schema afterwards.
+    for trigger in ("date_changes_no_delete", "request_messages_no_delete", "order_messages_no_delete"):
+        db.execute(f"DROP TRIGGER IF EXISTS {trigger}")
+    for t in ["attachments", "request_messages", "request_sizes", "order_requests", "order_messages", "date_changes", "outbox_messages", "warnings",
+              "issue_reasons", "photos", "daily_updates", "order_materials", "milestones", "order_sizes", "orders", "sessions", "users", "units", "buyers"]:
         db.execute(f"DELETE FROM {t}")
-    db.execute("CREATE TRIGGER date_changes_no_delete BEFORE DELETE ON date_changes BEGIN SELECT RAISE(ABORT, 'date_changes is append-only'); END")
+    db.executescript(SCHEMA)
 
     buyer_id = {name: db.execute("INSERT INTO buyers (name, country, link_token) VALUES (?,?,?)", (name, country, new_token())).lastrowid for name, country in BUYERS}
     unit_id = {name: db.execute("INSERT INTO units (name, kind, process, daily_capacity) VALUES (?,?,?,?)", (name, kind, proc, CAPACITY.get(name))).lastrowid for name, kind, proc in UNITS}

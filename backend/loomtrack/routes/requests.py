@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from ..deps import AppContext, User, ctx, merchandiser
 from ..security import sign_path
+from ..services import order_messages
 from ..services import requests as svc
 from ..services.attachments import for_buyer, for_office
 from ..services.orders import refresh_order
@@ -62,6 +63,21 @@ async def buyer_submit(body: RequestIn, buyer: sqlite3.Row = Depends(current_buy
 @buyer_orders_router.post("/{order_id}/amendments", status_code=201)
 async def buyer_amend(order_id: int, body: AmendmentIn, buyer: sqlite3.Row = Depends(current_buyer), c: AppContext = Depends(ctx)):
     return {"id": svc.submit_amendment(c.db, buyer["id"], order_id, body, c.today())}
+
+
+class OrderMessageIn(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+
+
+@buyer_orders_router.get("/{order_id}/messages")
+async def buyer_messages(order_id: int, response: Response, buyer: sqlite3.Row = Depends(current_buyer), c: AppContext = Depends(ctx)):
+    response.headers.update(NO_STORE)
+    return {"messages": order_messages.thread(c.db, order_id, buyer["id"])}
+
+
+@buyer_orders_router.post("/{order_id}/messages", status_code=201)
+async def buyer_send_message(order_id: int, body: OrderMessageIn, buyer: sqlite3.Row = Depends(current_buyer), c: AppContext = Depends(ctx)):
+    return {"id": order_messages.post(c.db, order_id, "buyer", body.message, buyer_id=buyer["id"])}
 
 
 @buyer_router.get("/{request_id}")
@@ -141,6 +157,16 @@ async def office_accept(request_id: int, body: AcceptIn | None = None, user: Use
     order_id, order_no = svc.office_accept(c.db, user.id, request_id, body.unitId, body.templateKey, body.message, c.today(), body.overCapacityOk)
     refresh_order(c.db, order_id, c.today())
     return {"orderId": order_id, "orderNo": order_no}
+
+
+@order_router.get("/{order_id}/messages")
+async def office_messages(order_id: int, c: AppContext = Depends(ctx)):
+    return {"messages": order_messages.thread(c.db, order_id)}
+
+
+@order_router.post("/{order_id}/messages", status_code=201)
+async def office_send_message(order_id: int, body: OrderMessageIn, user: User = Depends(merchandiser), c: AppContext = Depends(ctx)):
+    return {"id": order_messages.post(c.db, order_id, "merchandiser", body.message, user_id=user.id)}
 
 
 @order_router.post("/{order_id}/amend", status_code=201)

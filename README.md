@@ -46,10 +46,11 @@ npm run dev        # or: API on :4000 + web with live reload on :5173
 
 | Command | |
 |---|---|
-| `npm test` | backend tests (114) |
+| `npm test` | backend tests (124) |
 | `npm run explain` | run-rate maths for every order, in the terminal |
 | `python e2e/walkthrough.py` | headless browser walkthrough with screenshots |
 | `python e2e/offline_test.py` | offline queue check |
+| `python e2e/journey.py` | the buyer-and-merchandiser journey, plus phone-width layout checks (needs a freshly seeded database) |
 
 API docs: http://localhost:4000/api/docs
 

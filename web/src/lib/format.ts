@@ -14,6 +14,20 @@ export function fmtDateTime(sqlite: string | null | undefined): string {
   return `${fmtDate(date)}${time ? ` ${time.slice(0, 5)}` : ""}`;
 }
 
+/** "just now", "3 h ago", "yesterday", "4 days ago" for a database timestamp (UTC). */
+export function ago(sqlite: string | null | undefined, now: number = Date.now()): string {
+  if (!sqlite) return "";
+  const then = new Date(`${sqlite.replace(" ", "T")}Z`).getTime();
+  if (!Number.isFinite(then)) return "";
+  const mins = Math.max(0, Math.round((now - then) / 60000));
+  if (mins < 2) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? "yesterday" : `${days} days ago`;
+}
+
 export function addDaysIso(iso: string, n: number): string {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);
