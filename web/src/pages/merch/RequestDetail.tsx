@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import { addDaysIso } from "../../lib/format";
+import { OfficeFiles } from "../../components/Attachments";
 import { Modal, Toast, useApi } from "../../components/ui";
 import { RequestPill, RequestSummary, RequestThread } from "../../components/RequestParts";
 import type { RequestDetailData } from "../../lib/requests";
@@ -67,6 +68,11 @@ export default function RequestDetail() {
 
       <div className="stack">
         <section className="card card-pad"><RequestSummary r={r} /></section>
+
+        <section className="card card-pad stack">
+          <h2>Files</h2>
+          <OfficeFiles files={r.attachments} uploadPath={`/api/m/requests/${r.id}/attachments`} onChanged={() => void reload()} />
+        </section>
 
         {open && (
           <section className="card card-pad row">

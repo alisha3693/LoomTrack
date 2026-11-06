@@ -516,3 +516,135 @@ def test_a_buyer_cannot_have_more_than_25_open_requests(env):
     token = env["db"].execute("SELECT link_token FROM buyers WHERE id = 9").fetchone()[0]
     codes = [_req(env, token, f"RQ-BUSY-{i}").status_code for i in range(27)]
     assert codes.count(201) == 25 and codes[25:] == [429, 429]
+
+
+# --- Attachments ---------------------------------------------------------------------------
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+PDF = b"%PDF-1.4\n%fake but starts like a PDF\n"
+ZIP = b"PK\x03\x04" + b"\x00" * 30
+DXF = b"  0\nSECTION\n  2\nHEADER\n"
+
+
+def _upload(env, where, data, name="design.png", kind="design", claimed="image/png", token=None, **extra):
+    """where: ('buyer', request_id) or ('office-request', id) or ('office-order', id)."""
+    who, target = where
+    files = {"file": (name, data, claimed)}
+    if who == "buyer":
+        return env["client"].post(f"/api/b/{token}/requests/{target}/attachments", data={"kind": kind}, files=files)
+    path = f"/api/m/requests/{target}/attachments" if who == "office-request" else f"/api/m/orders/{target}/attachments"
+    return env["client"].post(path, headers=env["merch"], data={"kind": kind, **{k: str(v).lower() for k, v in extra.items()}}, files=files)
+
+
+def _files_seen_by_buyer(env, token, rid):
+    return {a["id"]: a for a in _buyer(env, token, f"/{rid}").json()["attachments"]}
+
+
+def test_files_are_judged_by_their_bytes_not_their_names(env):
+    t = env["tokenB"]
+    rid = _req(env, t, "ATT-1").json()["id"]
+    assert _upload(env, ("buyer", rid), b"<html><script>alert(1)</script></html>", "logo.png", token=t).status_code == 400
+    assert _upload(env, ("buyer", rid), b"MZ\x90\x00" + b"\x00" * 50, "design.pdf", claimed="application/pdf", token=t).status_code == 400
+    assert _upload(env, ("buyer", rid), b'<svg xmlns="http://www.w3.org/2000/svg"></svg>', "art.svg", claimed="image/svg+xml", token=t).status_code == 400
+    assert _upload(env, ("buyer", rid), b"", "empty.png", token=t).status_code == 400
+    assert _upload(env, ("buyer", rid), PNG, "x.png", kind="selfie", token=t).status_code == 400
+
+    # A real PNG, sent with a hostile name and a lying content type, is stored as what it is.
+    ok = _upload(env, ("buyer", rid), PNG, "../../evil.php", claimed="text/html", token=t)
+    assert ok.status_code == 201
+    row = env["db"].execute("SELECT * FROM attachments WHERE id = ?", (ok.json()["id"],)).fetchone()
+    assert row["mime"] == "image/png" and row["filename"] == "evil.png" and "evil" not in row["path"] and row["path"].endswith(".png")
+
+    got = env["client"].get(f"/api/b/{t}/attachments/{ok.json()['id']}")
+    assert got.status_code == 200 and got.headers["content-type"] == "image/png" and got.headers["x-content-type-options"] == "nosniff"
+    assert got.content == PNG and got.headers["content-disposition"].startswith("inline")
+
+    pdf = _upload(env, ("buyer", rid), PDF, "techpack.pdf", kind="pattern", claimed="application/octet-stream", token=t)
+    assert pdf.status_code == 201
+    assert env["client"].get(f"/api/b/{t}/attachments/{pdf.json()['id']}").headers["content-type"] == "application/pdf"
+    zipped = _upload(env, ("buyer", rid), ZIP, "bundle.zip", kind="other", token=t)
+    assert env["client"].get(f"/api/b/{t}/attachments/{zipped.json()['id']}").headers["content-disposition"].startswith("attachment")
+    assert _upload(env, ("buyer", rid), DXF, "pattern.dxf", kind="pattern", token=t).status_code == 201
+
+
+def test_file_size_and_count_limits(env):
+    t = env["tokenB"]
+    rid = _req(env, t, "ATT-2").json()["id"]
+    too_big = b"\xff\xd8\xff" + b"0" * (15 * 1024 * 1024)
+    assert _upload(env, ("buyer", rid), too_big, "huge.jpg", claimed="image/jpeg", token=t).status_code == 413
+    codes = [_upload(env, ("buyer", rid), PNG, f"f{i}.png", token=t).status_code for i in range(12)]
+    assert codes.count(201) == 10 and codes[10:] == [409, 409]
+
+
+def test_only_the_owning_buyer_can_touch_a_requests_files(env):
+    t, other = env["tokenB"], env["tokenC"]
+    rid = _req(env, t, "ATT-3").json()["id"]
+    aid = _upload(env, ("buyer", rid), PNG, token=t).json()["id"]
+    assert _upload(env, ("buyer", rid), PNG, token=other).status_code == 404
+    assert env["client"].get(f"/api/b/{other}/attachments/{aid}").status_code == 404
+    assert env["client"].delete(f"/api/b/{other}/requests/{rid}/attachments/{aid}").status_code == 404
+    assert env["client"].get(f"/api/b/{t}/attachments/{aid}").status_code == 200
+    assert env["client"].get(f"/api/b/{t}/attachments/999999").status_code == 404
+    env["client"].cookies.clear()
+    assert env["client"].get(f"/api/m/requests/{rid}").status_code == 401                       # the office listing needs a login
+
+    # Office downloads use a short-lived signed link, and a tampered one is refused.
+    url = next(a["url"] for a in _office(env, f"/{rid}").json()["attachments"] if a["id"] == aid)
+    assert env["client"].get(url).status_code == 200
+    assert env["client"].get(url.replace("sig=", "sig=0")).status_code == 403
+    assert env["client"].get(f"/api/media/attachments/{aid}").status_code == 403
+
+
+def test_what_the_buyer_and_the_floor_can_see_is_the_merchandisers_call(env):
+    t = env["tokenB"]
+    rid = _req(env, t, "ATT-4").json()["id"]
+    mine = _upload(env, ("buyer", rid), PNG, "mine.png", token=t).json()["id"]
+    internal = _upload(env, ("office-request", rid), PDF, "our-pattern.pdf", kind="pattern", claimed="application/pdf").json()["id"]
+
+    assert set(_files_seen_by_buyer(env, t, rid)) == {mine}                                       # our file is private by default
+    assert env["client"].get(f"/api/b/{t}/attachments/{internal}").status_code == 404
+    assert env["client"].patch(f"/api/m/attachments/{internal}", headers=env["merch"], json={"buyerVisible": True}).status_code == 200
+    seen = _files_seen_by_buyer(env, t, rid)
+    assert set(seen) == {mine, internal} and seen[mine]["uploadedBy"] == "you" and seen[internal]["uploadedBy"] == "merchandiser"
+    assert env["client"].get(f"/api/b/{t}/attachments/{internal}").status_code == 200
+
+    assert env["client"].patch(f"/api/m/attachments/{mine}", headers=env["merch"], json={"buyerVisible": False}).status_code == 409
+    assert env["client"].delete(f"/api/m/attachments/{mine}", headers=env["merch"]).status_code == 403   # the buyer's file is theirs
+    assert env["client"].delete(f"/api/m/attachments/{internal}", headers=env["merch"]).status_code == 200
+    assert set(_files_seen_by_buyer(env, t, rid)) == {mine}
+    assert env["client"].patch(f"/api/m/attachments/{mine}", headers=env["merch"], json={"kind": "nonsense"}).status_code == 400
+    assert env["client"].delete(f"/api/b/{t}/requests/{rid}/attachments/{mine}").status_code == 200   # the buyer removes their own
+
+
+def test_files_follow_a_request_onto_its_order_and_the_floor_sees_only_what_is_shared(env):
+    t = env["tokenC"]
+    rid = _req(env, t, "ATT-5").json()["id"]
+    art = _upload(env, ("buyer", rid), PNG, "print-artwork.png", kind="print", token=t).json()["id"]
+    assert _office(env, f"/{rid}/accept", "post", unitId=1, templateKey="basic").status_code == 200
+    oid = _office(env, f"/{rid}").json()["orderId"]
+
+    detail = env["client"].get(f"/api/m/orders/{oid}", headers=env["merch"]).json()
+    assert [(a["id"], a["kind"]) for a in detail["attachments"]] == [(art, "print")]
+    buyer_orders = env["client"].get(f"/api/b/{t}").json()["orders"]
+    mine = next(o for o in buyer_orders if o["id"] == oid)
+    assert [a["id"] for a in mine["attachments"]] == [art]                                       # the buyer sees it on their order
+    assert all(a["id"] != art for o in env["client"].get(f"/api/b/{env['tokenB']}").json()["orders"] for a in o["attachments"])
+
+    assert env["client"].get(f"/api/s/orders/{oid}/attachments", headers=env["sup1"]).json()["files"] == []    # not shared with the floor yet
+    assert env["client"].patch(f"/api/m/attachments/{art}", headers=env["merch"], json={"supervisorVisible": True}).status_code == 200
+    floor = env["client"].get(f"/api/s/orders/{oid}/attachments", headers=env["sup1"]).json()["files"]
+    assert [f["id"] for f in floor] == [art] and env["client"].get(floor[0]["url"]).status_code == 200
+    assert env["client"].get(f"/api/s/orders/{oid}/attachments", headers=env["sup2"]).json()["files"] == []   # unit 2 has no stage on it
+
+    extra = _upload(env, ("office-order", oid), PDF, "spec.pdf", kind="pattern", claimed="application/pdf", supervisorVisible=True)
+    assert extra.status_code == 201
+    assert len(env["client"].get(f"/api/s/orders/{oid}/attachments", headers=env["sup1"]).json()["files"]) == 2
+    assert env["client"].post(f"/api/m/orders/999999/attachments", headers=env["merch"], data={"kind": "design"}, files={"file": ("a.png", PNG, "image/png")}).status_code == 404
+    assert env["client"].get(f"/api/m/requests", headers=env["sup1"]).status_code == 403
+
+
+def test_a_closed_request_takes_no_more_files(env):
+    t = env["tokenC"]
+    rid = _req(env, t, "ATT-6").json()["id"]
+    assert _buyer(env, t, f"/{rid}/withdraw", "post").status_code == 200
+    assert _upload(env, ("buyer", rid), PNG, token=t).status_code == 409

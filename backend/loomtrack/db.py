@@ -237,6 +237,30 @@ BEGIN SELECT RAISE(ABORT, 'request_messages is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS request_messages_no_delete BEFORE DELETE ON request_messages
 BEGIN SELECT RAISE(ABORT, 'request_messages is append-only'); END;
 
+-- Designs, patterns, print artwork and fabric references. A file belongs to a request, to an order,
+-- or to both (a request's files follow it onto the order it becomes). The buyer's own uploads are
+-- always visible to that buyer; ours are private unless buyer_visible is set. supervisor_visible
+-- decides what the floor can open.
+CREATE TABLE IF NOT EXISTS attachments (
+  id INTEGER PRIMARY KEY,
+  request_id INTEGER REFERENCES order_requests(id),
+  order_id INTEGER REFERENCES orders(id),
+  kind TEXT NOT NULL CHECK (kind IN ('design', 'pattern', 'print', 'fabric', 'other')),
+  filename TEXT NOT NULL,            -- for display only, never used as a path
+  mime TEXT NOT NULL,                -- from the file's own bytes, not from the browser
+  size_bytes INTEGER NOT NULL,
+  sha256 TEXT NOT NULL,
+  path TEXT NOT NULL,
+  uploaded_by TEXT NOT NULL CHECK (uploaded_by IN ('buyer', 'merchandiser')),
+  user_id INTEGER REFERENCES users(id),
+  buyer_visible INTEGER NOT NULL DEFAULT 0,
+  supervisor_visible INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK (request_id IS NOT NULL OR order_id IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS ix_attachments_request ON attachments (request_id);
+CREATE INDEX IF NOT EXISTS ix_attachments_order ON attachments (order_id);
+
 -- Mock outbound messages (email / WhatsApp to buyers).
 CREATE TABLE IF NOT EXISTS outbox_messages (
   id INTEGER PRIMARY KEY,
@@ -250,7 +274,7 @@ CREATE TABLE IF NOT EXISTS outbox_messages (
 """
 
 
-SCHEMA_VERSION = 4  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no/colour, 2 = before templates, 3 = before order requests
+SCHEMA_VERSION = 5  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no/colour, 2 = before templates, 3 = before order requests, 4 = before attachments
 
 
 def _is_v0(db: sqlite3.Connection) -> bool:

@@ -155,6 +155,7 @@ export interface OrderDetail {
   updates: UpdateRow[];
   warnings: WarningRow[];
   dateChanges: DateChangeRow[];
+  attachments: FileItem[];
 }
 
 export interface SupStage {
@@ -200,4 +201,18 @@ export interface TemplateRow {
 export interface TemplateList {
   templates: TemplateRow[];
   library: { code: string; nameEn: string; nameTa: string; kind: "stage" | "milestone"; process: string | null; builtin: boolean }[];
+}
+
+/** A design, pattern, print or fabric file. `url` and the two flags are only sent to the office. */
+export interface FileItem {
+  id: number;
+  kind: "design" | "pattern" | "print" | "fabric" | "other";
+  filename: string;
+  mime: string;
+  size: number;
+  uploadedBy: "buyer" | "merchandiser" | "you";
+  at: string;
+  url?: string;
+  buyerVisible?: boolean;
+  supervisorVisible?: boolean;
 }

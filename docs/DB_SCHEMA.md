@@ -1,6 +1,6 @@
 # LoomTrack database schema
 
-SQLite, 18 tables, defined in [backend/loomtrack/db.py](../backend/loomtrack/db.py). The schema is normalised (third normal form) apart from two deliberate caches. The diagram below is a Mermaid ER diagram: it renders on GitHub, and in VS Code with the "Markdown Preview Mermaid Support" extension.
+SQLite, 19 tables, defined in [backend/loomtrack/db.py](../backend/loomtrack/db.py). The schema is normalised (third normal form) apart from two deliberate caches. The diagram below is a Mermaid ER diagram: it renders on GitHub, and in VS Code with the "Markdown Preview Mermaid Support" extension.
 
 `PK` primary key, `FK` foreign key, `UK` unique. `||--o{` means one-to-many.
 
@@ -24,6 +24,8 @@ erDiagram
     order_requests ||--|{ request_sizes : "asks for"
     order_requests ||--|{ request_messages : "conversation"
     users ||--o{ request_messages : "wrote"
+    order_requests ||--o{ attachments : "has files"
+    orders ||--o{ attachments : "has files"
     orders ||--o{ daily_updates : "receives"
     milestones ||--o{ daily_updates : "progress on"
     daily_updates ||--o{ photos : "has"
@@ -140,6 +142,22 @@ erDiagram
         TEXT proposed_ex_factory
         TEXT created_at
     }
+    attachments {
+        INTEGER id PK
+        INTEGER request_id FK "a request, an order, or both"
+        INTEGER order_id FK
+        TEXT kind "design, pattern, print, fabric, other"
+        TEXT filename "display only"
+        TEXT mime "from the file's bytes"
+        INTEGER size_bytes
+        TEXT sha256
+        TEXT path "random name on disk"
+        TEXT uploaded_by "buyer or merchandiser"
+        INTEGER user_id FK
+        INTEGER buyer_visible
+        INTEGER supervisor_visible
+        TEXT created_at
+    }
     template_steps {
         INTEGER template_id PK, FK
         TEXT code PK, FK "step"
@@ -231,6 +249,7 @@ erDiagram
 | People and access | `buyers`, `users`, `sessions`, `units` | A buyer's `link_token` is their credential. A supervisor's `unit_id` limits which stages they see. |
 | The plan | `orders`, `order_sizes`, `plan_steps`, `milestones` | `plan_steps` holds each kind of step once (names, stage or milestone). `milestones` is one order's plan: a row per step with that order's dates. |
 | Requests | `order_requests`, `request_sizes`, `request_messages` | A buyer's request is a conversation. `status` says whose turn it is: `submitted` is the merchandiser's, `query` and `countered` are the buyer's. `request_messages` is the history and is append-only (triggers). Accepting creates an `orders` row and sets `order_requests.order_id`. |
+| Files | `attachments` | Designs, patterns, print artwork, fabric references. A file belongs to a request, an order, or both: a request's files follow it onto the order it becomes. The buyer's own uploads are always visible to that buyer; ours are private unless `buyer_visible` is set; `supervisor_visible` decides what the floor can open. |
 | Templates | `templates`, `template_steps` | A saved layout of steps with timings (days before ex-factory). Orders copy the dates when created, so editing or retiring a template never changes an existing order. The built-in three are read-only. |
 | Floor data | `daily_updates`, `photos`, `issue_reasons` | `daily_updates.id` is created on the phone, so a retried offline upload hits the same key and is ignored. |
 | Warnings | `warnings`, `outbox_messages` | Buyers see only `confirmed` warnings. Confirming writes a mock email to the outbox. |
@@ -240,6 +259,7 @@ erDiagram
 
 - `orders.qty_total > 0`, `order_sizes.qty >= 0`, `daily_updates.qty >= 0`.
 - Allowed values are checked for `units.kind`, `users.role`, `orders.state`, `milestones.kind`, `daily_updates.note_source`, `warnings.level` and `warnings.state`.
+- A file must belong to a request or an order (`CHECK`). Its `mime` comes from its own bytes and its stored name is random, never the uploaded name.
 - `request_messages` rows can't be updated or deleted. A request's status is one of six values, and a buyer only ever reaches requests with their own `buyer_id`.
 - Template names are unique among active templates (ignoring case). Offsets are 0 to 365 days. `orders.template_key` is not a foreign key: a template is retired, never deleted, so the key always resolves.
 - `orders.order_no` is unique. `orders.po_no` is unique per buyer (`UNIQUE (buyer_id, po_no)`), because it is the buyer's own number. `colour_hex` must be `#` plus six uppercase hex digits.
@@ -260,7 +280,7 @@ erDiagram
 
 ## Versions and migration
 
-`PRAGMA user_version` holds the schema version (now 4). Older databases are migrated in place when the app opens them, one version at a time: one transaction, a copy saved as `<db>.v0.bak` or `.v1.bak`, and a foreign-key check afterwards.
+`PRAGMA user_version` holds the schema version (now 5). Older databases are migrated in place when the app opens them, one version at a time: one transaction, a copy saved as `<db>.v0.bak` or `.v1.bak`, and a foreign-key check afterwards.
 
 | Version | Change |
 |---|---|
@@ -268,5 +288,6 @@ erDiagram
 | 1 to 2 | `orders.order_no` added and backfilled (`LT-<year>-<n>` in creation order); colour fields added; PO number made unique per buyer. |
 | 2 to 3 | `templates` and `template_steps` tables; `plan_steps.builtin`. The three built-in templates are copied in from code at startup. |
 | 3 to 4 | `order_requests`, `request_sizes`, `request_messages` (new tables only, nothing rebuilt). |
+| 4 to 5 | `attachments` (new table only). |
 
 Code: `_migrate_v0` and `_migrate_v1` in [db.py](../backend/loomtrack/db.py). Tests: [test_migration.py](../backend/tests/test_migration.py).

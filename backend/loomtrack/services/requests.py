@@ -44,6 +44,15 @@ def _row(db: sqlite3.Connection, rid: int, buyer_id: int | None = None) -> sqlit
     return r
 
 
+def find_request(db: sqlite3.Connection, rid: int, buyer_id: int | None = None) -> sqlite3.Row:
+    """A request by id; with buyer_id, only that buyer's (anyone else's is 'not found')."""
+    return _row(db, rid, buyer_id)
+
+
+def require_open(r: sqlite3.Row) -> None:
+    _require_open(r)
+
+
 def _require_open(r: sqlite3.Row) -> None:
     if r["status"] not in OPEN:
         raise HttpError(409, f"This request is already {r['status']}")
@@ -263,6 +272,7 @@ def office_accept(db: sqlite3.Connection, user_id: int, rid: int, unit_id: int, 
     with transaction(db):
         order_id, order_no = insert_order(db, body, t, user_id, today)
         db.execute("UPDATE order_requests SET order_id = ? WHERE id = ?", (order_id, rid))
+        db.execute("UPDATE attachments SET order_id = ? WHERE request_id = ?", (order_id, rid))  # the files follow it onto the order
         text = note or f"Accepted. Your order with us is {order_no}, for ex-factory {r['ex_factory']}."
         _log(db, rid, "merchandiser", user_id, "accepted", text)
         _set_status(db, rid, "accepted", decided_by=user_id)

@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { OfficeFiles } from "../../components/Attachments";
 import { Modal, Progress, StatusPill, Swatch, Toast, useApi } from "../../components/ui";
 import { api } from "../../lib/api";
 import { fmtDate, fmtDateTime, num, plural, Status } from "../../lib/format";
@@ -67,6 +68,12 @@ export default function OrderDetail() {
           <Milestones data={data} onEdit={setEdit} onMarkDone={(m, date) =>
             act(() => api(`/api/m/milestones/${m.id}`, { method: "PATCH", body: date ? { actualDate: date } : { clearActual: true } }), date ? `${m.name_en} marked done` : "Marked not done")
           } />
+          <section className="card">
+            <div className="card-head"><h2>Files</h2><span className="faint small">Designs, patterns, prints, fabric. You choose who sees each one.</span></div>
+            <div className="card-body">
+              <OfficeFiles files={data.attachments} uploadPath={`/api/m/orders/${order.id}/attachments`} onChanged={() => void reload()} />
+            </div>
+          </section>
           <DateHistory data={data} />
         </div>
 

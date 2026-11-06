@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import { fmtDate } from "../../lib/format";
+import { FileList, FileUpload } from "../../components/Attachments";
 import { Toast, useApi } from "../../components/ui";
 import { RequestPill, RequestSummary, RequestThread } from "../../components/RequestParts";
 import type { RequestDetailData } from "../../lib/requests";
@@ -18,17 +19,18 @@ function Detail({ token, id }: { token: string; id: string }) {
   const [err, setErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const uploadErrors: string[] = (useLocation().state as { uploadErrors?: string[] } | null)?.uploadErrors ?? [];
 
   if (error) return <div className="banner banner-error">{error}</div>;
   if (!r) return <p className="faint">Loading…</p>;
 
   const proposed = [...r.messages].reverse().find((m) => m.event === "counter")?.proposedExFactory;
 
-  async function act(path: string, body?: object, done?: string) {
+  async function act(path: string, body?: object, done?: string, method = "POST") {
     setBusy(true);
     setErr(null);
     try {
-      await api(`/api/b/${token}/requests/${r!.id}/${path}`, { method: "POST", body: body ?? {} });
+      await api(`/api/b/${token}/requests/${r!.id}/${path}`, { method, body: method === "POST" ? body ?? {} : undefined });
       setMessage("");
       if (done) setToast(done);
       await reload();
@@ -48,7 +50,30 @@ function Detail({ token, id }: { token: string; id: string }) {
         </div>
       </div>
 
+      {uploadErrors.length > 0 && (
+        <div className="banner banner-error">Your request was sent, but some files could not be added: {uploadErrors.join("; ")}. You can add them again below.</div>
+      )}
       <section className="card card-pad"><RequestSummary r={r} /></section>
+
+      <section className="card card-pad stack">
+        <h2>Files</h2>
+        <FileList
+          files={r.attachments}
+          hrefFor={(f) => `/api/b/${token}/attachments/${f.id}`}
+          actions={(f) => r.canWithdraw && f.uploadedBy === "you"
+            ? <button className="btn btn-ghost btn-sm" onClick={() => void act(`attachments/${f.id}`, undefined, "File removed", "DELETE")}>Remove</button>
+            : null}
+        />
+        {r.canReply && (
+          <FileUpload onUpload={async (kind, file) => {
+            const form = new FormData();
+            form.append("kind", kind);
+            form.append("file", file);
+            await api(`/api/b/${token}/requests/${r.id}/attachments`, { form });
+            await reload();
+          }} />
+        )}
+      </section>
 
       {r.status === "countered" && proposed && (
         <section className="card card-pad stack" style={{ borderColor: "var(--amber)" }}>

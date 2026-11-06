@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../../lib/api";
+import { fmtSize, KIND_LABEL, Kind } from "../../components/Attachments";
 import { addDaysIso, num } from "../../lib/format";
 import BuyerFrame from "./BuyerFrame";
 
@@ -17,6 +18,7 @@ function Form({ token, today }: { token: string; today: string }) {
   const [sizes, setSizes] = useState(DEFAULT_SIZES);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [picked, setPicked] = useState<{ file: File; kind: Kind }[]>([]);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
   const total = sizes.reduce((a, s) => a + (Number(s.qty) || 0), 0);
   const hexOk = /^#[0-9A-Fa-f]{6}$/.test(f.hex);
@@ -36,7 +38,19 @@ function Form({ token, today }: { token: string; today: string }) {
           colourPantone: f.pantone.trim() || null, colourHex: f.hex || null, exFactory: f.exFactory, sizes: rows,
         },
       });
-      nav(`/b/${token}/requests/${r.id}`);
+      // The request exists now; add the files one by one so a bad file does not lose the request.
+      const failed: string[] = [];
+      for (const p of picked) {
+        const form = new FormData();
+        form.append("kind", p.kind);
+        form.append("file", p.file);
+        try {
+          await api(`/api/b/${token}/requests/${r.id}/attachments`, { form });
+        } catch (e) {
+          failed.push(`${p.file.name} (${(e as Error).message.replace(/\.$/, "")})`);
+        }
+      }
+      nav(`/b/${token}/requests/${r.id}`, { state: { uploadErrors: failed } });
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -86,6 +100,28 @@ function Form({ token, today }: { token: string; today: string }) {
           ))}
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSizes((all) => [...all, { size: "", qty: "" }])}>+ Size</button>
         </div>
+      </section>
+
+      <section className="card card-pad stack">
+        <h2>Designs, patterns, prints and fabric (optional)</h2>
+        <p className="faint small" style={{ margin: 0 }}>PDF, images, Photoshop, ZIP, Excel/Word or DXF. Up to 10 files, 15 MB each. Only you and our merchandiser can see them.</p>
+        {picked.map((p, i) => (
+          <div key={i} className="row" style={{ justifyContent: "space-between" }}>
+            <span>{p.file.name} <span className="faint small">{fmtSize(p.file.size)}</span></span>
+            <span className="row">
+              <select className="select select-sm" style={{ width: "auto" }} aria-label="Kind of file" value={p.kind}
+                onChange={(e) => setPicked((all) => all.map((x, j) => (j === i ? { ...x, kind: e.target.value as Kind } : x)))}>
+                {(Object.keys(KIND_LABEL) as Kind[]).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+              </select>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPicked((all) => all.filter((_, j) => j !== i))}>Remove</button>
+            </span>
+          </div>
+        ))}
+        <label className="btn btn-sm" style={{ alignSelf: "flex-start", cursor: "pointer" }}>
+          Add files
+          <input type="file" multiple hidden accept=".pdf,.ai,.png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.psd,.zip,.xlsx,.docx,.dxf"
+            onChange={(e) => { const fs = Array.from(e.target.files ?? []); setPicked((all) => [...all, ...fs.map((file) => ({ file, kind: "design" as Kind }))].slice(0, 10)); e.target.value = ""; }} />
+        </label>
       </section>
 
       {error && <div className="banner banner-error">{error}</div>}

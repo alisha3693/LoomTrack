@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import sqlite3
 
+from .attachments import for_buyer
 from .orders import compute_projection, get_milestones
 
 
@@ -86,6 +87,7 @@ def buyer_orders(db: sqlite3.Connection, buyer_id: int, today: str) -> list[dict
                 ),
                 "overallPct": last.pct if last else 0,
                 "milestones": milestones,
+                "attachments": for_buyer(db, buyer_id, order_id=o["id"]),
                 "photos": [{"id": ph["id"], "date": ph["work_date"], "stage": ph["stage"]} for ph in photos],
                 "dateChanges": [
                     {"field": d["field"], "oldValue": d["old_value"], "newValue": d["new_value"], "reason": d["reason"], "changedAt": d["changed_at"], "milestone": d["milestone"]}

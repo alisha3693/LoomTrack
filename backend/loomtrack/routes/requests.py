@@ -8,7 +8,9 @@ from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 
 from ..deps import AppContext, User, ctx, merchandiser
+from ..security import sign_path
 from ..services import requests as svc
+from ..services.attachments import for_buyer, for_office
 from ..services.orders import refresh_order
 from .buyer import NO_STORE, current_buyer
 from .merchandiser import IsoDate, SizeIn
@@ -47,7 +49,7 @@ async def buyer_submit(body: RequestIn, buyer: sqlite3.Row = Depends(current_buy
 @buyer_router.get("/{request_id}")
 async def buyer_detail(request_id: int, response: Response, buyer: sqlite3.Row = Depends(current_buyer), c: AppContext = Depends(ctx)):
     response.headers.update(NO_STORE)
-    return svc.request_detail(c.db, request_id, buyer["id"])
+    return {**svc.request_detail(c.db, request_id, buyer["id"]), "attachments": for_buyer(c.db, buyer["id"], request_id=request_id)}
 
 
 @buyer_router.post("/{request_id}/reply")
@@ -91,7 +93,8 @@ async def office_list(filter: str = "mine", c: AppContext = Depends(ctx)):
 
 @office_router.get("/{request_id}")
 async def office_detail(request_id: int, c: AppContext = Depends(ctx)):
-    return svc.request_detail(c.db, request_id)
+    files = [{**a, "url": sign_path(f"/api/media/attachments/{a['id']}")} for a in for_office(c.db, request_id=request_id)]
+    return {**svc.request_detail(c.db, request_id), "attachments": files}
 
 
 @office_router.post("/{request_id}/query")

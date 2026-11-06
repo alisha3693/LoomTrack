@@ -90,6 +90,11 @@ Use two windows: the office (signed in as Priya) and a private window for the bu
 5. Office: **Propose another date** with a reason. Buyer: *New date proposed*. **Agree.** The request now carries the new date.
 6. Office: **Accept into an order**: pick the unit and a template. **Expect:** the order opens with its own number (`LT-...`) and exactly the buyer's quantities, colour and agreed date. The buyer's request shows *Accepted* with that number.
 7. **Buyers & exports → Sent to buyers** lists the messages the buyer was sent.
+
+**Files.** On the new-request form, **Add files** (a PNG print design, a PDF pattern). Try a text file renamed to `.png`: the request is sent, and the buyer sees which file was refused and why.
+- Office, on the request: the buyer's files are listed under **Files** with **Buyer** and **Floor** ticks. Upload one of your own (for example a cutting pattern): it is private until you tick **Buyer**.
+- Tick **Floor** on the print artwork, accept the request, then sign in as a supervisor (Unit 1, `9840000001` / `1111`) and open that order's stage: **Files for this order (1)** shows only the shared file. Unit 2's supervisor sees none.
+- The buyer's order page lists their files and not your private ones.
 8. Try with another buyer's link: that buyer cannot see or answer these requests.
 
 ## 7. Date changes leave a compliance trail
@@ -114,7 +119,7 @@ Open each of the three buyer links.
 ## Automated checks
 | Command | What it proves |
 |---|---|
-| `npm test` | 60 backend tests: run-rate maths, keyword classifier, schema migration, order requests, buyer isolation, idempotent offline sends, unit scoping, AI fallback, confirm-before-buyer, append-only audit |
+| `npm test` | 66 backend tests: run-rate maths, keyword classifier, schema migration, order requests, file upload checks, buyer isolation, idempotent offline sends, unit scoping, AI fallback, confirm-before-buyer, append-only audit |
 | `npm run explain` | Prints the run-rate maths for every order in the terminal |
 | `python e2e/walkthrough.py` | Clicks through every screen in a headless browser, saves screenshots to `e2e/shots/`, fails on any browser error (run `npm run seed` first) |
 | `python e2e/offline_test.py` | Phone offline → update queued → back online → lands exactly once |

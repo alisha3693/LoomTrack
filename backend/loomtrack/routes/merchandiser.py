@@ -15,6 +15,7 @@ from ..domain.reasons import REASON_CATEGORIES, REASON_CODES
 from ..domain.tna import plan_from_template
 from ..security import new_token, sign_path
 from ..services.export import weekly_workbook
+from ..services.attachments import for_office
 from ..services.requests import open_count
 from ..services.templates import load_template, plan_json
 from ..services.orders import (compute_projection, get_milestones, get_order, insert_order, refresh_all_active, refresh_order,
@@ -194,6 +195,7 @@ async def order_detail(order_id: int, c: AppContext = Depends(ctx)):
         "projection": (fp or compute_projection(db, order, today)).to_json(),
         "updates": updates,
         "warnings": rows(db.execute("SELECT * FROM warnings WHERE order_id = ? ORDER BY id DESC", (order_id,))),
+        "attachments": [{**a, "url": sign_path(f"/api/media/attachments/{a['id']}")} for a in for_office(db, order_id=order_id)],
         "dateChanges": rows(
             db.execute(
                 """SELECT d.*, s.name_en AS milestone, u.name AS changed_by_name FROM date_changes d

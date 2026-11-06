@@ -1,7 +1,9 @@
 import { useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Progress, Swatch, useApi } from "../../components/ui";
+import { FileList } from "../../components/Attachments";
 import { RequestPill } from "../../components/RequestParts";
+import type { FileItem } from "../../lib/types";
 import type { RequestRow } from "../../lib/requests";
 import { fmtDate, fmtDateTime, num } from "../../lib/format";
 import { ThemeToggle } from "../../lib/theme";
@@ -19,6 +21,7 @@ interface BuyerOrder {
   notice: { message: string; expectedExFactory: string; at: string } | null;
   overallPct: number;
   milestones: { code: string; name: string; kind: "milestone" | "stage"; plannedDate: string; actualDate: string | null; pct: number; done: number | null }[];
+  attachments: FileItem[];
   photos: { id: number; date: string; stage: string }[];
   dateChanges: { field: string; oldValue: string | null; newValue: string | null; reason: string; changedAt: string; milestone: string | null }[];
 }
@@ -153,6 +156,13 @@ export default function BuyerView() {
                     </ul>
                   </div>
                 </div>
+
+                {o.attachments.length > 0 && (
+                  <div>
+                    <div className="section-title">Files</div>
+                    <FileList files={o.attachments} hrefFor={(f) => `/api/b/${token}/attachments/${f.id}`} />
+                  </div>
+                )}
 
                 {o.photos.length > 0 && (
                   <div>

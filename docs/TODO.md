@@ -11,6 +11,8 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` not started. Updated as wor
 - [x] Our own order number (`LT-year-n`) generated at creation, the buyer's PO kept as typed and unique per buyer; colour name + Pantone + hex swatch
 - [x] Merchandiser-built plan templates: create, copy, edit, retire; reusable step library; example dates in the editor; built-ins read-only
 - [x] Order requests: buyer sends from their link, merchandiser asks / counters / accepts / declines, accepted request becomes an order; landing page
+- [x] Design, pattern, print and fabric files on requests and orders: byte-level type check, per-file visibility to buyer and floor, files follow a request onto its order
+- [ ] Virus scanning for uploaded files (none today); thumbnails and in-browser preview for more than images and PDF
 - [ ] Invited buyer accounts (today anyone holding the buyer link can send and answer requests for that buyer; rotate the link to cut access)
 - [ ] Unit management screen (subcontractors for new processes such as embroidery; today they come from the seed)
 - [ ] Next schema change: add a migration step per version (v0 to v1, v1 to v2 and v2 to v3 exist)

@@ -51,6 +51,14 @@ Three kinds of user hit three separate sets of endpoints, and each set is guarde
 
 A buyer reaches only their own requests: another buyer's request is "not found". The buyer link can now *submit and answer* requests, but it still cannot read anything belonging to another buyer. Open requests per buyer are capped at 25.
 
+## Files: designs, patterns, print artwork, fabric (`services/attachments.py`)
+
+- The **buyer** can add files to a request while it is open (when sending it, or later). The **merchandiser** can add files to a request or to an order.
+- A file is **checked by its own bytes**, not its name or the type the browser claims. PDF, JPG, PNG, WebP, GIF, TIFF, Photoshop, ZIP (including Excel and Word) and DXF patterns are accepted; HTML, SVG, scripts and programs are refused. It is stored under a random name, capped at 15 MB, and never opened or unpacked by the server.
+- **Who sees a file** is decided per file. The buyer's own uploads stay visible to that buyer. Our files are private until the merchandiser ticks **Buyer**. Ticking **Floor** lets supervisors open it, but only on orders their unit works on.
+- When a request is **accepted**, its files move onto the new order. Buyers see their files on their order page, supervisors under "Files for this order" on a stage screen.
+- Office and floor links are short-lived signed links; buyers open files through their own link, scoped to their own requests and orders.
+
 ## Re-projecting an order (`services/orders.py`)
 
 Every time numbers change, and every time the board loads, the server recomputes each active order:
@@ -110,6 +118,7 @@ Changing ex-factory, or any planned date, requires a reason and writes a row to 
 | Requests | `/m/requests`, `/m/requests/:id` | `GET /api/m/requests?filter=`, `POST /api/m/requests/:id/query`, `/counter`, `/accept`, `/decline` |
 | Buyer: new request | `/b/:token/requests/new` | `POST /api/b/:token/requests` |
 | Buyer: one request | `/b/:token/requests/:id` | `GET /api/b/:token/requests/:id`, `POST .../reply`, `.../agree`, `.../withdraw` |
+| Files | on request, order and stage pages | `POST /api/b/:token/requests/:id/attachments`, `POST /api/m/requests/:id/attachments`, `POST /api/m/orders/:id/attachments`, `PATCH`/`DELETE /api/m/attachments/:id`, `GET /api/s/orders/:id/attachments`, `GET /api/b/:token/attachments/:id` |
 | Landing | `/` (signed out) | none: staff sign in, buyers paste their link |
 | Templates | `/m/templates`, `/m/templates/new`, `/m/templates/:id` | `GET/POST /api/m/templates`, `PUT /api/m/templates/:id`, retire/restore, `POST /api/m/templates/preview`, `PATCH /api/m/steps/:code` |
 | Supervisor home | `/s` | `GET /api/s/orders` (cached on the phone) |
@@ -121,7 +130,7 @@ Live API docs with every endpoint: http://localhost:4000/api/docs
 ## Data model (SQLite)
 
 ```
-buyers ──< orders >── units
+buyers ──< orders >── units        attachments hang off a request, an order, or both
    │
    └──< order_requests ──< request_sizes, request_messages   (a buyer's asks; accepted ones point at an order)
              │ ├──< order_sizes
@@ -145,11 +154,11 @@ backend/loomtrack/
   security.py          password hashing, session tokens, signed media URLs
   deps.py              "who is signed in", role guards
   domain/              no database, no web: calendar, runrate, tna templates, reason list
-  services/            orders (projection + warnings), templates (load/validate/save), requests (order requests), buyer_view, export (Excel)
-  routes/              auth, merchandiser, templates, requests (both sides), supervisor, buyer
+  services/            orders (projection + warnings), templates (load/validate/save), requests (order requests), attachments (files), buyer_view, export (Excel)
+  routes/              auth, merchandiser, templates, requests (both sides), attachments, supervisor, buyer
   ai/classifier.py     Ollama call + keyword fallback
   seed.py / explain.py demo data / prints the run-rate maths for every order
-backend/tests/         60 tests
+backend/tests/         66 tests
 web/src/
   App.tsx              routes + role guards
   lib/                 api client, auth, Tamil strings, offline outbox, photo/voice helpers, theme

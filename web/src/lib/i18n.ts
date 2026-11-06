@@ -14,6 +14,7 @@ const STRINGS = {
   dueBy: { ta: "முடிக்க வேண்டியது", en: "Due" },
   todayQty: { ta: "இன்று எத்தனை பீஸ்?", en: "Pieces today" },
   photo: { ta: "புகைப்படம்", en: "Photo" },
+  files: { ta: "இந்த ஆர்டருக்கான கோப்புகள்", en: "Files for this order" },
   takePhoto: { ta: "படம் எடு", en: "Take photo" },
   retake: { ta: "மீண்டும் எடு", en: "Retake" },
   issue: { ta: "பிரச்சனை ஏதாவது?", en: "Any issue?" },

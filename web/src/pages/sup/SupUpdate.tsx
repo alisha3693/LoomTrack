@@ -4,7 +4,10 @@ import { useLang } from "../../lib/i18n";
 import { fmtDate, num } from "../../lib/format";
 import { compressPhoto, makeRecognizer, pickAudioType } from "../../lib/media";
 import { flushOutbox, newId, outbox } from "../../lib/outbox";
+import { api } from "../../lib/api";
+import { FileList } from "../../components/Attachments";
 import { Toast } from "../../components/ui";
+import type { FileItem } from "../../lib/types";
 import { SupHeader } from "./SupHeader";
 import { useSupData } from "./useSupData";
 
@@ -133,6 +136,7 @@ export default function SupUpdate() {
         left={<Link to="/s" className="btn btn-ghost btn-sm" aria-label={t("back")}>←</Link>}
       />
       <main className="phone-body">
+        <FloorFiles orderId={stage.order_id} label={t("files")} />
         <div className="row faint small" style={{ justifyContent: "space-between" }}>
           <span className="num">{num(done)} {t("of")} {num(stage.qty_total)} · {t("dueBy")} {fmtDate(stage.planned_date)}</span>
           <span>{t("workDate")}: {fmtDate(data.today, true)}</span>
@@ -184,5 +188,20 @@ export default function SupUpdate() {
       </div>
       <Toast message={toast} onDone={() => setToast(null)} />
     </div>
+  );
+}
+
+/** Files the merchandiser shared with the floor. Quietly absent when offline or when nothing is shared. */
+function FloorFiles({ orderId, label }: { orderId: number; label: string }) {
+  const [files, setFiles] = useState<FileItem[]>([]);
+  useEffect(() => {
+    api<{ files: FileItem[] }>(`/api/s/orders/${orderId}/attachments`).then((r) => setFiles(r.files)).catch(() => {});
+  }, [orderId]);
+  if (files.length === 0) return null;
+  return (
+    <details className="card card-pad">
+      <summary>{label} ({files.length})</summary>
+      <div style={{ marginTop: 10 }}><FileList files={files} hrefFor={(f) => f.url ?? "#"} /></div>
+    </details>
   );
 }

@@ -1,5 +1,7 @@
 // Shapes and wording for order requests, shared by the office and buyer screens.
 
+import type { FileItem } from "./types";
+
 export type RequestStatus = "submitted" | "query" | "countered" | "accepted" | "declined" | "withdrawn";
 
 export interface RequestRow {
@@ -43,6 +45,7 @@ export interface RequestDetailData {
   createdAt: string;
   updatedAt: string;
   messages: RequestMessage[];
+  attachments: FileItem[];
   orderNo: string | null;
   // office only
   buyer?: string;
