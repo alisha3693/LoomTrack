@@ -1,6 +1,8 @@
 import { FormEvent, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { OfficeFiles } from "../../components/Attachments";
+import ChangeForm from "../../components/ChangeForm";
+import { RequestPill } from "../../components/RequestParts";
 import { Modal, Progress, StatusPill, Swatch, Toast, useApi } from "../../components/ui";
 import { api } from "../../lib/api";
 import { fmtDate, fmtDateTime, num, plural, Status } from "../../lib/format";
@@ -14,6 +16,7 @@ export default function OrderDetail() {
   const { data, error, reload } = useApi<Detail>(`/api/m/orders/${id}`);
   const [edit, setEdit] = useState<DateEdit | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
 
   if (error) return <main className="page"><div className="banner banner-error">{error}</div></main>;
   if (!data) return <main className="page faint">Loading…</main>;
@@ -41,7 +44,10 @@ export default function OrderDetail() {
               <div className="row"><h1>{order.po_no}</h1><StatusPill status={p.status} /></div>
               <p className="sub">{order.order_no} · {order.style}, <Swatch hex={order.colour_hex} />{order.colour.toLowerCase()}{order.colour_pantone ? ` (Pantone ${order.colour_pantone})` : ""} · {order.buyer_name} · {order.unit_name}</p>
             </div>
-            <button className="btn btn-sm no-print" onClick={() => setEdit({ kind: "exf", current: order.ex_factory })}>Change ex-factory</button>
+            <div className="row no-print">
+              <button className="btn btn-sm" onClick={() => setRecording(true)}>Record a change</button>
+              <button className="btn btn-sm" onClick={() => setEdit({ kind: "exf", current: order.ex_factory })}>Change ex-factory</button>
+            </div>
           </div>
         </div>
 
@@ -68,6 +74,20 @@ export default function OrderDetail() {
           <Milestones data={data} onEdit={setEdit} onMarkDone={(m, date) =>
             act(() => api(`/api/m/milestones/${m.id}`, { method: "PATCH", body: date ? { actualDate: date } : { clearActual: true } }), date ? `${m.name_en} marked done` : "Marked not done")
           } />
+          {data.changeRequests.length > 0 && (
+            <section className="card">
+              <div className="card-head"><h2>Requests and changes</h2><span className="faint small">What the buyer asked for and how it was answered</span></div>
+              <div className="card-body">
+                <ul className="reasons">
+                  {data.changeRequests.map((c) => (
+                    <li key={c.id}>
+                      <Link to={`/m/requests/${c.id}`}><b style={{ fontWeight: 500 }}>{c.requestNo}</b></Link> · {c.kind === "amendment" ? "change" : "original request"} · <RequestPill status={c.status} audience="office" />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </section>
+          )}
           <section className="card">
             <div className="card-head"><h2>Files</h2><span className="faint small">Designs, patterns, prints, fabric. You choose who sees each one.</span></div>
             <div className="card-body">
@@ -80,6 +100,27 @@ export default function OrderDetail() {
         <Updates updates={data.updates} onChanged={reload} toast={setToast} />
       </div>
 
+      {recording && (
+        <Modal title="Record a change the buyer asked for" onClose={() => setRecording(false)}>
+          <p className="muted small" style={{ marginTop: 0 }}>
+            Use this when the buyer asked by email or phone. It is applied now and the buyer sees it under their requests. The planned dates of the steps are not moved, so review them afterwards.
+          </p>
+          <ChangeForm
+            currentDate={order.ex_factory}
+            currentSizes={data.sizes}
+            today={data.today}
+            reasonLabel="What did the buyer ask for, and how?"
+            submitLabel="Record and apply"
+            onCancel={() => setRecording(false)}
+            onSubmit={async (body) => {
+              await api(`/api/m/orders/${order.id}/amend`, { body });
+              setRecording(false);
+              setToast("Change recorded and applied");
+              await reload();
+            }}
+          />
+        </Modal>
+      )}
       {edit && <DateModal edit={edit} orderId={order.id} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); setToast("Date changed and recorded"); void reload(); }} />}
       <Toast message={toast} onDone={() => setToast(null)} />
     </main>

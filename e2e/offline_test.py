@@ -8,7 +8,7 @@ from playwright.sync_api import sync_playwright
 
 BASE = os.environ.get("LOOMTRACK_URL", "http://localhost:4000")
 ROOT = Path(__file__).resolve().parent
-DB = ROOT.parent / "backend" / "data" / "loomtrack.db"
+DB = Path(os.environ.get("LOOMTRACK_DB", ROOT.parent / "backend" / "data" / "loomtrack.db"))
 OUT = ROOT / "shots"
 OUT.mkdir(exist_ok=True)
 

@@ -161,6 +161,7 @@ users ──< sessions            outbox_messages
 7. `request_messages` rows can't be updated or deleted.
 8. A buyer can reach only their own requests; another buyer's request is "not found".
 9. An accepted request creates an order with exactly the quantities, colour and date the buyer asked for or agreed to. A different date goes through a counter-proposal the buyer agrees to.
+   An accepted change to an existing order updates the date (with a `date_changes` entry that names the request and the reason) and the quantities in one transaction, and cannot take the quantity below what has already been made. The order's stage dates are not moved automatically.
 10. A milestone must point at a known `plan_steps` step, and an update's order is always its milestone's order (there is no second copy to disagree).
 
 ### Normalisation and migrations

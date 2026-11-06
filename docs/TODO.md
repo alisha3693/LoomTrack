@@ -12,6 +12,9 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` not started. Updated as wor
 - [x] Merchandiser-built plan templates: create, copy, edit, retire; reusable step library; example dates in the editor; built-ins read-only
 - [x] Order requests: buyer sends from their link, merchandiser asks / counters / accepts / declines, accepted request becomes an order; landing page
 - [x] Design, pattern, print and fabric files on requests and orders: byte-level type check, per-file visibility to buyer and floor, files follow a request onto its order
+- [x] Buyer-requested changes to an existing order (date and quantities) with Now vs Asked-for, never below pieces already made, audited; merchandiser can record a change taken by email
+- [ ] Offer to re-plan the stage dates when an ex-factory change is applied (today they are not moved; the merchandiser edits them, each edit audited)
+- [ ] A new order whose early milestones (fit and PP approval) fall before its creation date shows amber "Behind plan" straight away. Let the merchandiser mark them already approved when creating the order
 - [ ] Virus scanning for uploaded files (none today); thumbnails and in-browser preview for more than images and PDF
 - [ ] Invited buyer accounts (today anyone holding the buyer link can send and answer requests for that buyer; rotate the link to cut access)
 - [ ] Unit management screen (subcontractors for new processes such as embroidery; today they come from the seed)

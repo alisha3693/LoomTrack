@@ -12,7 +12,7 @@ BASE = os.environ.get("LOOMTRACK_URL", "http://localhost:4000")
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT / "shots"
 OUT.mkdir(exist_ok=True)
-DB = ROOT.parent / "backend" / "data" / "loomtrack.db"
+DB = Path(os.environ.get("LOOMTRACK_DB", ROOT.parent / "backend" / "data" / "loomtrack.db"))
 token = sqlite3.connect(DB).execute("SELECT link_token FROM buyers WHERE name LIKE 'Company C%'").fetchone()[0]
 
 

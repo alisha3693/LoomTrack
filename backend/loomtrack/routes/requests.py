@@ -18,6 +18,7 @@ from .merchandiser import IsoDate, SizeIn
 # --- The buyer's side: the private link is the credential, every query is scoped to its buyer ---------
 
 buyer_router = APIRouter(prefix="/api/b/{token}/requests")
+buyer_orders_router = APIRouter(prefix="/api/b/{token}/orders")
 
 
 class RequestIn(BaseModel):
@@ -29,6 +30,14 @@ class RequestIn(BaseModel):
     colourPantone: str | None = Field(default=None, max_length=30)
     exFactory: IsoDate
     sizes: list[SizeIn] = Field(min_length=1, max_length=30)
+
+
+class AmendmentIn(BaseModel):
+    """A change to an order that exists: a new ex-factory date, new quantities by size, or both. Leave out what stays."""
+
+    exFactory: IsoDate | None = None
+    sizes: list[SizeIn] | None = Field(default=None, max_length=30)
+    reason: str = Field(min_length=1, max_length=1000)
 
 
 class MessageIn(BaseModel):
@@ -44,6 +53,11 @@ async def buyer_list(response: Response, buyer: sqlite3.Row = Depends(current_bu
 @buyer_router.post("", status_code=201)
 async def buyer_submit(body: RequestIn, buyer: sqlite3.Row = Depends(current_buyer), c: AppContext = Depends(ctx)):
     return {"id": svc.submit_request(c.db, buyer["id"], body, c.today())}
+
+
+@buyer_orders_router.post("/{order_id}/amendments", status_code=201)
+async def buyer_amend(order_id: int, body: AmendmentIn, buyer: sqlite3.Row = Depends(current_buyer), c: AppContext = Depends(ctx)):
+    return {"id": svc.submit_amendment(c.db, buyer["id"], order_id, body, c.today())}
 
 
 @buyer_router.get("/{request_id}")
@@ -73,6 +87,7 @@ async def buyer_withdraw(request_id: int, buyer: sqlite3.Row = Depends(current_b
 # --- The office -----------------------------------------------------------------------------------------
 
 office_router = APIRouter(prefix="/api/m/requests", dependencies=[Depends(merchandiser)])
+order_router = APIRouter(prefix="/api/m/orders", dependencies=[Depends(merchandiser)])
 
 
 class CounterIn(BaseModel):
@@ -81,8 +96,8 @@ class CounterIn(BaseModel):
 
 
 class AcceptIn(BaseModel):
-    unitId: int
-    templateKey: str
+    unitId: int | None = None  # needed for a new order, not for a change to an existing one
+    templateKey: str | None = None
     message: str | None = Field(default=None, max_length=2000)
 
 
@@ -116,7 +131,16 @@ async def office_decline(request_id: int, body: MessageIn, user: User = Depends(
 
 
 @office_router.post("/{request_id}/accept")
-async def office_accept(request_id: int, body: AcceptIn, user: User = Depends(merchandiser), c: AppContext = Depends(ctx)):
+async def office_accept(request_id: int, body: AcceptIn | None = None, user: User = Depends(merchandiser), c: AppContext = Depends(ctx)):
+    body = body or AcceptIn()  # a change to an existing order needs nothing more than "accept"
     order_id, order_no = svc.office_accept(c.db, user.id, request_id, body.unitId, body.templateKey, body.message, c.today())
     refresh_order(c.db, order_id, c.today())
     return {"orderId": order_id, "orderNo": order_no}
+
+
+@order_router.post("/{order_id}/amend", status_code=201)
+async def office_amend(order_id: int, body: AmendmentIn, user: User = Depends(merchandiser), c: AppContext = Depends(ctx)):
+    """Record a change the buyer asked for outside the app, and apply it with the same trail as a request."""
+    rid = svc.office_record_change(c.db, user.id, order_id, body.exFactory, body.sizes, body.reason, c.today())
+    refresh_order(c.db, order_id, c.today())
+    return {"id": rid}

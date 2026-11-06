@@ -218,3 +218,15 @@ def insert_order(db: sqlite3.Connection, body, t: Template, user_id: int, today:
             (order_id, p.seq, it.code, (o.plannedStart if o else None) or p.planned_start, o.plannedDate if o else p.planned_date, unit_id),
         )
     return order_id, order_no
+
+
+def set_ex_factory(db: sqlite3.Connection, order_id: int, new_date: str, reason: str, user_id: int) -> None:
+    """Change the ex-factory date and record who, why and what it was. Call inside a transaction.
+    Planned dates of the stages are not moved: the merchandiser reviews them (each edit is audited too)."""
+    old = db.execute("SELECT ex_factory FROM orders WHERE id = ?", (order_id,)).fetchone()["ex_factory"]
+    db.execute("UPDATE orders SET ex_factory = ? WHERE id = ?", (new_date, order_id))
+    db.execute("UPDATE milestones SET planned_date = ? WHERE order_id = ? AND code = 'EXF'", (new_date, order_id))
+    db.execute(
+        "INSERT INTO date_changes (order_id, field, old_value, new_value, reason, changed_by) VALUES (?,?,?,?,?,?)",
+        (order_id, "ex_factory", old, new_date, reason, user_id),
+    )

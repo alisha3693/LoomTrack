@@ -49,6 +49,13 @@ Three kinds of user hit three separate sets of endpoints, and each set is guarde
 4. **Agreeing** to a proposed date updates the request's date. **Accepting** creates the order, with exactly the quantities, colour and date the buyer asked for or agreed to. The merchandiser picks the production unit and the plan template.
 5. Everything said or decided is a row in `request_messages`, which the buyer sees too. A copy of each merchandiser message goes to the (mock) sent-messages list.
 
+### Changes to an order that already exists
+
+- From an active order on their page, the buyer can **Ask for a change**: a new ex-factory date, new quantities by size, or both, with a reason. It travels the same conversation as a new request (question, counter-proposed date, agree, accept, decline, withdraw).
+- While it is open the merchandiser sees **what the order says now beside what is asked for**. **Apply the change** updates the order in one step: the new ex-factory date goes into the order's date history (naming the request and the reason), the quantities are replaced, and the order is re-projected. The quantity cannot go below what the furthest stage has already made.
+- If the buyer asks by email or phone, the merchandiser uses **Record a change** on the order: the same trail, applied at once, and the buyer sees it under their requests.
+- One open change per order at a time. The planned dates of individual steps are **not** moved automatically; the merchandiser reviews them (each edit needs a reason and is logged).
+
 A buyer reaches only their own requests: another buyer's request is "not found". The buyer link can now *submit and answer* requests, but it still cannot read anything belonging to another buyer. Open requests per buyer are capped at 25.
 
 ## Files: designs, patterns, print artwork, fabric (`services/attachments.py`)
@@ -119,6 +126,8 @@ Changing ex-factory, or any planned date, requires a reason and writes a row to 
 | Buyer: new request | `/b/:token/requests/new` | `POST /api/b/:token/requests` |
 | Buyer: one request | `/b/:token/requests/:id` | `GET /api/b/:token/requests/:id`, `POST .../reply`, `.../agree`, `.../withdraw` |
 | Files | on request, order and stage pages | `POST /api/b/:token/requests/:id/attachments`, `POST /api/m/requests/:id/attachments`, `POST /api/m/orders/:id/attachments`, `PATCH`/`DELETE /api/m/attachments/:id`, `GET /api/s/orders/:id/attachments`, `GET /api/b/:token/attachments/:id` |
+| Buyer: ask for a change | `/b/:token/orders/:id/change` | `POST /api/b/:token/orders/:id/amendments` |
+| Record a change (office) | button on the order page | `POST /api/m/orders/:id/amend` |
 | Landing | `/` (signed out) | none: staff sign in, buyers paste their link |
 | Templates | `/m/templates`, `/m/templates/new`, `/m/templates/:id` | `GET/POST /api/m/templates`, `PUT /api/m/templates/:id`, retire/restore, `POST /api/m/templates/preview`, `PATCH /api/m/steps/:code` |
 | Supervisor home | `/s` | `GET /api/s/orders` (cached on the phone) |
@@ -158,7 +167,7 @@ backend/loomtrack/
   routes/              auth, merchandiser, templates, requests (both sides), attachments, supervisor, buyer
   ai/classifier.py     Ollama call + keyword fallback
   seed.py / explain.py demo data / prints the run-rate maths for every order
-backend/tests/         66 tests
+backend/tests/         72 tests
 web/src/
   App.tsx              routes + role guards
   lib/                 api client, auth, Tamil strings, offline outbox, photo/voice helpers, theme

@@ -97,6 +97,14 @@ Use two windows: the office (signed in as Priya) and a private window for the bu
 - The buyer's order page lists their files and not your private ones.
 8. Try with another buyer's link: that buyer cannot see or answer these requests.
 
+## 6d. A buyer changes an order that already exists
+1. Buyer window, on their order page: **Ask for a change** on B-PO-88301. Move the ex-factory date and raise a quantity, add a reason, **Send change request**.
+2. Office → **Requests**: the row is tagged *Change to LT-...*. Open it: a table shows **Now** against **Asked for**, with the changed values in bold.
+3. **Apply the change.** **Expect:** the order opens with the new date and total. **Date change history** has a new entry that names the request and the reason. The quantity change is recorded in the request's history.
+4. Try lowering a quantity below what is already made (for example cutting 2,400 on B-PO-88301, then ask for fewer than that): applying is refused and nothing changes.
+5. On the order, **Record a change** (as if the buyer emailed): it is applied at once, and the buyer sees it under *Order requests* as *Accepted*.
+6. The stage dates are deliberately not moved. Open the plan and edit any date: each edit needs a reason and is logged.
+
 ## 7. Date changes leave a compliance trail
 On any order: **Change ex-factory** (or click a due date in the TNA list).
 
@@ -119,7 +127,7 @@ Open each of the three buyer links.
 ## Automated checks
 | Command | What it proves |
 |---|---|
-| `npm test` | 66 backend tests: run-rate maths, keyword classifier, schema migration, order requests, file upload checks, buyer isolation, idempotent offline sends, unit scoping, AI fallback, confirm-before-buyer, append-only audit |
+| `npm test` | 72 backend tests: run-rate maths, keyword classifier, schema migration, order requests and changes, file upload checks, buyer isolation, idempotent offline sends, unit scoping, AI fallback, confirm-before-buyer, append-only audit |
 | `npm run explain` | Prints the run-rate maths for every order in the terminal |
 | `python e2e/walkthrough.py` | Clicks through every screen in a headless browser, saves screenshots to `e2e/shots/`, fails on any browser error (run `npm run seed` first) |
 | `python e2e/offline_test.py` | Phone offline → update queued → back online → lands exactly once |

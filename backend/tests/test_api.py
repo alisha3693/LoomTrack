@@ -648,3 +648,124 @@ def test_a_closed_request_takes_no_more_files(env):
     rid = _req(env, t, "ATT-6").json()["id"]
     assert _buyer(env, t, f"/{rid}/withdraw", "post").status_code == 200
     assert _upload(env, ("buyer", rid), PNG, token=t).status_code == 409
+
+
+# --- Changes to an existing order (amendments) -----------------------------------------------
+
+def _fresh_order(env, po, buyer_id=1, qty=1000):
+    r = env["client"].post("/api/m/orders", headers=env["merch"], json={
+        "poNo": po, "buyerId": buyer_id, "style": "Style A", "colour": "Navy", "exFactory": "2026-12-15", "unitId": 1,
+        "templateKey": "basic", "sizes": [{"size": "M", "qty": qty // 2}, {"size": "L", "qty": qty - qty // 2}]})
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
+
+
+def _amend(env, token, order_id, **body):
+    return env["client"].post(f"/api/b/{token}/orders/{order_id}/amendments", json={"reason": "Buyer revised the order", **body})
+
+
+def _order(env, oid):
+    return env["client"].get(f"/api/m/orders/{oid}", headers=env["merch"]).json()
+
+
+def test_buyer_asks_for_a_change_and_accepting_applies_it_with_a_trail(env):
+    oid = _fresh_order(env, "AMD-1")
+    t = env["tokenB"]
+    before = _order(env, oid)
+    sized = [{"size": "M", "qty": 700}, {"size": "L", "qty": 500}, {"size": "XL", "qty": 200}]
+    made = _amend(env, t, oid, exFactory="2026-12-22", sizes=sized, reason="Retail promotion moved")
+    assert made.status_code == 201, made.text
+    rid = made.json()["id"]
+
+    # While open the order is untouched, and both sides can see exactly what would change.
+    assert _order(env, oid)["order"]["qty_total"] == 1000
+    detail = _office(env, f"/{rid}").json()
+    assert detail["kind"] == "amendment" and detail["change"]["dateChanged"] and detail["change"]["qtyChanged"]
+    assert detail["change"]["current"]["totalQty"] == 1000 and detail["totalQty"] == 1400
+    assert _buyer(env, t, f"/{rid}").json()["change"]["current"]["exFactory"] == "2026-12-15"
+
+    assert _office(env, f"/{rid}/accept", "post").status_code == 200       # no unit or template needed for a change
+    after = _order(env, oid)
+    assert after["order"]["ex_factory"] == "2026-12-22" and after["order"]["qty_total"] == 1400
+    assert [(s["size"], s["qty"]) for s in after["sizes"]] == [("M", 700), ("L", 500), ("XL", 200)]
+    assert next(m for m in after["milestones"] if m["code"] == "EXF")["planned_date"] == "2026-12-22"
+    trail = [d for d in after["dateChanges"] if d["field"] == "ex_factory"]
+    assert len(trail) == 1 and trail[0]["old_value"] == "2026-12-15" and trail[0]["new_value"] == "2026-12-22"
+    assert "Retail promotion moved" in trail[0]["reason"] and "RQ-" in trail[0]["reason"]
+    assert before["order"]["order_no"] == after["order"]["order_no"]
+
+    closed = _buyer(env, t, f"/{rid}").json()
+    assert closed["status"] == "accepted" and "change" not in closed
+    assert "1,400" in closed["messages"][-1]["body"]
+    assert [m["event"] for m in closed["messages"]] == ["submitted", "accepted"]
+    assert any(c["id"] == rid for c in after["changeRequests"])
+
+
+def test_a_quantity_only_change_leaves_the_date_trail_alone(env):
+    oid = _fresh_order(env, "AMD-2")
+    rid = _amend(env, env["tokenB"], oid, sizes=[{"size": "M", "qty": 600}, {"size": "L", "qty": 600}]).json()["id"]
+    assert _office(env, f"/{rid}/accept", "post").status_code == 200
+    o = _order(env, oid)
+    assert o["order"]["qty_total"] == 1200 and o["order"]["ex_factory"] == "2026-12-15"
+    assert [d for d in o["dateChanges"] if d["field"] == "ex_factory"] == []
+
+
+def test_a_change_cannot_go_below_what_is_already_made(env):
+    oid = _fresh_order(env, "AMD-3")
+    assert post_update(env, "sup1", "amd3-cut-0001", stage_id(env["db"], oid, "CUT"), 400).status_code == 201
+    rid = _amend(env, env["tokenB"], oid, sizes=[{"size": "M", "qty": 150}, {"size": "L", "qty": 150}]).json()["id"]
+    refused = _office(env, f"/{rid}/accept", "post")
+    assert refused.status_code == 409 and "already made" in refused.json()["error"]
+    assert _order(env, oid)["order"]["qty_total"] == 1000                      # nothing half-applied
+    assert _office(env, f"/{rid}").json()["status"] == "submitted"
+    assert _office(env, f"/{rid}/decline", "post", message="Cutting is already past that quantity").status_code == 200
+
+
+def test_a_countered_date_is_applied_once_the_buyer_agrees(env):
+    oid = _fresh_order(env, "AMD-4")
+    t = env["tokenB"]
+    rid = _amend(env, t, oid, exFactory="2026-12-10", reason="Need it sooner").json()["id"]
+    assert _office(env, f"/{rid}/counter", "post", exFactory="2026-12-12", message="Earliest we can do").status_code == 200
+    assert _order(env, oid)["order"]["ex_factory"] == "2026-12-15"
+    assert _buyer(env, t, f"/{rid}/agree", "post").status_code == 200
+    assert _office(env, f"/{rid}/accept", "post").status_code == 200
+    assert _order(env, oid)["order"]["ex_factory"] == "2026-12-12"
+
+
+def test_amendment_checks(env):
+    oid = _fresh_order(env, "AMD-5")
+    t = env["tokenB"]
+    assert _amend(env, t, oid).status_code == 400                                              # nothing changes
+    assert _amend(env, t, oid, exFactory="2026-12-15").status_code == 400                      # same date
+    assert _amend(env, t, oid, exFactory="2026-11-01").status_code == 400                      # in the past
+    assert _amend(env, t, oid, sizes=[{"size": "M", "qty": 0}]).status_code == 400             # nothing ordered
+    assert _amend(env, t, oid, sizes=[{"size": "M", "qty": 5}, {"size": "m", "qty": 5}]).status_code == 400
+    assert env["client"].post(f"/api/b/{t}/orders/{oid}/amendments", json={"exFactory": "2026-12-20", "reason": ""}).status_code == 400
+    assert _amend(env, env["tokenC"], oid, exFactory="2026-12-20").status_code == 404          # not their order
+    assert _amend(env, t, 999999, exFactory="2026-12-20").status_code == 404
+    first = _amend(env, t, oid, exFactory="2026-12-20")
+    assert first.status_code == 201
+    assert _amend(env, t, oid, exFactory="2026-12-21").status_code == 409                      # one open change at a time
+    assert _buyer(env, t, f"/{first.json()['id']}/withdraw", "post").status_code == 200       # clear it, so the next check stands alone
+
+    env["db"].execute("UPDATE orders SET state = 'cancelled' WHERE id = ?", (oid,))
+    assert _amend(env, t, oid, exFactory="2026-12-23").status_code == 409                      # closed orders take no changes
+    env["db"].execute("UPDATE orders SET state = 'active' WHERE id = ?", (oid,))
+
+
+def test_the_merchandiser_can_record_a_change_the_buyer_sent_by_email(env):
+    oid = _fresh_order(env, "AMD-6")
+    t = env["tokenB"]
+    body = {"exFactory": "2026-12-18", "sizes": [{"size": "M", "qty": 800}, {"size": "L", "qty": 700}], "reason": "Buyer emailed: more units, a few days later"}
+    assert env["client"].post(f"/api/m/orders/{oid}/amend", headers=env["sup1"], json=body).status_code == 403
+    r = env["client"].post(f"/api/m/orders/{oid}/amend", headers=env["merch"], json=body)
+    assert r.status_code == 201, r.text
+    o = _order(env, oid)
+    assert o["order"]["qty_total"] == 1500 and o["order"]["ex_factory"] == "2026-12-18"
+    assert any(d["field"] == "ex_factory" and "emailed" in d["reason"] for d in o["dateChanges"])
+
+    mine = next(x for x in _buyer(env, t, "").json()["requests"] if x["id"] == r.json()["id"])
+    assert mine["status"] == "accepted" and mine["kind"] == "amendment"                          # the buyer sees what was recorded
+    events = [m for m in _buyer(env, t, f"/{r.json()['id']}").json()["messages"]]
+    assert [(m["author"], m["event"]) for m in events] == [("merchandiser", "submitted"), ("merchandiser", "accepted")]
+    assert env["client"].post(f"/api/m/orders/{oid}/amend", headers=env["merch"], json={"reason": "again", "exFactory": "2026-12-18"}).status_code == 400

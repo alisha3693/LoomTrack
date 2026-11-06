@@ -19,7 +19,7 @@ from ..services.attachments import for_office
 from ..services.requests import open_count
 from ..services.templates import load_template, plan_json
 from ..services.orders import (compute_projection, get_milestones, get_order, insert_order, refresh_all_active, refresh_order,
-                               validate_new_order)
+                               set_ex_factory, validate_new_order)
 from ..util import HttpError, iso_week
 
 router = APIRouter(prefix="/api/m", dependencies=[Depends(merchandiser)])
@@ -195,6 +195,10 @@ async def order_detail(order_id: int, c: AppContext = Depends(ctx)):
         "projection": (fp or compute_projection(db, order, today)).to_json(),
         "updates": updates,
         "warnings": rows(db.execute("SELECT * FROM warnings WHERE order_id = ? ORDER BY id DESC", (order_id,))),
+        "changeRequests": rows(db.execute(
+            "SELECT id, request_no AS requestNo, kind, status, ex_factory AS exFactory, updated_at AS updatedAt FROM order_requests WHERE order_id = ? ORDER BY id DESC",
+            (order_id,),
+        )),
         "attachments": [{**a, "url": sign_path(f"/api/media/attachments/{a['id']}")} for a in for_office(db, order_id=order_id)],
         "dateChanges": rows(
             db.execute(
@@ -224,12 +228,7 @@ async def change_ex_factory(order_id: int, body: ExFactoryIn, user: User = Depen
         raise HttpError(404, "Order not found")
     if order["ex_factory"] != body.date:
         with transaction(db):
-            db.execute("UPDATE orders SET ex_factory = ? WHERE id = ?", (body.date, order_id))
-            db.execute("UPDATE milestones SET planned_date = ? WHERE order_id = ? AND code = 'EXF'", (body.date, order_id))
-            db.execute(
-                "INSERT INTO date_changes (order_id, field, old_value, new_value, reason, changed_by) VALUES (?,?,?,?,?,?)",
-                (order_id, "ex_factory", order["ex_factory"], body.date, body.reason.strip(), user.id),
-            )
+            set_ex_factory(db, order_id, body.date, body.reason.strip(), user.id)
         refresh_order(db, order_id, c.today())
     return {"ok": True}
 

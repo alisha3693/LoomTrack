@@ -15,6 +15,7 @@ import SupUpdate from "./pages/sup/SupUpdate";
 import BuyerView from "./pages/buyer/BuyerView";
 import RequestNew from "./pages/buyer/RequestNew";
 import BuyerRequest from "./pages/buyer/BuyerRequest";
+import OrderChange from "./pages/buyer/OrderChange";
 import Landing from "./pages/Landing";
 
 function Home() {
@@ -59,6 +60,7 @@ export default function App() {
       <Route path="/s/update/:milestoneId" element={<RequireRole role="supervisor"><SupUpdate /></RequireRole>} />
       <Route path="/b/:token" element={<BuyerView />} />
       <Route path="/b/:token/requests/new" element={<RequestNew />} />
+      <Route path="/b/:token/orders/:orderId/change" element={<OrderChange />} />
       <Route path="/b/:token/requests/:id" element={<BuyerRequest />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -248,7 +248,7 @@ erDiagram
 |---|---|---|
 | People and access | `buyers`, `users`, `sessions`, `units` | A buyer's `link_token` is their credential. A supervisor's `unit_id` limits which stages they see. |
 | The plan | `orders`, `order_sizes`, `plan_steps`, `milestones` | `plan_steps` holds each kind of step once (names, stage or milestone). `milestones` is one order's plan: a row per step with that order's dates. |
-| Requests | `order_requests`, `request_sizes`, `request_messages` | A buyer's request is a conversation. `status` says whose turn it is: `submitted` is the merchandiser's, `query` and `countered` are the buyer's. `request_messages` is the history and is append-only (triggers). Accepting creates an `orders` row and sets `order_requests.order_id`. |
+| Requests | `order_requests`, `request_sizes`, `request_messages` | A buyer's request is a conversation, either a new order or a change to an existing one (`kind = 'amendment'`, with `order_id` set and `request_sizes` holding the full new quantities). `status` says whose turn it is: `submitted` is the merchandiser's, `query` and `countered` are the buyer's. `request_messages` is the history and is append-only (triggers). Accepting creates an `orders` row and sets `order_requests.order_id`. |
 | Files | `attachments` | Designs, patterns, print artwork, fabric references. A file belongs to a request, an order, or both: a request's files follow it onto the order it becomes. The buyer's own uploads are always visible to that buyer; ours are private unless `buyer_visible` is set; `supervisor_visible` decides what the floor can open. |
 | Templates | `templates`, `template_steps` | A saved layout of steps with timings (days before ex-factory). Orders copy the dates when created, so editing or retiring a template never changes an existing order. The built-in three are read-only. |
 | Floor data | `daily_updates`, `photos`, `issue_reasons` | `daily_updates.id` is created on the phone, so a retried offline upload hits the same key and is ignored. |
@@ -260,6 +260,7 @@ erDiagram
 - `orders.qty_total > 0`, `order_sizes.qty >= 0`, `daily_updates.qty >= 0`.
 - Allowed values are checked for `units.kind`, `users.role`, `orders.state`, `milestones.kind`, `daily_updates.note_source`, `warnings.level` and `warnings.state`.
 - A file must belong to a request or an order (`CHECK`). Its `mime` comes from its own bytes and its stored name is random, never the uploaded name.
+- An order can have only one open amendment at a time, and an accepted amendment cannot take the quantity below what the furthest stage has already made (both checked in the service, with tests).
 - `request_messages` rows can't be updated or deleted. A request's status is one of six values, and a buyer only ever reaches requests with their own `buyer_id`.
 - Template names are unique among active templates (ignoring case). Offsets are 0 to 365 days. `orders.template_key` is not a foreign key: a template is retired, never deleted, so the key always resolves.
 - `orders.order_no` is unique. `orders.po_no` is unique per buyer (`UNIQUE (buyer_id, po_no)`), because it is the buyer's own number. `colour_hex` must be `#` plus six uppercase hex digits.

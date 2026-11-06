@@ -76,7 +76,7 @@ export default function RequestDetail() {
 
         {open && (
           <section className="card card-pad row">
-            <button className="btn btn-primary" onClick={() => openDialog("accept")}>Accept into an order</button>
+            <button className="btn btn-primary" onClick={() => openDialog("accept")}>{r.kind === "amendment" ? "Apply the change" : "Accept into an order"}</button>
             <button className="btn" onClick={() => openDialog("query")}>Ask a question</button>
             <button className="btn" onClick={() => openDialog("counter")}>Propose another date</button>
             <button className="btn btn-ghost" onClick={() => openDialog("decline")}>Decline</button>
@@ -88,7 +88,26 @@ export default function RequestDetail() {
         <RequestThread r={r} audience="office" />
       </div>
 
-      {dialog === "accept" && (
+      {dialog === "accept" && r.kind === "amendment" && (
+        <Modal title="Apply the change to the order" onClose={() => setDialog(null)}>
+          <div className="stack">
+            <p className="muted" style={{ margin: 0 }}>
+              The order's ex-factory date and quantities change as shown above, and the date change goes into the order's history with this request as the reason.
+              <b style={{ fontWeight: 500 }}> The planned dates of the individual steps are not moved.</b> Review them on the order afterwards.
+            </p>
+            <label className="field"><span>Note to the buyer (optional)</span>
+              <textarea className="textarea" rows={3} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Leave empty to send the standard confirmation" />
+            </label>
+            {formError && <div className="banner banner-error">{formError}</div>}
+            <div className="row" style={{ justifyContent: "flex-end" }}>
+              <button className="btn btn-ghost" onClick={() => setDialog(null)}>Cancel</button>
+              <button className="btn btn-primary" disabled={busy} onClick={() => send("accept", { message: message.trim() || null }, "")}>Apply the change</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {dialog === "accept" && r.kind !== "amendment" && (
         <Modal title="Accept into an order" onClose={() => setDialog(null)}>
           <div className="stack">
             <p className="muted" style={{ margin: 0 }}>

@@ -2,6 +2,7 @@
 // raw database rows (order detail) keep their snake_case column names.
 
 import type { Status } from "./format";
+import type { RequestStatus } from "./requests";
 
 export interface Meta {
   buyers: { id: number; name: string; country: string | null }[];
@@ -156,6 +157,7 @@ export interface OrderDetail {
   warnings: WarningRow[];
   dateChanges: DateChangeRow[];
   attachments: FileItem[];
+  changeRequests: { id: number; requestNo: string; kind: "new_order" | "amendment"; status: RequestStatus; exFactory: string; updatedAt: string }[];
 }
 
 export interface SupStage {

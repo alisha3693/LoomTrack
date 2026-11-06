@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 from ..db import transaction
 from ..util import HttpError
-from .orders import insert_order, validate_new_order
+from .orders import insert_order, set_ex_factory, validate_new_order
 
 OPEN = ("submitted", "query", "countered")
 MAX_OPEN_PER_BUYER = 25
@@ -103,15 +103,15 @@ def list_requests(db: sqlite3.Connection, buyer_id: int | None = None, flt: str 
         where.append("r.buyer_id = ?")
         args.append(buyer_id)
     rows = db.execute(
-        f"""SELECT r.*, b.name AS buyer_name,
+        f"""SELECT r.*, b.name AS buyer_name, o.order_no,
               (SELECT COALESCE(SUM(qty), 0) FROM request_sizes s WHERE s.request_id = r.id) AS total_qty
-            FROM order_requests r JOIN buyers b ON b.id = r.buyer_id
+            FROM order_requests r JOIN buyers b ON b.id = r.buyer_id LEFT JOIN orders o ON o.id = r.order_id
             WHERE {' AND '.join(where)} ORDER BY r.updated_at DESC, r.id DESC""",
         args,
     ).fetchall()
     return [
         {
-            "id": r["id"], "requestNo": r["request_no"], "kind": r["kind"], "buyer": r["buyer_name"], "poNo": r["po_no"],
+            "id": r["id"], "requestNo": r["request_no"], "kind": r["kind"], "orderNo": r["order_no"], "buyer": r["buyer_name"], "poNo": r["po_no"],
             "style": r["style"], "colour": r["colour"], "colourHex": r["colour_hex"], "exFactory": r["ex_factory"],
             "totalQty": r["total_qty"], "status": r["status"], "updatedAt": r["updated_at"], "createdAt": r["created_at"],
         }
@@ -137,6 +137,8 @@ def request_detail(db: sqlite3.Connection, rid: int, buyer_id: int | None = None
         "createdAt": r["created_at"], "updatedAt": r["updated_at"], "messages": messages,
         "orderNo": order["order_no"] if order else None,
     }
+    if r["kind"] == "amendment" and r["status"] in OPEN:
+        out["change"] = _change_summary(db, r, sizes)
     if buyer_id is None:
         out["buyer"] = db.execute("SELECT name FROM buyers WHERE id = ?", (r["buyer_id"],)).fetchone()["name"]
         out["orderId"] = r["order_id"]
@@ -256,13 +258,21 @@ def office_decline(db: sqlite3.Connection, user_id: int, rid: int, message: str)
         _email(db, r, "Your order request was declined", text)
 
 
-def office_accept(db: sqlite3.Connection, user_id: int, rid: int, unit_id: int, template_key: str, message: str | None, today: str) -> tuple[int, str]:
+def office_accept(db: sqlite3.Connection, user_id: int, rid: int, unit_id: int | None, template_key: str | None, message: str | None, today: str) -> tuple[int, str]:
     """Turn a new-order request into an order, planned from the chosen template and unit."""
     r = _row(db, rid)
     _require_open(r)
-    if r["kind"] != "new_order":
-        raise HttpError(400, "This request changes an existing order")
     note = _text(message, required=False, what="the note")
+    if r["kind"] == "amendment":
+        with transaction(db):
+            summary = _apply_change(db, r, user_id, today)
+            text = note or f"Accepted. {summary}."
+            _log(db, rid, "merchandiser", user_id, "accepted", text)
+            _set_status(db, rid, "accepted", decided_by=user_id)
+            _email(db, r, "Your change was accepted", text, r["order_id"])
+        return r["order_id"], db.execute("SELECT order_no FROM orders WHERE id = ?", (r["order_id"],)).fetchone()["order_no"]
+    if unit_id is None or not template_key:
+        raise HttpError(400, "Pick the production unit and the plan template")
     body = SimpleNamespace(
         poNo=r["po_no"], buyerId=r["buyer_id"], style=r["style"], colour=r["colour"], colourHex=r["colour_hex"],
         colourPantone=r["colour_pantone"], exFactory=r["ex_factory"], unitId=unit_id, templateKey=template_key, milestones=None,
@@ -278,3 +288,115 @@ def office_accept(db: sqlite3.Connection, user_id: int, rid: int, unit_id: int, 
         _set_status(db, rid, "accepted", decided_by=user_id)
         _email(db, r, "Your order request was accepted", f"{text}\n\nOrder number: {order_no}", order_id)
     return order_id, order_no
+
+
+# --- Changes to an order that already exists (amendments) -------------------------------------
+
+
+def _order_open_for_change(db: sqlite3.Connection, order_id: int, buyer_id: int | None = None) -> sqlite3.Row:
+    sql, args = "SELECT * FROM orders WHERE id = ?", [order_id]
+    if buyer_id is not None:
+        sql, args = sql + " AND buyer_id = ?", [order_id, buyer_id]
+    o = db.execute(sql, args).fetchone()
+    if o is None:
+        raise HttpError(404, "Order not found")
+    if o["state"] != "active":
+        raise HttpError(409, "This order is no longer open for changes")
+    return o
+
+
+def _order_sizes(db: sqlite3.Connection, order_id: int) -> list[tuple[str, int]]:
+    return [(r["size"], r["qty"]) for r in db.execute("SELECT size, qty FROM order_sizes WHERE order_id = ? ORDER BY seq", (order_id,))]
+
+
+def _clean_sizes(sizes) -> list[tuple[str, int]]:
+    out = [(s.size.strip().upper(), s.qty) for s in sizes if s.size.strip() and s.qty > 0]
+    if not out:
+        raise HttpError(400, "The quantities add up to zero")
+    if len({s for s, _ in out}) != len(out):
+        raise HttpError(400, "A size is listed twice")
+    return out
+
+
+def _change_summary(db: sqlite3.Connection, r: sqlite3.Row, requested: list[dict]) -> dict:
+    o = db.execute("SELECT order_no, ex_factory FROM orders WHERE id = ?", (r["order_id"],)).fetchone()
+    current = [{"size": s, "qty": q} for s, q in _order_sizes(db, r["order_id"])]
+    return {
+        "orderNo": o["order_no"],
+        "current": {"exFactory": o["ex_factory"], "sizes": current, "totalQty": sum(s["qty"] for s in current)},
+        "dateChanged": r["ex_factory"] != o["ex_factory"],
+        "qtyChanged": [(s["size"], s["qty"]) for s in requested] != [(s["size"], s["qty"]) for s in current],
+    }
+
+
+def _create_amendment(db: sqlite3.Connection, o: sqlite3.Row, ex_factory: str | None, sizes, reason: str, author: str, user_id: int | None, today: str) -> int:
+    """Insert the amendment request. Call inside a transaction. Only the changed parts differ from the order."""
+    new_date = ex_factory or o["ex_factory"]
+    cur = _order_sizes(db, o["id"])
+    new_sizes = _clean_sizes(sizes) if sizes is not None else cur
+    if new_date == o["ex_factory"] and new_sizes == cur:
+        raise HttpError(400, "That is what the order already says. Change the date or a quantity.")
+    if new_date != o["ex_factory"] and new_date <= today:
+        raise HttpError(400, "The new date must be in the future")
+    if db.execute("SELECT 1 FROM order_requests WHERE order_id = ? AND kind = 'amendment' AND status IN ('submitted','query','countered')", (o["id"],)).fetchone():
+        raise HttpError(409, "There is already an open change request for this order")
+    rid = db.execute(
+        """INSERT INTO order_requests (request_no, kind, buyer_id, order_id, po_no, style, description, colour, colour_pantone, colour_hex, ex_factory)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+        (next_request_no(db, today), "amendment", o["buyer_id"], o["id"], o["po_no"], o["style"], reason, o["colour"],
+         o["colour_pantone"], o["colour_hex"], new_date),
+    ).lastrowid
+    for n, (size, qty) in enumerate(new_sizes, start=1):
+        db.execute("INSERT INTO request_sizes (request_id, seq, size, qty) VALUES (?,?,?,?)", (rid, n, size, qty))
+    _log(db, rid, author, user_id, "submitted", reason)
+    return rid
+
+
+def submit_amendment(db: sqlite3.Connection, buyer_id: int, order_id: int, body, today: str) -> int:
+    o = _order_open_for_change(db, order_id, buyer_id)
+    reason = _text(body.reason, required=True, what="the reason for the change", limit=1000)
+    if db.execute("SELECT COUNT(*) FROM order_requests WHERE buyer_id = ? AND status IN ('submitted','query','countered')", (buyer_id,)).fetchone()[0] >= MAX_OPEN_PER_BUYER:
+        raise HttpError(429, "You have too many open requests. Wait for some to be answered.")
+    with transaction(db):
+        return _create_amendment(db, o, body.exFactory, body.sizes, reason, "buyer", None, today)
+
+
+def _apply_change(db: sqlite3.Connection, r: sqlite3.Row, user_id: int, today: str) -> str:
+    """Put an amendment's date and quantities on the order. Call inside a transaction; returns what changed."""
+    o = _order_open_for_change(db, r["order_id"])
+    parts = []
+    if r["ex_factory"] != o["ex_factory"]:
+        if r["ex_factory"] <= today:
+            raise HttpError(409, "That date has passed. Ask the buyer for a new one.")
+        set_ex_factory(db, o["id"], r["ex_factory"], f"Change {r['request_no']}: {r['description'] or 'agreed with the buyer'}", user_id)
+        parts.append(f"ex-factory {o['ex_factory']} to {r['ex_factory']}")
+    new_sizes = [(s["size"], s["qty"]) for s in db.execute("SELECT size, qty FROM request_sizes WHERE request_id = ? ORDER BY seq", (r["id"],))]
+    old_sizes = _order_sizes(db, o["id"])
+    if new_sizes != old_sizes:
+        total = sum(q for _, q in new_sizes)
+        made = db.execute(
+            """SELECT COALESCE(MAX(t), 0) FROM (SELECT SUM(d.qty) AS t FROM daily_updates d JOIN milestones m ON m.id = d.milestone_id
+               WHERE m.order_id = ? GROUP BY m.id)""", (o["id"],)).fetchone()[0]
+        if total < made:
+            raise HttpError(409, f"{made:,} pieces are already made at the furthest stage, so the quantity cannot go below that")
+        db.execute("DELETE FROM order_sizes WHERE order_id = ?", (o["id"],))
+        for n, (size, qty) in enumerate(new_sizes, start=1):
+            db.execute("INSERT INTO order_sizes (order_id, seq, size, qty) VALUES (?,?,?,?)", (o["id"], n, size, qty))
+        db.execute("UPDATE orders SET qty_total = ? WHERE id = ?", (total, o["id"]))
+        parts.append(f"quantity {o['qty_total']:,} to {total:,}")
+    return " and ".join(parts).capitalize() if parts else "Nothing needed changing"
+
+
+def office_record_change(db: sqlite3.Connection, user_id: int, order_id: int, ex_factory: str | None, sizes, reason: str, today: str) -> int:
+    """The buyer asked outside the app (email, phone): record the change and apply it in one step,
+    with the same trail as a request. The buyer sees it under their requests."""
+    o = _order_open_for_change(db, order_id)
+    text = _text(reason, required=True, what="what the buyer asked for", limit=1000)
+    with transaction(db):
+        rid = _create_amendment(db, o, ex_factory, sizes, text, "merchandiser", user_id, today)
+        r = _row(db, rid)
+        summary = _apply_change(db, r, user_id, today)
+        _log(db, rid, "merchandiser", user_id, "accepted", f"Recorded and applied. {summary}.")
+        _set_status(db, rid, "accepted", decided_by=user_id)
+        _email(db, r, "A change to your order was recorded", f"{summary}.\n\nReason: {text}", order_id)
+    return rid

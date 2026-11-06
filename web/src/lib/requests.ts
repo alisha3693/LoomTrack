@@ -8,6 +8,7 @@ export interface RequestRow {
   id: number;
   requestNo: string;
   kind: "new_order" | "amendment";
+  orderNo: string | null;
   buyer: string;
   poNo: string;
   style: string;
@@ -47,6 +48,13 @@ export interface RequestDetailData {
   messages: RequestMessage[];
   attachments: FileItem[];
   orderNo: string | null;
+  /** An open change to an existing order: what it says now and what is asked for. */
+  change?: {
+    orderNo: string;
+    current: { exFactory: string; sizes: { size: string; qty: number }[]; totalQty: number };
+    dateChanged: boolean;
+    qtyChanged: boolean;
+  };
   // office only
   buyer?: string;
   orderId?: number | null;

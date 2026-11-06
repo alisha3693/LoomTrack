@@ -18,6 +18,7 @@ interface BuyerOrder {
   qty: number;
   sizes: { size: string; qty: number }[];
   exFactory: string;
+  state: string;
   notice: { message: string; expectedExFactory: string; at: string } | null;
   overallPct: number;
   milestones: { code: string; name: string; kind: "milestone" | "stage"; plannedDate: string; actualDate: string | null; pct: number; done: number | null }[];
@@ -50,7 +51,7 @@ function MyRequests({ token }: { token: string }) {
             <tbody>
               {data.requests.map((r) => (
                 <tr key={r.id}>
-                  <td><Link to={`/b/${token}/requests/${r.id}`}><b>{r.poNo}</b></Link> <span className="faint small">{r.requestNo}</span><div className="muted">{r.style}, {r.colour.toLowerCase()} · {num(r.totalQty)} pcs</div></td>
+                  <td><Link to={`/b/${token}/requests/${r.id}`}><b>{r.poNo}</b></Link>{r.kind === "amendment" ? <span className="pill" style={{ marginLeft: 8 }}>Change</span> : null} <span className="faint small">{r.requestNo}</span><div className="muted">{r.style}, {r.colour.toLowerCase()} · {num(r.totalQty)} pcs</div></td>
                   <td className="muted">Ex-factory {fmtDate(r.exFactory, true)}</td>
                   <td><RequestPill status={r.status} audience="buyer" /></td>
                 </tr>
@@ -104,6 +105,7 @@ export default function BuyerView() {
                   <h2>{o.poNo}</h2>
                   <div className="muted">{o.style}, <Swatch hex={o.colourHex} />{o.colour.toLowerCase()}{o.colourPantone ? ` (Pantone ${o.colourPantone})` : ""} · {num(o.qty)} pcs</div>
                   <div className="faint small">{o.sizes.map((s) => `${s.size} ${num(s.qty)}`).join(" · ")}</div>
+                  {o.state === "active" && <div className="no-print" style={{ marginTop: 6 }}><Link className="small" to={`/b/${token}/orders/${o.id}/change`}>Ask for a change</Link></div>}
                 </div>
                 <div style={{ textAlign: "right" }}>
                   <div className="faint small">Ex-factory</div>
