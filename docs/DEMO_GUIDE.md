@@ -157,6 +157,14 @@ Use two windows: the office (signed in as Priya) and a private window for the bu
 5. Break it on purpose (a wrong SMTP password): the message shows *Failed* with the server's reason after its retries, and **Send again** puts it back once fixed.
 6. The WhatsApp wording is in [docs/WHATSAPP_TEMPLATES.md](WHATSAPP_TEMPLATES.md), ready to paste into Meta's template form.
 
+## 6k. Installing the app on a supervisor's phone
+1. Office, **Units and capacity**: the first card shows the install link. Open it on a phone (or a phone-sized window). **Expect:** a Tamil page with an Install button (Android) or three steps for Share, Add to Home Screen (iPhone).
+2. Install it, open the icon, sign in as `9840000001` / `1111`. **Expect:** a short Tamil welcome, once. Tap *புரிந்தது*; it does not return on that phone.
+3. Switch the phone to airplane mode and reopen the app. **Expect:** it opens, lists the orders, says *Offline*; an update entered now is *waiting to send* and goes when the network returns.
+4. Phones install only from an https address; on a plain `http://` Wi-Fi address the install page says so. A free Cloudflare tunnel gives an https address for the demo.
+
+Full steps, including what to do when a supervisor changes phone: [SUPERVISOR_INSTALL.md](SUPERVISOR_INSTALL.md).
+
 ## 7. Date changes leave a compliance trail
 On any order: **Change ex-factory** (or click a due date in the TNA list).
 

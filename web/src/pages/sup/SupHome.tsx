@@ -1,11 +1,46 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
 import { useLang } from "../../lib/i18n";
 import { fmtDate, fmtDateTime, num } from "../../lib/format";
 import { outbox } from "../../lib/outbox";
 import { Progress, Swatch } from "../../components/ui";
+import { InstallBanner } from "../Install";
 import { SupHeader } from "./SupHeader";
 import { useSupData } from "./useSupData";
+
+/** Shown once on each phone, the first time a supervisor signs in. */
+function Welcome({ userId }: { userId: number }) {
+  const { t } = useLang("ta");
+  const key = `lt.welcome.${userId}`;
+  const [shown, setShown] = useState(() => {
+    try {
+      return localStorage.getItem(key) !== "1";
+    } catch {
+      return false;
+    }
+  });
+  if (!shown) return null;
+  const done = () => {
+    try {
+      localStorage.setItem(key, "1");
+    } catch {
+      /* ignore */
+    }
+    setShown(false);
+  };
+  return (
+    <section className="card card-pad stack welcome" aria-label={t("welcomeTitle")}>
+      <h2>{t("welcomeTitle")}</h2>
+      <ol className="install-steps">
+        <li>{t("welcome1")}</li>
+        <li>{t("welcome2")}</li>
+        <li>{t("welcome3")}</li>
+      </ol>
+      <button className="btn btn-primary btn-block" onClick={done}>{t("gotIt")}</button>
+    </section>
+  );
+}
 
 export default function SupHome() {
   const { user, signOut } = useAuth();
@@ -19,6 +54,8 @@ export default function SupHome() {
     <div className="phone">
       <SupHeader title={user?.name ?? ""} sub={user?.unit_name ?? ""} lang={lang} setLang={setLang} />
       <main className="phone-body">
+        {user && <Welcome userId={user.id} />}
+        <InstallBanner />
         {!online && <div className="banner banner-warn">{t("offline")}</div>}
         {waiting.length > 0 && (
           <button className="queue-chip" style={{ border: 0, alignSelf: "flex-start", cursor: "pointer" }} onClick={() => void flush()}>

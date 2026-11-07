@@ -243,7 +243,10 @@ e2e/                   browser walkthrough + offline test
 
 - **Sending:** covered above. Updates are never lost to a dead network; they wait in the phone's storage.
 - **Viewing:** the supervisor's stage list is cached on the phone after each successful load, so the app still opens and shows it offline. The numbers shown include anything still queued.
-- **App shell:** in production builds, a service worker caches the app itself so it opens without a network. It never caches API data.
+- **App shell:** in production builds, a service worker stores the page and its scripts the first time the app is opened online, so it opens without a network afterwards. Pages are fetched fresh whenever there is a network (the stored copy is the fallback), so a new version arrives by itself. It never caches API data.
+- **Installing:** the manifest (name, standalone, scope, PNG icons including a maskable one) and the service worker make the app installable. On Android the `/install` page and a banner on the supervisor's home use the browser's own install box; on an iPhone, where no website can show one, they explain Share, Add to Home Screen. Installing needs an https address. The steps for the office and the supervisor are in [SUPERVISOR_INSTALL.md](SUPERVISOR_INSTALL.md).
+- **First sign-in on a phone:** a one-time welcome in Tamil (daily entry, allow camera and microphone, offline is fine), remembered per person on that phone.
+- **"Offline" is decided by reaching the server**, not by the phone's own online flag, which is wrong on Wi-Fi with no internet.
 - **A refused update** (e.g. over the quantity cap) isn't retried forever. It's kept with the server's message and shown to the supervisor with a Discard button.
 
 ## Messages outside the app (email and WhatsApp)

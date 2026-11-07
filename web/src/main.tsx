@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import { AuthProvider } from "./lib/auth";
 import App from "./App";
 import "./styles.css";
+import "./lib/install"; // starts listening for the browser's install offer before the page has finished loading
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

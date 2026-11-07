@@ -70,7 +70,10 @@ def create_app(db: sqlite3.Connection | None = None, **overrides) -> FastAPI:
             if path.startswith("api/"):
                 return JSONResponse({"error": "No such endpoint"}, status_code=404)
             f = dist / path
-            return FileResponse(f if path and f.is_file() and dist in f.resolve().parents else dist / "index.html")
+            hit = path and f.is_file() and dist in f.resolve().parents
+            # Hashed files under /assets never change; the page, the service worker and the manifest must be re-checked every time.
+            headers = None if path.startswith("assets/") else {"Cache-Control": "no-cache"}
+            return FileResponse(f if hit else dist / "index.html", headers=headers)
 
     return app
 

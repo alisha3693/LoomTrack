@@ -38,6 +38,28 @@ const STRINGS = {
   tooMany: { ta: "ஆர்டர் அளவை விட அதிகம்", en: "More than the order quantity" },
   discard: { ta: "நீக்கு", en: "Discard" },
   lastSync: { ta: "கடைசியாகப் புதுப்பித்தது", en: "Last updated" },
+  // Installing the app, and the first-time welcome
+  installTitle: { ta: "உங்கள் ஃபோனில் LoomTrack நிறுவுங்கள்", en: "Put LoomTrack on your phone" },
+  installBody: { ta: "முகப்புத் திரையில் ஐகான் வரும். இணையம் இல்லாவிட்டாலும் திறக்கும்.", en: "An icon is added to your home screen. It opens even without internet." },
+  installButton: { ta: "நிறுவு", en: "Install" },
+  later: { ta: "பிறகு", en: "Later" },
+  howTo: { ta: "எப்படி?", en: "How?" },
+  installedTitle: { ta: "செயலி நிறுவப்பட்டுவிட்டது", en: "The app is installed" },
+  installedBody: { ta: "இனி முகப்புத் திரையில் உள்ள LoomTrack ஐகானை அழுத்தவும்.", en: "From now on, tap the LoomTrack icon on your home screen." },
+  openApp: { ta: "செயலியைத் திற", en: "Open the app" },
+  continueInBrowser: { ta: "நிறுவாமல் தொடர்க", en: "Continue without installing" },
+  iosStep1: { ta: "Safari-யில் கீழே உள்ள பகிர் (Share) பொத்தானை அழுத்தவும்", en: "In Safari, tap the Share button at the bottom" },
+  iosStep2: { ta: "“Add to Home Screen” ஐத் தேர்ந்தெடுக்கவும்", en: "Choose “Add to Home Screen”" },
+  iosStep3: { ta: "“Add” அழுத்தவும்", en: "Tap “Add”" },
+  iosSafari: { ta: "iPhone-இல் இது Safari-யில் மட்டுமே வேலை செய்யும்.", en: "On an iPhone this only works in Safari." },
+  androidStep1: { ta: "Chrome-இன் மெனுவை (⋮) திறக்கவும்", en: "Open the Chrome menu (⋮)" },
+  androidStep2: { ta: "“Install app” அல்லது “Add to Home screen” ஐ அழுத்தவும்", en: "Tap “Install app” or “Add to Home screen”" },
+  androidStep3: { ta: "“Install” அழுத்தவும்", en: "Tap “Install”" },
+  welcomeTitle: { ta: "வணக்கம்! LoomTrack-ஐ இப்படிப் பயன்படுத்துங்கள்", en: "Welcome. How to use LoomTrack" },
+  welcome1: { ta: "தினமும் உங்கள் ஆர்டரைத் திறந்து, இன்று எத்தனை பீஸ் முடிந்தது என்று பதிவு செய்யுங்கள்.", en: "Each day, open your order and enter how many pieces were done." },
+  welcome2: { ta: "படம் எடுக்கும்போதும் பேசும்போதும் ஃபோன் கேமரா, மைக் அனுமதி கேட்கும். “Allow” அழுத்தவும்.", en: "When you take a photo or speak, the phone asks for the camera and microphone. Tap Allow." },
+  welcome3: { ta: "இணையம் இல்லாவிட்டாலும் பதிவு செய்யலாம். இணையம் வந்ததும் தானாக அனுப்பப்படும்.", en: "No internet? Enter it anyway. It is sent when the network is back." },
+  gotIt: { ta: "புரிந்தது", en: "Got it" },
 } as const;
 
 export type Lang = "ta" | "en";

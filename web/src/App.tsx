@@ -28,6 +28,7 @@ import RequestNew from "./pages/buyer/RequestNew";
 import BuyerRequest from "./pages/buyer/BuyerRequest";
 import OrderChange from "./pages/buyer/OrderChange";
 import Landing from "./pages/Landing";
+import Install from "./pages/Install";
 import ChangePassword from "./pages/ChangePassword";
 
 function Home() {
@@ -63,6 +64,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/install" element={<Install />} />
       <Route
         path="/m"
         element={

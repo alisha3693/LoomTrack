@@ -86,6 +86,9 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` not started. Updated as wor
 - [x] Mock "message buyer" outbox for confirmed warnings
 - [x] Merchandiser can mark non-production milestones done (actual date)
 - [x] Service worker app-shell caching (installable PWA)
+- [x] Installable on a phone: PNG and maskable icons, a complete manifest, an install page and banner (Android prompt, iPhone steps), a one-time Tamil welcome, offline start checked in a phone-sized browser, install link on the Units page (docs/SUPERVISOR_INSTALL.md)
+- [ ] Try the install on one real Android phone and one iPhone (camera and microphone prompts inside the installed app, voice on iOS); have a Tamil speaker read the new Tamil wording
+- [ ] Supervisors: self-service PIN reset, and a QR code for the install link
 - [ ] Server-side Tamil speech-to-text with faster-whisper (open source)
 
 ## Phase 2b — Found while testing (5 Nov)

@@ -13,11 +13,12 @@ Free and open source end to end. The AI runs locally.
 | [docs/TECH_STACK.md](docs/TECH_STACK.md) | Stack decisions and why |
 | [docs/RUN_RATE.md](docs/RUN_RATE.md) | How the delay projection works, with a worked example |
 | [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) | The interface: palette, type, spacing, shared parts and the rules for a new screen |
+| [docs/SUPERVISOR_INSTALL.md](docs/SUPERVISOR_INSTALL.md) | Putting the app on a supervisor's phone: what the office does, what the supervisor sees the first time, and what is not yet checked on a real phone |
 | [docs/WHATSAPP_TEMPLATES.md](docs/WHATSAPP_TEMPLATES.md) | The WhatsApp templates with sample values, ready to submit to Meta, and how to connect email and WhatsApp |
 | [docs/UX_GAPS.md](docs/UX_GAPS.md) | Gaps found between the buyer and the merchandiser, and what was done about them |
 
 ## Stack
-**Backend:** Python 3.12, FastAPI, SQLite · **AI:** Ollama + Llama 3 8B (local), keyword fallback · **Web:** React + Vite PWA (offline queue for supervisors)
+**Backend:** Python 3.12, FastAPI, SQLite · **AI:** Ollama + Llama 3 8B (local), keyword fallback · **Web:** React + Vite PWA (installable on a phone, offline queue for supervisors)
 
 ## Run it locally (Windows)
 
@@ -54,6 +55,7 @@ npm run dev        # or: API on :4000 + web with live reload on :5173
 | `python e2e/walkthrough.py` | headless browser walkthrough with screenshots |
 | `python e2e/offline_test.py` | offline queue check |
 | `python e2e/journey.py` | the buyer-and-merchandiser journey (sidebar, inbox, approvals, receipts, view-only accounts), plus phone-width layout checks (needs a freshly seeded database) |
+| `python e2e/pwa.py` | installability (manifest, icons, service worker), offline start, the Android and iPhone install pages and the supervisor's first-time welcome |
 | `python e2e/a11y.py [light\|dark]` | an automated accessibility scan (axe) of the main pages, in light or dark |
 
 API docs: http://localhost:4000/api/docs

@@ -45,8 +45,11 @@ export function useSupData() {
       const c = { ...r, at: new Date().toISOString() };
       writeCache(c);
       setData(c);
-    } catch {
-      /* offline: keep showing the cached list */
+      setOnline(true);
+    } catch (e) {
+      // The phone's own "online" flag is wrong on Wi-Fi with no internet, which is common on a floor.
+      // A request that could not reach the server at all is the better sign. Keep showing the cached list.
+      if (e instanceof TypeError) setOnline(false);
     }
   }, []);
 

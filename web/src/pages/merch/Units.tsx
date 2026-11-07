@@ -43,6 +43,34 @@ function CapacityField({ u, onSaved, notify }: { u: UnitRow; onSaved: () => void
   );
 }
 
+/** The one link a supervisor needs to put the app on their phone. */
+function PhoneApp({ notify }: { notify: (m: string) => void }) {
+  const link = `${window.location.origin}/install`;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(link);
+      notify("Link copied");
+    } catch {
+      notify("Select the link and copy it");
+    }
+  };
+  return (
+    <section className="card card-pad stack">
+      <div>
+        <h2>Supervisors' phone app</h2>
+        <p className="faint small" style={{ margin: "2px 0 0" }}>
+          Send each supervisor this link. It opens a page in Tamil that installs LoomTrack on their phone; they then sign in with their phone number and PIN.
+          {!window.isSecureContext && " This address is not https, so phones will not offer to install it."}
+        </p>
+      </div>
+      <div className="row">
+        <input className="input input-sm mono" readOnly value={link} style={{ flex: 1, minWidth: 220 }} onFocus={(e) => e.target.select()} aria-label="Install link" />
+        <button className="btn btn-sm" onClick={() => void copy()}>Copy</button>
+      </div>
+    </section>
+  );
+}
+
 export default function Units() {
   const { data, error, reload } = useApi<{ units: UnitRow[] }>("/api/m/units");
   const [toast, setToast] = useState<string | null>(null);
@@ -63,6 +91,7 @@ export default function Units() {
       </div>
       {error && <div className="banner banner-error">{error}</div>}
       <div className="stack">
+        <PhoneApp notify={setToast} />
         <section className="card">
           <div className="table-scroll">
             <table className="table">
