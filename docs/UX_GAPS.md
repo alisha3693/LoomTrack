@@ -46,13 +46,13 @@ Gaps that could hold up the conversation between the merchandiser and the buyer,
 | The buyer had no place for all their files | Fixed: a **Documents** page |
 | The order page was long and the lists could not be sorted | Fixed: tabs (Overview, Plan and delay, Conversation, Approvals, Materials, Files, History); the buyer's orders are a sortable table; the office board has sortable columns and quick views (ships in 7 days, needs a reply, late materials) |
 | The buyers page held accounts, links, exports and the mail log at once | Fixed: a list, and a profile per buyer with Orders, People and access, Link and exports, Sent messages |
+| Nothing reached people **outside the app**: a buyer who did not open the page did not know their merchandiser had replied | Fixed: email and WhatsApp for 16 events (replies, answers to a request, approvals, confirmed delay notices, and the merchandisers' own events). WhatsApp only with the buyer's recorded agreement, one-line messages with a button that opens LoomTrack, STOP honoured. Needs the client's mail server and a Meta-approved number to go live |
 | The new-request form asked for everything at once | Fixed: essentials first (PO, style, colour, date, quantities); fabric, colour reference, notes and files behind one optional section |
 
 ## Still open
 
 | Gap | Why it matters | Note |
 |---|---|---|
-| Nothing reaches people **outside the app** | A buyer who does not open the page does not know their merchandiser replied | Email is still mocked; WhatsApp is the realistic channel for Tiruppur. Left out on purpose for now. In TODO |
 | No **shipping step** after ex-factory | The buyer's page ends before the goods leave: packing list, invoice, booking details, confirmed ship date | Left out on purpose for now. In TODO |
 | **One conversation per order**, not per topic | A long order will mix sample talk with shipping talk | Fine for the size of these orders; threads or tags if it grows |
 | No **bulk actions** on the requests list | Accepting needs a unit and a plan, so it stays on the request page | The list says what happens next on each request |

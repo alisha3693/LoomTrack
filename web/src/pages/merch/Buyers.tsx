@@ -1,26 +1,60 @@
+import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { EmptyState, PageHeader, Skeleton, useApi } from "../../components/ui";
+import { api } from "../../lib/api";
 import { fmtDateTime, plural } from "../../lib/format";
 
 export interface LoginRow { id: number; name: string; login: string; pending: number; canWrite: number }
-export interface BuyerRow { id: number; name: string; country: string | null; link_token: string; link_active: number; active_orders: number; logins: LoginRow[] }
-export interface OutboxRow { id: number; buyer: string; subject: string; body: string; channel: string; created_at: string }
+export interface BuyerRow {
+  id: number; name: string; country: string | null; link_token: string; link_active: number; active_orders: number; logins: LoginRow[];
+  notifyEmail: number; whatsappNumber: string | null; whatsappOptIn: number; whatsappOptInAt: string | null;
+}
+export interface OutboxRow {
+  id: number; buyer: string; subject: string; body: string; channel: "email" | "whatsapp"; created_at: string;
+  audience: "buyer" | "office"; recipient: string | null; status: string; error: string | null; sent_at: string | null;
+}
 
-/** What was sent to buyers (mock email in this demo). Used on the buyers page and on each buyer's profile. */
-export function SentLog({ rows }: { rows: OutboxRow[] | null }) {
+/** How far a message got. Words first, colour second. */
+const STATUS: Record<string, { label: string; tone: "green" | "amber" | "red" | "" }> = {
+  logged: { label: "Recorded only", tone: "" },
+  queued: { label: "Waiting to send", tone: "amber" },
+  sent: { label: "Sent", tone: "green" },
+  delivered: { label: "Delivered", tone: "green" },
+  read: { label: "Read", tone: "green" },
+  failed: { label: "Failed", tone: "red" },
+  skipped: { label: "Not sent", tone: "" },
+};
+
+/** Every email and WhatsApp message to or about a buyer, and how far each got. Used on the buyers page and on each buyer's profile. */
+export function SentLog({ rows, onChanged }: { rows: OutboxRow[] | null; onChanged?: () => void }) {
+  const [problem, setProblem] = useState<string | null>(null);
   if (!rows) return <Skeleton rows={3} />;
-  if (rows.length === 0) return <EmptyState title="Nothing sent yet" hint="Replies, approval requests and confirmed delay notices that go to a buyer are recorded here." />;
+  if (rows.length === 0) return <EmptyState title="Nothing sent yet" hint="Replies, approval requests and confirmed delay notices are recorded here, with how far each one got." />;
+  const retry = async (id: number) => {
+    setProblem(null);
+    try { await api(`/api/m/outbox/${id}/retry`, { method: "POST" }); onChanged?.(); } catch (e) { setProblem((e as Error).message); }
+  };
   return (
     <div className="card">
-      {rows.map((m) => (
-        <div key={m.id} className="sent-row">
-          <div className="row" style={{ justifyContent: "space-between", flexWrap: "nowrap" }}>
-            <b style={{ fontWeight: 500 }}>{m.subject}</b>
-            <span className="faint small nowrap">{m.buyer} · {fmtDateTime(m.created_at)}</span>
+      {problem && <p className="error-text" role="alert" style={{ padding: "10px 20px", margin: 0 }}>{problem}</p>}
+      {rows.map((m) => {
+        const s = STATUS[m.status] ?? { label: m.status, tone: "" as const };
+        return (
+          <div key={m.id} className="sent-row">
+            <div className="row" style={{ justifyContent: "space-between", flexWrap: "nowrap", alignItems: "baseline" }}>
+              <b style={{ fontWeight: 500 }}>{m.subject}</b>
+              <span className="faint small nowrap">{m.buyer} · {fmtDateTime(m.created_at)}</span>
+            </div>
+            <div className="muted small sent-body">{m.body}</div>
+            <div className="row small" style={{ marginTop: 6, gap: 14 }}>
+              <span className={`pill ${s.tone ? `pill-${s.tone}` : ""}`}>{s.label}</span>
+              <span className="faint">{m.channel === "whatsapp" ? "WhatsApp" : "Email"}{m.recipient ? ` to ${m.recipient}` : ""}{m.audience === "office" ? " (office)" : ""}</span>
+              {m.error && <span className={m.status === "failed" ? "error-text" : "faint"}>{m.error}</span>}
+              {m.status === "failed" && onChanged && <button className="btn btn-ghost btn-sm" onClick={() => void retry(m.id)}>Send again</button>}
+            </div>
           </div>
-          <div className="muted small">{m.body}</div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -30,7 +64,7 @@ export default function Buyers() {
   const [params, setParams] = useSearchParams();
   const tab = params.get("tab") === "sent" ? "sent" : "buyers";
   const { data: buyers } = useApi<BuyerRow[]>("/api/m/buyers");
-  const { data: outbox } = useApi<OutboxRow[]>("/api/m/outbox");
+  const { data: outbox, reload: reloadOutbox } = useApi<OutboxRow[]>("/api/m/outbox");
 
   return (
     <main className="page">
@@ -42,8 +76,8 @@ export default function Buyers() {
         </div>
         {tab === "sent" ? (
           <>
-            <p className="faint small" style={{ margin: 0 }}>Demo: messages are recorded here instead of emailed.</p>
-            <SentLog rows={outbox} />
+            <p className="faint small" style={{ margin: 0 }}>Everything sent by email or WhatsApp, with how far it got. <Link to="/m/notifications">Set up sending</Link></p>
+            <SentLog rows={outbox} onChanged={reloadOutbox} />
           </>
         ) : !buyers ? <Skeleton rows={3} /> : (
           <div className="card table-scroll">

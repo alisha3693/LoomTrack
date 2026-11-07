@@ -11,6 +11,7 @@ import sqlite3
 
 from ..db import transaction
 from ..util import HttpError
+from . import notify
 
 KIND_LABEL = {
     "fit_sample": "Fit sample", "pp_sample": "Pre-production sample", "lab_dip": "Lab dip / colour",
@@ -86,10 +87,7 @@ def request_approval(db: sqlite3.Connection, order_id: int, user_id: int, kind: 
     with transaction(db):
         aid = db.execute("INSERT INTO approvals (order_id, kind, title, note, milestone_code) VALUES (?,?,?,?,?)", (order_id, kind, title, note, code)).lastrowid
         _event(db, aid, "merchandiser", user_id, "requested", note)
-        db.execute(
-            "INSERT INTO outbox_messages (buyer_id, order_id, channel, subject, body) VALUES (?,?,?,?,?)",
-            (o["buyer_id"], order_id, "email", f"Approval needed: {title} ({o['po_no']})", note or f"Please approve: {title}."),
-        )
+        notify.send(db, "approval_requested", o["buyer_id"], order_id, title=title, po=o["po_no"], text=note or "")
     return aid
 
 
@@ -101,10 +99,7 @@ def resubmit(db: sqlite3.Connection, approval_id: int, user_id: int, note: str |
     with transaction(db):
         db.execute("UPDATE approvals SET status = 'requested', decided_at = NULL, buyer_seen_at = NULL WHERE id = ?", (approval_id,))
         _event(db, approval_id, "merchandiser", user_id, "resubmitted", note)
-        db.execute(
-            "INSERT INTO outbox_messages (buyer_id, order_id, channel, subject, body) VALUES (?,?,?,?,?)",
-            (r["buyer_id"], r["order_id"], "email", f"Approval needed again: {r['title']} ({r['po_no']})", note),
-        )
+        notify.send(db, "approval_resubmitted", r["buyer_id"], r["order_id"], title=r["title"], po=r["po_no"], text=note)
 
 
 def withdraw(db: sqlite3.Connection, approval_id: int, user_id: int) -> None:
@@ -124,6 +119,8 @@ def decide(db: sqlite3.Connection, buyer_id: int, approval_id: int, approve: boo
     with transaction(db):
         db.execute("UPDATE approvals SET status = ?, decided_at = datetime('now') WHERE id = ?", ("approved" if approve else "changes", approval_id))
         _event(db, approval_id, "buyer", None, "approved" if approve else "changes", note)
+        notify.send(db, "approval_decided", buyer_id, r["order_id"], title=r["title"], po=r["po_no"],
+                    outcome="approved" if approve else "asked for changes", text=note or "")
         if approve and r["milestone_code"]:
             m = db.execute("SELECT id, actual_date FROM milestones WHERE order_id = ? AND code = ?", (r["order_id"], r["milestone_code"])).fetchone()
             if m and m["actual_date"] is None:

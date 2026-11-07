@@ -49,6 +49,7 @@ export default function OfficeShell() {
       items: [
         { to: "/m/templates", label: "Plan templates", icon: "templates" },
         { to: "/m/units", label: "Units and capacity", icon: "units" },
+        { to: "/m/notifications", label: "Notifications", icon: "bell" },
       ],
     },
   ];

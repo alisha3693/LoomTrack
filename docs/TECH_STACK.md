@@ -70,7 +70,7 @@ Each decision is tied to a constraint from the brief. Two decisions came from th
 ## What is mocked in the core build
 | Area | Mock |
 |---|---|
-| Messages to buyers (email / WhatsApp) | Written to `outbox_messages`, shown in the office UI |
+| Messages to buyers (email / WhatsApp) | Real once configured (SMTP through `smtplib`, WhatsApp through Meta's Cloud API with `httpx`), both free to set up; recorded only, in `outbox_messages`, until then |
 | Server-side speech-to-text | Not yet; device transcript or typed text, original audio always kept |
 | Outside systems (ERP, subcontractor portals) | None; seeded data |
 

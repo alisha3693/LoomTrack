@@ -11,6 +11,7 @@ interface Issued { who: string; login: string; password: string }
 const TABS = [
   { id: "orders", label: "Orders" },
   { id: "people", label: "People and access" },
+  { id: "notify", label: "Notifications" },
   { id: "link", label: "Link and exports" },
   { id: "sent", label: "Sent messages" },
 ];
@@ -21,7 +22,7 @@ export default function BuyerProfile() {
   const tab = TABS.some((t) => t.id === params.get("tab")) ? params.get("tab")! : "orders";
   const { data: buyers, reload } = useApi<BuyerRow[]>("/api/m/buyers");
   const { data: board } = useApi<{ orders: BoardOrder[] }>(`/api/m/board?buyer=${id}`);
-  const { data: outbox } = useApi<OutboxRow[]>("/api/m/outbox");
+  const { data: outbox, reload: reloadOutbox } = useApi<OutboxRow[]>("/api/m/outbox");
   const [toast, setToast] = useState<string | null>(null);
   const b = buyers?.find((x) => String(x.id) === id);
 
@@ -42,10 +43,70 @@ export default function BuyerProfile() {
 
       {tab === "orders" && <Orders orders={board?.orders ?? null} buyerId={b.id} />}
       {tab === "people" && <People b={b} reload={reload} notify={setToast} />}
+      {tab === "notify" && <Notify b={b} reload={reload} notify={setToast} />}
       {tab === "link" && <LinkAndExports b={b} reload={reload} notify={setToast} />}
-      {tab === "sent" && <SentLog rows={outbox ? outbox.filter((m) => m.buyer === b.name) : null} />}
+      {tab === "sent" && <SentLog rows={outbox ? outbox.filter((m) => m.buyer === b.name) : null} onChanged={reloadOutbox} />}
       <Toast message={toast} onDone={() => setToast(null)} />
     </main>
+  );
+}
+
+/** Who hears from LoomTrack outside the app. WhatsApp needs a number and the buyer's agreement, which is recorded. */
+function Notify({ b, reload, notify }: { b: BuyerRow; reload: () => Promise<void>; notify: (m: string) => void }) {
+  const [email, setEmail] = useState(!!b.notifyEmail);
+  const [number, setNumber] = useState(b.whatsappNumber ?? "");
+  const [agreed, setAgreed] = useState(!!b.whatsappOptIn);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const dirty = email !== !!b.notifyEmail || number !== (b.whatsappNumber ?? "") || agreed !== !!b.whatsappOptIn;
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setProblem(null);
+    setSaving(true);
+    try {
+      await api(`/api/m/buyers/${b.id}/notifications`, { method: "PATCH", body: { notifyEmail: email, whatsappNumber: number.trim() || null, whatsappOptIn: agreed } });
+      await reload();
+      notify("Saved");
+    } catch (err) {
+      setProblem((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form className="stack" onSubmit={save}>
+      <section className="card card-pad stack">
+        <div>
+          <h2>Email</h2>
+          <p className="faint small" style={{ margin: "2px 0 0" }}>
+            Sent to each person who signs in for this buyer: replies, requests answered, approvals needed, confirmed delay notices.
+            {b.logins.length === 0 && " This buyer has no sign-ins yet, so there is nobody to email."}
+          </p>
+        </div>
+        {b.logins.length > 0 && <p className="muted small" style={{ margin: 0 }}>{b.logins.map((l) => l.login).join(", ")}</p>}
+        <label className="check-row"><input type="checkbox" checked={email} onChange={(e) => setEmail(e.target.checked)} /> Send email to this buyer's people</label>
+      </section>
+      <section className="card card-pad stack">
+        <div>
+          <h2>WhatsApp</h2>
+          <p className="faint small" style={{ margin: "2px 0 0" }}>Short messages that say something needs attention, with a button that opens LoomTrack. Only with the buyer's agreement; they can reply STOP at any time.</p>
+        </div>
+        <label className="field" style={{ maxWidth: 320 }}>
+          <span>WhatsApp number, with country code</span>
+          <input className="input" inputMode="tel" autoComplete="off" placeholder="+91 98765 43210" value={number} onChange={(e) => setNumber(e.target.value)} />
+        </label>
+        <label className="check-row">
+          <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
+          <span>This buyer agreed to receive WhatsApp messages from us about their orders</span>
+        </label>
+        {b.whatsappOptIn ? <p className="faint small" style={{ margin: 0 }}>Agreement recorded {b.whatsappOptInAt ? fmtDate(b.whatsappOptInAt.slice(0, 10), true) : ""}. Keep proof of it outside LoomTrack as well (their email or a signed form).</p> : null}
+        {!b.whatsappOptIn && b.whatsappNumber === null && <p className="faint small" style={{ margin: 0 }}>Off. Nothing is sent to WhatsApp for this buyer.</p>}
+      </section>
+      {problem && <p className="error-text" role="alert">{problem}</p>}
+      <div><button className="btn btn-primary" disabled={!dirty || saving}>{saving ? "Saving…" : "Save"}</button></div>
+    </form>
   );
 }
 

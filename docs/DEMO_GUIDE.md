@@ -38,7 +38,7 @@ Still on C-PO-0488:
 - Open Company C's buyer link (from **Buyers → the buyer → What the buyer sees**). **Expect:** no delay notice on C-PO-0488.
 - Back in the office: edit the message if you like → **Confirm & send to buyer**.
 - Refresh the buyer view. **Expect:** an *Update from your merchandiser* banner with the expected date.
-- **Buyers → Sent messages** shows the (mock) email.
+- **Buyers → Sent messages** shows the email (and WhatsApp, for a buyer who agreed) with how far it got: *recorded only* until email or WhatsApp is connected, then *sent*, *delivered*, *read* or *failed*.
 
 ## 4. Supervisor daily update on the phone, in Tamil (Must have #2)
 Phone window → log in as **9840000001 / 1111** (Murugan, Unit 1).
@@ -142,12 +142,20 @@ Use two windows: the office (signed in as Priya) and a private window for the bu
 1. Office, **Orders**: the sidebar shows counts beside *Requests*, *Approvals* and *Messages*. Open **B-PO-88213**, tab **Approvals**: a pre-production sample is already waiting, with *Waiting for the buyer · not opened yet*.
 2. Buyer (Hannah, `hannah@companyb.example` / `buyer1234`): **Overview** lists *Approve: Pre-production sample, navy crew neck*. Open **Approvals** and press **Ask for changes**: a reason is required. Write *Neck rib is too wide* and send.
 3. Office: *Needs you* now says *an approval sent back by the buyer*. On the order, tab **Approvals**, **Answer and send again**, write what changed. The buyer sees it again and **Approve** completes it (for a fit or pre-production sample the plan step is marked done, and the date history says *approved by the buyer*).
-4. **Ask the buyer to approve something** (order, Approvals tab): pick *Pre-production sample*, name it, send. The buyer gets a card on the overview and a mock email under Buyers → Sent messages.
+4. **Ask the buyer to approve something** (order, Approvals tab): pick *Pre-production sample*, name it, send. The buyer gets a card on the overview and an email under Buyers → Sent messages.
 5. Buyer, **B-PO-88240**: the delay notice has **Acknowledge** (or *Acknowledge with a note*). Office, the same order, **Overview**: *Acknowledged by the buyer …*; before that it said *Not opened* or *Opened, not acknowledged*, and the board's *Needs you* listed it.
 6. **Messages** (either side): every conversation in one list, the ones waiting on you first, with a dot for what you have not opened. Open a request that became an order: its history opens the order's conversation.
 7. Office, **Buyers → Company B → People and access**: *Maya Singh (QC)* is **View only**. Sign in as `qc@companyb.example` / `buyer1234`: everything can be read, nothing can be sent, approved or changed, and there is no New request button. Switch her to *Full access* and it works on her next request.
 8. **Documents** (buyer): every file shared on their orders and requests, searchable. **History** on an order: what happened, when, and who did it.
 9. Collapse the sidebar with the button at its foot (it remembers). On a phone the sidebar becomes a tab bar.
+
+## 6j. Email and WhatsApp
+1. Office, sidebar **Notifications**: two cards, *Not connected* until the settings are in `backend/.env` (see `backend/.env.example`). Below, every event, who it goes to and the WhatsApp template it uses.
+2. To see real email without sending any, run a local mail catcher (for example Mailpit), set `LOOMTRACK_SMTP_HOST=localhost`, `LOOMTRACK_SMTP_PORT=1025`, `LOOMTRACK_SMTP_SECURITY=none`, `LOOMTRACK_SMTP_FROM=LoomTrack <orders@example.test>` and restart. The card turns to *Connected*; **Send test** delivers one.
+3. Reply to a buyer in an order's conversation. Within about ten seconds **Buyers → Sent messages** shows it as *Sent*, with the address, and the mail catcher has it.
+4. **Buyers → Company B → Notifications**: type a WhatsApp number, press Save. It is refused until *This buyer agreed to receive WhatsApp messages* is ticked; the agreement is recorded with the date. Switch email off for a buyer and the next message shows *Not sent: Email is switched off for this buyer*.
+5. Break it on purpose (a wrong SMTP password): the message shows *Failed* with the server's reason after its retries, and **Send again** puts it back once fixed.
+6. The WhatsApp wording is in [docs/WHATSAPP_TEMPLATES.md](WHATSAPP_TEMPLATES.md), ready to paste into Meta's template form.
 
 ## 7. Date changes leave a compliance trail
 On any order: **Change ex-factory** (or click a due date in the TNA list).
@@ -181,4 +189,4 @@ The e2e scripts need Playwright (free): `pip install playwright && python -m pla
 ## Known limits (say these out loud in the demo)
 - The local AI is good but not perfect on Tamil. It once read நூல் (thread) as "book". The UI is built around that: the original note is always shown, and the category is one click to change.
 - Voice transcription uses the phone browser's speech service where available. The audio itself is always kept for the merchandiser.
-- Messages to buyers are recorded in the app, not actually emailed (mocked, per the brief).
+- Email and WhatsApp reach people only once the settings are in `backend/.env` (WhatsApp also needs Meta's approval of the templates). Until then messages are recorded in the app and nothing leaves it.

@@ -6,6 +6,7 @@ import Board from "./pages/merch/Board";
 import OrderNew from "./pages/merch/OrderNew";
 import OrderDetail from "./pages/merch/OrderDetail";
 import Buyers from "./pages/merch/Buyers";
+import Notifications from "./pages/merch/Notifications";
 import BuyerProfile from "./pages/merch/BuyerProfile";
 import Approvals from "./pages/merch/Approvals";
 import Messages from "./pages/merch/Messages";
@@ -80,6 +81,7 @@ export default function App() {
         <Route path="requests" element={<Requests />} />
         <Route path="requests/:id" element={<RequestDetail />} />
         <Route path="units" element={<Units />} />
+        <Route path="notifications" element={<Notifications />} />
         <Route path="templates" element={<Templates />} />
         <Route path="templates/new" element={<TemplateEditor />} />
         <Route path="templates/:id" element={<TemplateEditor />} />

@@ -126,7 +126,7 @@ def test_v1_orders_get_numbers_by_year_and_keep_their_ids(tmp_path):
     assert db.execute("PRAGMA foreign_key_check").fetchall() == []
     assert (tmp_path / "v1.db.v1.bak").exists()
     # The PO number is now unique per buyer, not globally.
-    db.execute("INSERT INTO buyers VALUES (2, 'C', 'DE', 'tok2', 1)")
+    db.execute("INSERT INTO buyers (id, name, country, link_token, link_active) VALUES (2, 'C', 'DE', 'tok2', 1)")
     cols = "(order_no, po_no, buyer_id, style, colour, qty_total, ex_factory, unit_id, template_key)"
     db.execute(f"INSERT INTO orders {cols} VALUES ('LT-2026-0003', 'PO-A', 2, 's', 'c', 1, '2026-11-20', 1, 'basic')")
     with pytest.raises(sqlite3.IntegrityError):
@@ -275,3 +275,36 @@ def test_v8_database_gets_approvals_read_marks_and_view_only_accounts_and_keeps_
         db.execute("INSERT INTO approvals (order_id, kind, title) VALUES (1, 'nonsense', 'x')")
     with pytest.raises(sqlite3.IntegrityError):
         db.execute("INSERT INTO thread_reads (kind, ref_id, reader) VALUES ('order', 1, 'stranger')")
+
+
+def test_v9_database_gets_delivery_columns_and_keeps_its_outbox_and_buyers(tmp_path):
+    """Before this version the outbox was only a log, and a buyer had no notification settings."""
+    f = tmp_path / "v9.db"
+    db = open_db(str(f))
+    db.execute("PRAGMA foreign_keys = OFF")
+    db.execute("DROP INDEX ix_outbox_queue")
+    db.execute("DROP INDEX ix_outbox_provider")
+    db.execute("DROP TABLE outbox_messages")
+    db.execute(
+        """CREATE TABLE outbox_messages (id INTEGER PRIMARY KEY, buyer_id INTEGER NOT NULL REFERENCES buyers(id), order_id INTEGER REFERENCES orders(id),
+           channel TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))"""
+    )
+    db.execute("PRAGMA legacy_alter_table = ON")                                               # keep other tables pointing at "buyers"
+    db.execute("ALTER TABLE buyers RENAME TO buyers_new")
+    db.execute("CREATE TABLE buyers (id INTEGER PRIMARY KEY, name TEXT NOT NULL, country TEXT, link_token TEXT NOT NULL UNIQUE, link_active INTEGER NOT NULL DEFAULT 1)")
+    db.execute("DROP TABLE buyers_new")
+    db.execute("INSERT INTO buyers (id, name, link_token) VALUES (1, 'B', 't')")
+    db.execute("INSERT INTO outbox_messages (buyer_id, channel, subject, body) VALUES (1, 'email', 'Production update: P', 'Delayed')")
+    db.execute("PRAGMA user_version = 9")
+    db.close()
+
+    db = open_db(str(f))
+    assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    old = db.execute("SELECT subject, status, audience, attempts, recipient FROM outbox_messages").fetchone()
+    assert tuple(old) == ("Production update: P", "logged", "buyer", 0, None)                  # old rows stay a record, never re-sent
+    assert db.execute("SELECT notify_email, whatsapp_number, whatsapp_opt_in FROM buyers").fetchone()[:] == (1, None, 0)
+    assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute("INSERT INTO outbox_messages (buyer_id, channel, subject, body, status) VALUES (1, 'email', 's', 'b', 'delivered-ish')")
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute("INSERT INTO outbox_messages (buyer_id, channel, subject, body, audience) VALUES (1, 'email', 's', 'b', 'stranger')")

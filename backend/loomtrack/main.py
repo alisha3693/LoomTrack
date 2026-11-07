@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -15,12 +17,23 @@ from . import config
 from .ai.classifier import classify_note
 from .db import open_db
 from .deps import AppContext
-from .routes import accounts, attachments, auth, flow, materials as material_routes, buyer, merchandiser, requests, supervisor, templates
+from .routes import accounts, attachments, auth, flow, materials as material_routes, buyer, merchandiser, notifications, requests, supervisor, templates
+from .services import delivery
 from .util import HttpError
 
 
 def create_app(db: sqlite3.Connection | None = None, **overrides) -> FastAPI:
-    app = FastAPI(title="LoomTrack", docs_url="/api/docs", openapi_url="/api/openapi.json", redoc_url=None)
+    # The sender of email and WhatsApp runs beside the app, only for the real database (tests call deliver_pending themselves).
+    send_in_background = overrides.get("deliver", db is None)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        task = asyncio.create_task(delivery.run_forever(app.state.ctx.db)) if send_in_background else None
+        yield
+        if task:
+            task.cancel()
+
+    app = FastAPI(title="LoomTrack", docs_url="/api/docs", openapi_url="/api/openapi.json", redoc_url=None, lifespan=lifespan)
     app.state.ctx = AppContext(
         db=db if db is not None else open_db(config.DB_FILE),
         today=overrides.get("today", config.today),
@@ -43,7 +56,7 @@ def create_app(db: sqlite3.Connection | None = None, **overrides) -> FastAPI:
         return JSONResponse({"error": "No such endpoint" if e.status_code == 404 else str(e.detail)}, status_code=e.status_code)
 
     for r in (auth.router, accounts.router, merchandiser.router, material_routes.router, templates.router, requests.office_router, requests.order_router, supervisor.router, buyer.router,
-              requests.buyer_router, requests.buyer_orders_router, flow.buyer_router, flow.office_router,
+              requests.buyer_router, requests.buyer_orders_router, flow.buyer_router, flow.office_router, notifications.router, notifications.webhook_router,
               attachments.buyer_router, attachments.office_router, attachments.supervisor_router, attachments.media_router):
         app.include_router(r)
 

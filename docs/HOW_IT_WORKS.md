@@ -47,7 +47,7 @@ Three kinds of user hit three separate sets of endpoints, and each set is guarde
 2. **The merchandiser** sees it under **Requests** (a count shows beside it in the sidebar). They can **ask a question**, **propose another date**, **accept** it into an order, or **decline** it (with a reason).
 3. The **status says whose turn it is**: `submitted` is the merchandiser's; `query` and `countered` are the buyer's. When the buyer answers or agrees, it returns to `submitted`.
 4. **Agreeing** to a proposed date updates the request's date. **Accepting** creates the order, with exactly the quantities, colour and date the buyer asked for or agreed to. The merchandiser picks the production unit and the plan template.
-5. Everything said or decided is a row in `request_messages`, which the buyer sees too. A copy of each merchandiser message goes to the (mock) sent-messages list.
+5. Everything said or decided is a row in `request_messages`, which the buyer sees too. Each step also goes to the buyer by email, and by WhatsApp if they agreed (see *Messages outside the app*).
 
 ### Changes to an order that already exists
 
@@ -72,7 +72,7 @@ A buyer reaches only their own requests: another buyer's request is "not found".
 - **Needs you** is the top of the order board: buyer requests waiting for your answer, buyer messages to answer, approvals the buyer sent back, delay warnings to review, delay notices the buyer has not acknowledged, orders with late materials. One quiet list, one line each, and the same pattern on the buyer's overview. Each line goes straight to the thing (or filters the board to those orders), and "nothing is waiting for you" is said plainly when that is true.
 - **Order page.** Breadcrumbs, a link from the buyer's name to all their orders, **What the buyer sees** (opens the buyer's own page for this order), and seven tabs (Overview, Plan and delay, Conversation, Approvals, Materials, Files and requests, History and floor) that the address remembers (`?tab=`). A pending delay warning, "the buyer is waiting for your reply" and an approval the buyer sent back sit above the tabs whichever one is open. Overview is the short version: the dates, why the date is where it is, whether the buyer has seen the delay notice, and the five latest things that happened.
 - **Request page (office).** One column: the decision (accept, ask, propose another date, decline) at the top, then the request, the conversation, the buyer's live orders and how they are going (so the answer can take that into account), and the files. The requests list says in a line what happens next on each one.
-- **Conversation about an order** (`services/order_messages.py`). A buyer can write to the merchandiser from any order (anything that is not a change of date or quantity, which stays a *change request*), and the merchandiser answers in the same thread. It is append-only, capped at 500 messages and 2,000 characters each, and scoped by buyer like everything else: another buyer's order and a cancelled order are simply "not found". The merchandiser's reply also lands in the buyer's inbox (mock email). The board and the order page show who owes a reply. What was said while the order was still a request (submitted, questions, the proposed date, the acceptance) opens the same conversation, so the history is in one place.
+- **Conversation about an order** (`services/order_messages.py`). A buyer can write to the merchandiser from any order (anything that is not a change of date or quantity, which stays a *change request*), and the merchandiser answers in the same thread. It is append-only, capped at 500 messages and 2,000 characters each, and scoped by buyer like everything else: another buyer's order and a cancelled order are simply "not found". The merchandiser's reply is also emailed to the buyer's people (and sent by WhatsApp if they agreed), and a buyer's message is emailed to the merchandisers. The board and the order page show who owes a reply. What was said while the order was still a request (submitted, questions, the proposed date, the acceptance) opens the same conversation, so the history is in one place.
 
 ## Messages, read marks and delay-notice receipts (`services/inbox.py`, `services/notices.py`)
 
@@ -82,7 +82,7 @@ A buyer reaches only their own requests: another buyer's request is "not found".
 
 ## Approvals (`services/approvals.py`)
 
-- The office asks the buyer to approve something on an order: a **fit sample**, a **pre-production sample**, a **lab dip / colour**, **packaging** or something else, with a name and a note. The buyer gets a mock email and a card under **Needs your attention**.
+- The office asks the buyer to approve something on an order: a **fit sample**, a **pre-production sample**, a **lab dip / colour**, **packaging** or something else, with a name and a note. The buyer is emailed (and sent a WhatsApp message if they agreed) and gets a card under **Needs your attention**.
 - The buyer **approves** or **asks for changes** (a reason is required). Changes land under **Needs you** for the office, who answers and **sends it again** (what changed is required) or **withdraws** it. Every step is kept in `approval_events` and cannot be edited.
 - Approving a fit or pre-production sample marks that plan step done (Fit sample approval, PP sample approval) and writes it into the date history, so the plan follows what actually happened.
 - The office sees whether the buyer has opened it. One open approval per kind per order.
@@ -139,7 +139,7 @@ Every time numbers change, and every time the board loads, the server recomputes
                             └→ merchandiser dismisses → DISMISSED  (buyer never sees it)
 ```
 
-A warning is invisible to buyers until a merchandiser confirms it. Confirming also writes a (mock) email to `outbox_messages`, shown under **Buyers & exports**. This is deliberate: the AI or the engine can be wrong, and a delay notice to a UK buyer is a business decision.
+A warning is invisible to buyers until a merchandiser confirms it. Confirming also queues the message to the buyer in `outbox_messages` (email, and WhatsApp for a buyer who agreed), shown under **Buyers, Sent messages**. This is deliberate: the AI or the engine can be wrong, and a delay notice to a UK buyer is a business decision.
 
 ## The AI step (`ai/classifier.py`)
 
@@ -211,7 +211,7 @@ buyers ──< orders >── units        attachments hang off a request, an or
              │                  └── issue_reasons    (AI result + human decision, kept apart)
              ├──< warnings            pending / confirmed / dismissed / superseded / resolved
              └──< date_changes        append-only audit trail
-users ──< sessions          outbox_messages (mock buyer emails)
+users ──< sessions          outbox_messages (email / WhatsApp)
 ```
 
 `plan_steps` holds each step once (its English and Tamil name, and whether it is a stage or a milestone), so an order's `milestones` rows only store that order's dates. A *stage* is a production step with quantities (cutting, printing, stitching, washing, finishing, packing). A *milestone* is a dated checkpoint (sample approval, inspection, ex-factory). Both live in `milestones`, told apart by `kind`.
@@ -246,9 +246,20 @@ e2e/                   browser walkthrough + offline test
 - **App shell:** in production builds, a service worker caches the app itself so it opens without a network. It never caches API data.
 - **A refused update** (e.g. over the quantity cap) isn't retried forever. It's kept with the server's message and shown to the supervisor with a Discard button.
 
+## Messages outside the app (email and WhatsApp)
+
+Anything that needs the other side's attention also reaches them outside the app, so a buyer who has not opened LoomTrack still hears that their merchandiser replied.
+
+- **One list of events**, `services/notify.py`: 11 to the buyer's people (request received, question, proposed date, declined, accepted; change accepted or recorded; delay notice; a message; approval requested or sent again) and 5 to the merchandisers (a request arrived, a buyer answered, a buyer wrote, an approval decided, a delay notice acknowledged). Each has its email text and, for the buyer's events, its WhatsApp wording. Every place that used to write a mock email now calls `notify.send()`, inside the same transaction as the change, so a message exists if and only if the change was saved.
+- **Who gets it.** Email goes to each signed-in person of the buyer (and to every merchandiser for the office events). WhatsApp goes only to a buyer whose number is on file **with the box ticked that they agreed to it**; the agreement, who recorded it and when are stored, and the buyer can reply STOP to switch it off. A buyer with no email address, or with email switched off, gets a row marked *skipped* with the reason instead of silence.
+- **Sending is separate from asking.** `send()` only writes rows. A loop in the server (`services/delivery.py`, every 10 seconds, only while a provider is set up) sends the queued ones: email through any SMTP server (Python's `smtplib`), WhatsApp through Meta's Cloud API (`httpx`). A failure stays on the row with its reason; it is tried again after 1, 5 and 30 minutes, then marked *failed* and the office can press **Send again**. A wrong number or a template that does not exist fails at once.
+- **What comes back.** Meta calls `/api/webhooks/whatsapp` with delivery reports (sent, delivered, read, failed), which move the row forward and never back, and with replies; *STOP* switches WhatsApp off for that number. The call is accepted only if it is signed with the app secret.
+- **Nothing is set up by default.** Without settings the messages are only recorded (status *recorded only*), exactly as before. Settings live in `backend/.env` (see `backend/.env.example`); they never reach the browser or the database. **Notifications** in the sidebar shows what is connected, sends a test message, and lists the events.
+- The WhatsApp wording submitted to Meta is generated from the same list: [WHATSAPP_TEMPLATES.md](WHATSAPP_TEMPLATES.md).
+
 ## What is mocked or limited today
 
-- Buyer emails are recorded in the app, not sent.
+- Email and WhatsApp are real only once you add the settings to `backend/.env` (and, for WhatsApp, Meta has approved the templates). Until then every message is recorded in the app and nothing leaves it. WhatsApp is one-way apart from STOP: a buyer's reply on WhatsApp is not added to the conversation.
 - Materials are tracked by hand; nothing reads a purchase order or a supplier's confirmation. The capacity check models stitching only, with even spreading, and assumes the unit's stated capacity is real.
 - Voice: the original audio is always kept for the merchandiser. The live transcript uses the phone browser's speech service where available; local Whisper is on the to-do list.
 - The run rate is a 7-day average and doesn't model capacity shared between orders on one line (see RUN_RATE.md, "Known limits").

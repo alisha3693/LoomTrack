@@ -13,7 +13,12 @@ CREATE TABLE IF NOT EXISTS buyers (
   name TEXT NOT NULL,
   country TEXT,
   link_token TEXT NOT NULL UNIQUE,
-  link_active INTEGER NOT NULL DEFAULT 1
+  link_active INTEGER NOT NULL DEFAULT 1,
+  notify_email INTEGER NOT NULL DEFAULT 1,       -- send the buyer's people email about their orders
+  whatsapp_number TEXT,                          -- E.164, digits with a leading +
+  whatsapp_opt_in INTEGER NOT NULL DEFAULT 0,    -- 1 only once the buyer agreed to WhatsApp messages
+  whatsapp_opt_in_at TEXT,
+  whatsapp_opt_in_by INTEGER REFERENCES users(id)  -- who recorded the consent (NULL = the buyer, by message)
 );
 
 CREATE TABLE IF NOT EXISTS units (
@@ -359,7 +364,8 @@ BEGIN SELECT RAISE(ABORT, 'approval_events is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS approval_events_no_delete BEFORE DELETE ON approval_events
 BEGIN SELECT RAISE(ABORT, 'approval_events is append-only'); END;
 
--- Mock outbound messages (email / WhatsApp to buyers).
+-- Every email and WhatsApp message the app sends or would send: one row per recipient. 'logged' = no provider is
+-- set up for the channel, so it is only recorded (the old mock behaviour); 'queued' waits for the sender.
 CREATE TABLE IF NOT EXISTS outbox_messages (
   id INTEGER PRIMARY KEY,
   buyer_id INTEGER NOT NULL REFERENCES buyers(id),
@@ -367,12 +373,23 @@ CREATE TABLE IF NOT EXISTS outbox_messages (
   channel TEXT NOT NULL,
   subject TEXT NOT NULL,
   body TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  event TEXT,                                    -- see services/notify.py
+  audience TEXT NOT NULL DEFAULT 'buyer' CHECK (audience IN ('buyer', 'office')),
+  recipient TEXT,                                -- email address or WhatsApp number
+  status TEXT NOT NULL DEFAULT 'logged' CHECK (status IN ('logged', 'queued', 'sent', 'delivered', 'read', 'failed', 'skipped')),
+  error TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  not_before TEXT,                               -- do not retry before this time (UTC)
+  provider_id TEXT,                              -- WhatsApp message id, to match delivery reports
+  template TEXT,                                 -- WhatsApp template name
+  params TEXT,                                   -- WhatsApp template values, JSON list
+  sent_at TEXT
 );
 """
 
 
-SCHEMA_VERSION = 9  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no/colour, 2 = before templates, 3 = before order requests, 4 = before attachments, 5 = before buyer accounts, 6 = before fabric, materials and unit capacity, 7 = before order messages, 8 = before approvals, read tracking and view-only accounts
+SCHEMA_VERSION = 10  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no/colour, 2 = before templates, 3 = before order requests, 4 = before attachments, 5 = before buyer accounts, 6 = before fabric, materials and unit capacity, 7 = before order messages, 8 = before approvals, read tracking and view-only accounts, 9 = before email/WhatsApp delivery
 
 
 def _is_v0(db: sqlite3.Connection) -> bool:
@@ -533,12 +550,47 @@ _V9_COLUMNS = {
 }
 
 
-def _add_v9_columns(db: sqlite3.Connection) -> None:
-    for table, columns in _V9_COLUMNS.items():
+def _add_columns(db: sqlite3.Connection, spec: dict[str, dict[str, str]]) -> None:
+    for table, columns in spec.items():
         have = {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}
-        for name, decl in columns.items():  # names and declarations are the constants above
+        for name, decl in columns.items():  # names and declarations are constants in this file
             if name not in have:
                 db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+
+
+def _add_v9_columns(db: sqlite3.Connection) -> None:
+    _add_columns(db, _V9_COLUMNS)
+
+
+# v9 -> v10: delivery of email and WhatsApp (the outbox grows from a log into a queue) and the buyer's consent.
+_V10_COLUMNS = {
+    "buyers": {
+        "notify_email": "INTEGER NOT NULL DEFAULT 1",
+        "whatsapp_number": "TEXT",
+        "whatsapp_opt_in": "INTEGER NOT NULL DEFAULT 0",
+        "whatsapp_opt_in_at": "TEXT",
+        "whatsapp_opt_in_by": "INTEGER REFERENCES users(id)",
+    },
+    "outbox_messages": {
+        "event": "TEXT",
+        "audience": "TEXT NOT NULL DEFAULT 'buyer' CHECK (audience IN ('buyer', 'office'))",
+        "recipient": "TEXT",
+        "status": "TEXT NOT NULL DEFAULT 'logged' CHECK (status IN ('logged', 'queued', 'sent', 'delivered', 'read', 'failed', 'skipped'))",
+        "error": "TEXT",
+        "attempts": "INTEGER NOT NULL DEFAULT 0",
+        "not_before": "TEXT",
+        "provider_id": "TEXT",
+        "template": "TEXT",
+        "params": "TEXT",
+        "sent_at": "TEXT",
+    },
+}
+
+
+def _add_v10_columns(db: sqlite3.Connection) -> None:
+    _add_columns(db, _V10_COLUMNS)
+    db.execute("CREATE INDEX IF NOT EXISTS ix_outbox_queue ON outbox_messages (status, id)")
+    db.execute("CREATE INDEX IF NOT EXISTS ix_outbox_provider ON outbox_messages (provider_id)")
 
 
 def _add_builtin_column(db: sqlite3.Connection) -> None:
@@ -593,6 +645,7 @@ def open_db(file: str) -> sqlite3.Connection:
     _add_builtin_column(db)
     _add_v7_columns(db)
     _add_v9_columns(db)
+    _add_v10_columns(db)
     sync_plan_steps(db)
     sync_builtin_templates(db)
     db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

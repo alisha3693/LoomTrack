@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 from ..db import transaction
 from ..util import HttpError
-from . import capacity
+from . import capacity, notify
 from .orders import fabric_fields, insert_order, set_ex_factory, validate_new_order
 
 OPEN = ("submitted", "query", "countered")
@@ -84,12 +84,20 @@ def _set_status(db: sqlite3.Connection, rid: int, status: str, decided_by: int |
         db.execute("UPDATE order_requests SET decided_by = ?, decided_at = datetime('now') WHERE id = ?", (decided_by, rid))
 
 
-def _email(db: sqlite3.Connection, r: sqlite3.Row, subject: str, body: str, order_id: int | None = None) -> None:
-    """Mock email to the buyer (the outbox is shown in the office, like warnings)."""
-    db.execute(
-        "INSERT INTO outbox_messages (buyer_id, order_id, channel, subject, body) VALUES (?,?,?,?,?)",
-        (r["buyer_id"], order_id, "email", f"{subject} ({r['request_no']})", body),
-    )
+def _po(db: sqlite3.Connection, r: sqlite3.Row) -> str:
+    """The PO number a request is about (a change request has its order's)."""
+    if r["order_id"]:
+        return db.execute("SELECT po_no FROM orders WHERE id = ?", (r["order_id"],)).fetchone()["po_no"]
+    return r["po_no"]
+
+
+def _tell_buyer(db: sqlite3.Connection, r: sqlite3.Row, event: str, order_id: int | None = None, **values) -> None:
+    """Email (and WhatsApp) to the buyer's people; see services/notify.py."""
+    notify.send(db, event, r["buyer_id"], order_id, request_no=r["request_no"], po=_po(db, r), **values)
+
+
+def _tell_office(db: sqlite3.Connection, r: sqlite3.Row, event: str, **values) -> None:
+    notify.send(db, event, r["buyer_id"], r["order_id"], request_no=r["request_no"], po=_po(db, r), **values)
 
 
 # --- Reading -------------------------------------------------------------------------
@@ -193,6 +201,9 @@ def submit_request(db: sqlite3.Connection, buyer_id: int, body, today: str) -> i
         for n, (size, qty) in enumerate(sizes, start=1):
             db.execute("INSERT INTO request_sizes (request_id, seq, size, qty) VALUES (?,?,?,?)", (rid, n, size, qty))
         _log(db, rid, "buyer", None, "submitted", description)
+        r = _row(db, rid)
+        _tell_buyer(db, r, "request_received")
+        _tell_office(db, r, "request_submitted", what="order request", text=description or f"Style {body.style.strip()}, {body.colour.strip()}, ex-factory {body.exFactory}.")
     return rid
 
 
@@ -204,6 +215,7 @@ def buyer_reply(db: sqlite3.Connection, buyer_id: int, rid: int, message: str) -
         _log(db, rid, "buyer", None, "message", text)
         if r["status"] in ("query", "countered"):
             _set_status(db, rid, "submitted")  # answered: back to the merchandiser
+        _tell_office(db, r, "buyer_reply", text=text)
 
 
 def buyer_agree(db: sqlite3.Connection, buyer_id: int, rid: int, today: str) -> None:
@@ -219,6 +231,7 @@ def buyer_agree(db: sqlite3.Connection, buyer_id: int, rid: int, today: str) -> 
         db.execute("UPDATE order_requests SET ex_factory = ? WHERE id = ?", (proposed, rid))
         _log(db, rid, "buyer", None, "agreed", None, proposed)
         _set_status(db, rid, "submitted")
+        _tell_office(db, r, "buyer_reply", text=f"Agreed to the ex-factory date {proposed}.")
 
 
 def buyer_withdraw(db: sqlite3.Connection, buyer_id: int, rid: int) -> None:
@@ -239,7 +252,7 @@ def office_query(db: sqlite3.Connection, user_id: int, rid: int, message: str) -
     with transaction(db):
         _log(db, rid, "merchandiser", user_id, "query", text)
         _set_status(db, rid, "query")
-        _email(db, r, "A question about your order request", text)
+        _tell_buyer(db, r, "request_question", text=text)
 
 
 def office_counter(db: sqlite3.Connection, user_id: int, rid: int, ex_factory: str, message: str, today: str) -> None:
@@ -253,7 +266,7 @@ def office_counter(db: sqlite3.Connection, user_id: int, rid: int, ex_factory: s
     with transaction(db):
         _log(db, rid, "merchandiser", user_id, "counter", text, ex_factory)
         _set_status(db, rid, "countered")
-        _email(db, r, "A different delivery date is proposed", f"{text}\n\nProposed ex-factory date: {ex_factory}")
+        _tell_buyer(db, r, "request_counter", date=ex_factory, text=text)
 
 
 def office_decline(db: sqlite3.Connection, user_id: int, rid: int, message: str) -> None:
@@ -263,7 +276,7 @@ def office_decline(db: sqlite3.Connection, user_id: int, rid: int, message: str)
     with transaction(db):
         _log(db, rid, "merchandiser", user_id, "declined", text)
         _set_status(db, rid, "declined", decided_by=user_id)
-        _email(db, r, "Your order request was declined", text)
+        _tell_buyer(db, r, "request_declined", text=text)
 
 
 def office_accept(db: sqlite3.Connection, user_id: int, rid: int, unit_id: int | None, template_key: str | None, message: str | None, today: str,
@@ -278,7 +291,7 @@ def office_accept(db: sqlite3.Connection, user_id: int, rid: int, unit_id: int |
             text = note or f"Accepted. {summary}."
             _log(db, rid, "merchandiser", user_id, "accepted", text)
             _set_status(db, rid, "accepted", decided_by=user_id)
-            _email(db, r, "Your change was accepted", text, r["order_id"])
+            _tell_buyer(db, r, "change_accepted", r["order_id"], text=text)
         return r["order_id"], db.execute("SELECT order_no FROM orders WHERE id = ?", (r["order_id"],)).fetchone()["order_no"]
     if unit_id is None or not template_key:
         raise HttpError(400, "Pick the production unit and the plan template")
@@ -297,7 +310,7 @@ def office_accept(db: sqlite3.Connection, user_id: int, rid: int, unit_id: int |
         text = note or f"Accepted. Your order with us is {order_no}, for ex-factory {r['ex_factory']}."
         _log(db, rid, "merchandiser", user_id, "accepted", text)
         _set_status(db, rid, "accepted", decided_by=user_id)
-        _email(db, r, "Your order request was accepted", f"{text}\n\nOrder number: {order_no}", order_id)
+        _tell_buyer(db, r, "request_accepted", order_id, order_no=order_no, text=text)
     return order_id, order_no
 
 
@@ -369,7 +382,9 @@ def submit_amendment(db: sqlite3.Connection, buyer_id: int, order_id: int, body,
     if db.execute("SELECT COUNT(*) FROM order_requests WHERE buyer_id = ? AND status IN ('submitted','query','countered')", (buyer_id,)).fetchone()[0] >= MAX_OPEN_PER_BUYER:
         raise HttpError(429, "You have too many open requests. Wait for some to be answered.")
     with transaction(db):
-        return _create_amendment(db, o, body.exFactory, body.sizes, reason, "buyer", None, today)
+        rid = _create_amendment(db, o, body.exFactory, body.sizes, reason, "buyer", None, today)
+        _tell_office(db, _row(db, rid), "request_submitted", what="change request", text=reason)
+        return rid
 
 
 def _apply_change(db: sqlite3.Connection, r: sqlite3.Row, user_id: int, today: str) -> str:
@@ -409,5 +424,5 @@ def office_record_change(db: sqlite3.Connection, user_id: int, order_id: int, ex
         summary = _apply_change(db, r, user_id, today)
         _log(db, rid, "merchandiser", user_id, "accepted", f"Recorded and applied. {summary}.")
         _set_status(db, rid, "accepted", decided_by=user_id)
-        _email(db, r, "A change to your order was recorded", f"{summary}.\n\nReason: {text}", order_id)
+        _tell_buyer(db, r, "change_recorded", order_id, summary=f"{summary}.", text=text)
     return rid

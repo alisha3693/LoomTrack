@@ -41,9 +41,10 @@ def test_buyer_and_merchandiser_talk_about_an_order_and_it_shows_whose_turn_it_i
         ("buyer", "Can you send photos of the finished sample?"), ("merchandiser", "Yes, photos are on the way.")]
     assert _thread(env, "office", oid).json() == _thread(env, "buyer", oid).json()
 
-    # The reply is also in the buyer's inbox (mock email); the buyer's own message is not emailed to anyone.
-    sent_mail = env["db"].execute("SELECT subject, body FROM outbox_messages WHERE order_id = ?", (oid,)).fetchall()
-    assert [(m["subject"], m["body"]) for m in sent_mail] == [("Message about MSG-1", "Yes, photos are on the way.")]
+    # Each side is told outside the app as well: the buyer's question goes to the office, the reply to the buyer.
+    sent = env["db"].execute("SELECT event, audience, subject, body FROM outbox_messages WHERE order_id = ? ORDER BY id", (oid,)).fetchall()
+    assert [(m["event"], m["audience"]) for m in sent] == [("order_message_in", "office"), ("order_message", "buyer")]
+    assert "Yes, photos are on the way." in sent[1]["body"]
 
 
 def test_messages_are_checked(env):

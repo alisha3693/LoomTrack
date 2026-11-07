@@ -14,7 +14,7 @@ from ..deps import AppContext, User, ctx, merchandiser
 from ..domain.reasons import REASON_CATEGORIES, REASON_CODES
 from ..domain.tna import plan_from_template
 from ..security import new_token, sign_path
-from ..services import accounts, activity, approvals, capacity, inbox, materials, notices, order_messages, search as search_service
+from ..services import accounts, activity, approvals, capacity, inbox, materials, notices, notify, order_messages, search as search_service
 from ..services.export import weekly_workbook
 from ..services.attachments import for_office
 from ..services.requests import open_count
@@ -344,10 +344,7 @@ async def confirm_warning(warning_id: int, body: ConfirmIn, user: User = Depends
             "UPDATE warnings SET state = 'confirmed', buyer_message = ?, decided_by = ?, decided_at = datetime('now') WHERE id = ?",
             (message, user.id, warning_id),
         )
-        db.execute(
-            "INSERT INTO outbox_messages (buyer_id, order_id, channel, subject, body) VALUES (?,?,?,?,?)",
-            (w["buyer_id"], w["order_id"], "email", f"Production update: {w['po_no']}", message),
-        )
+        notify.send(db, "delay_notice", w["buyer_id"], w["order_id"], po=w["po_no"], text=message)
     return {"ok": True}
 
 
@@ -379,7 +376,8 @@ async def photo_visibility(photo_id: int, body: PhotoIn, c: AppContext = Depends
 async def buyers(c: AppContext = Depends(ctx)):
     result = rows(
         c.db.execute(
-            """SELECT b.id, b.name, b.country, b.link_token, b.link_active,
+            """SELECT b.id, b.name, b.country, b.link_token, b.link_active, b.notify_email AS notifyEmail,
+                 b.whatsapp_number AS whatsappNumber, b.whatsapp_opt_in AS whatsappOptIn, b.whatsapp_opt_in_at AS whatsappOptInAt,
                  (SELECT COUNT(*) FROM orders o WHERE o.buyer_id = b.id AND o.state = 'active') AS active_orders
                FROM buyers b ORDER BY b.name"""
         )

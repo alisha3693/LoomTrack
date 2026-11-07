@@ -10,6 +10,21 @@ from .domain.calendar import Calendar
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 REPO_ROOT = BACKEND_ROOT.parent
 
+
+def _load_env_file(path: Path) -> None:
+    """Settings for email and WhatsApp may live in backend/.env (never committed). Real environment variables win."""
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+
+
+_load_env_file(BACKEND_ROOT / ".env")
+
 DB_FILE = os.environ.get("LOOMTRACK_DB", str(BACKEND_ROOT / "data" / "loomtrack.db"))
 UPLOAD_DIR = Path(os.environ.get("LOOMTRACK_UPLOADS", str(BACKEND_ROOT / "data" / "uploads")))
 WEB_DIST = REPO_ROOT / "web" / "dist"
@@ -39,3 +54,42 @@ CALENDAR = Calendar(
 def today() -> str:
     """Today's date in IST, overridable for demos and tests."""
     return os.environ.get("LOOMTRACK_TODAY") or datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+
+
+# --- Outside the app: email (SMTP) and WhatsApp (Meta Cloud API) -------------------------------------
+# Read on every call so a change to the environment, or a test, takes effect at once. Nothing here is
+# stored in the database, and no setting is ever sent to the browser.
+
+
+def public_url() -> str:
+    """Where the buyers open the app; used for the links in messages."""
+    return os.environ.get("LOOMTRACK_PUBLIC_URL", "http://localhost:4000").rstrip("/")
+
+
+def smtp_settings() -> dict | None:
+    host, sender = os.environ.get("LOOMTRACK_SMTP_HOST"), os.environ.get("LOOMTRACK_SMTP_FROM")
+    if not host or not sender:
+        return None
+    security = os.environ.get("LOOMTRACK_SMTP_SECURITY", "starttls").lower()  # starttls | ssl | none
+    return {
+        "host": host,
+        "port": int(os.environ.get("LOOMTRACK_SMTP_PORT") or {"ssl": 465, "none": 25}.get(security, 587)),
+        "user": os.environ.get("LOOMTRACK_SMTP_USER") or None,
+        "password": os.environ.get("LOOMTRACK_SMTP_PASSWORD") or None,
+        "from": sender,
+        "security": security,
+    }
+
+
+def whatsapp_settings() -> dict | None:
+    token, phone_id = os.environ.get("LOOMTRACK_WA_TOKEN"), os.environ.get("LOOMTRACK_WA_PHONE_ID")
+    if not token or not phone_id:
+        return None
+    return {
+        "token": token,
+        "phone_id": phone_id,
+        "version": os.environ.get("LOOMTRACK_WA_API_VERSION", "v21.0"),
+        "language": os.environ.get("LOOMTRACK_WA_LANGUAGE", "en"),
+        "verify_token": os.environ.get("LOOMTRACK_WA_VERIFY_TOKEN") or None,
+        "app_secret": os.environ.get("LOOMTRACK_WA_APP_SECRET") or None,
+    }

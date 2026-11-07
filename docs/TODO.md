@@ -17,10 +17,13 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` not started. Updated as wor
 - [ ] A new order whose early milestones (fit and PP approval) fall before its creation date shows amber "Behind plan" straight away. Let the merchandiser mark them already approved when creating the order
 - [ ] Virus scanning for uploaded files (none today); thumbnails and in-browser preview for more than images and PDF
 - [x] Buyer accounts: the office creates a sign-in for each person at the buyer, with a one-time temporary password and a forced first change; reset and remove; the private link still works
-- [ ] Buyer accounts: email the invitation and a self-service "forgot password" (today the office passes the temporary password on and resets by hand; outbound email is still mocked)
+- [ ] Buyer accounts: email the invitation and a self-service "forgot password" (today the office passes the temporary password on and resets by hand)
 - [ ] Buyer accounts: retire the private link once everyone has an account, and give each account its own view of who may send and who may only read (today every account for a buyer can do everything the link can)
 - [x] Navigation and flow between buyer and merchandiser: global search, "needs you" on both sides, grouped office navigation, per-order pages and tabs for the buyer, a conversation about live orders, whose-turn banners, previews of what the buyer sees (see docs/UX_GAPS.md)
-- [ ] Notifications that reach people outside the app (email, WhatsApp) when the other side answers; today "new" is in-app only (read marks are on the server, so they agree across devices)
+- [x] Notifications outside the app: email (any SMTP server) and WhatsApp (Meta Cloud API) for 16 events, with consent for WhatsApp, retries, delivery reports, STOP, a settings page with a test button, and the templates ready for Meta's review (docs/WHATSAPP_TEMPLATES.md)
+- [ ] Notifications: submit the templates to Meta and connect the client's number and mail server (needs their Meta business account and domain), then try it with a real buyer
+- [ ] Notifications: Tamil versions of the WhatsApp templates; a buyer's WhatsApp reply added to the conversation (today only STOP is understood); a reminder when an approval has waited for days; a choice of events per person
+- [ ] Buyer accounts: email the invitation and the temporary password through the new mail sender (the office still passes it on by hand)
 - [x] Read receipts both ways (seen / not opened) for conversations, approvals and delay notices
 - [x] One inbox per side, a request's talk carried onto its order, a timeline per order
 - [x] Buyer approvals (fit, pre-production, lab dip, packaging) with a trail, completing the plan step

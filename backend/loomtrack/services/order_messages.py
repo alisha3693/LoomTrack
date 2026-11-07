@@ -9,6 +9,7 @@ from __future__ import annotations
 import sqlite3
 
 from ..util import HttpError
+from . import notify
 
 MAX_LENGTH = 2000
 MAX_PER_ORDER = 500
@@ -57,11 +58,8 @@ def post(db: sqlite3.Connection, order_id: int, author: str, body: str, *, buyer
     if db.execute("SELECT COUNT(*) FROM order_messages WHERE order_id = ?", (order_id,)).fetchone()[0] >= MAX_PER_ORDER:
         raise HttpError(409, "This conversation is full. Please call or email instead.")
     mid = db.execute("INSERT INTO order_messages (order_id, author, user_id, body) VALUES (?,?,?,?)", (order_id, author, user_id, text)).lastrowid
-    if author == "merchandiser":  # the reply also goes to the buyer's inbox (mock email, like every other message to a buyer)
-        db.execute(
-            "INSERT INTO outbox_messages (buyer_id, order_id, channel, subject, body) VALUES (?,?,?,?,?)",
-            (o["buyer_id"], order_id, "email", f"Message about {o['po_no']}", text),
-        )
+    # The other side hears of it outside the app too (email, and WhatsApp for a buyer who agreed to it).
+    notify.send(db, "order_message" if author == "merchandiser" else "order_message_in", o["buyer_id"], order_id, po=o["po_no"], text=text)
     return mid
 
 

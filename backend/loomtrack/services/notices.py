@@ -10,7 +10,7 @@ import sqlite3
 
 from ..db import transaction
 from ..util import HttpError
-from . import order_messages
+from . import notify, order_messages
 
 
 def _latest(db: sqlite3.Connection, buyer_id: int, order_id: int) -> sqlite3.Row:
@@ -37,6 +37,8 @@ def acknowledge(db: sqlite3.Connection, buyer_id: int, order_id: int, note: str 
             "UPDATE warnings SET buyer_seen_at = COALESCE(buyer_seen_at, datetime('now')), buyer_ack_at = COALESCE(buyer_ack_at, datetime('now')) WHERE id = ?",
             (w["id"],),
         )
+        po = db.execute("SELECT po_no FROM orders WHERE id = ?", (order_id,)).fetchone()["po_no"]
+        notify.send(db, "notice_acknowledged", buyer_id, order_id, po=po, text=note)
         if note:
             order_messages.post(db, order_id, "buyer", f"About the delay notice: {note}", buyer_id=buyer_id)
 

@@ -13,6 +13,7 @@ Free and open source end to end. The AI runs locally.
 | [docs/TECH_STACK.md](docs/TECH_STACK.md) | Stack decisions and why |
 | [docs/RUN_RATE.md](docs/RUN_RATE.md) | How the delay projection works, with a worked example |
 | [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) | The interface: palette, type, spacing, shared parts and the rules for a new screen |
+| [docs/WHATSAPP_TEMPLATES.md](docs/WHATSAPP_TEMPLATES.md) | The WhatsApp templates with sample values, ready to submit to Meta, and how to connect email and WhatsApp |
 | [docs/UX_GAPS.md](docs/UX_GAPS.md) | Gaps found between the buyer and the merchandiser, and what was done about them |
 
 ## Stack
@@ -48,7 +49,7 @@ npm run dev        # or: API on :4000 + web with live reload on :5173
 
 | Command | |
 |---|---|
-| `npm test` | backend tests (136) |
+| `npm test` | backend tests (179) |
 | `npm run explain` | run-rate maths for every order, in the terminal |
 | `python e2e/walkthrough.py` | headless browser walkthrough with screenshots |
 | `python e2e/offline_test.py` | offline queue check |
@@ -56,6 +57,8 @@ npm run dev        # or: API on :4000 + web with live reload on :5173
 | `python e2e/a11y.py [light\|dark]` | an automated accessibility scan (axe) of the main pages, in light or dark |
 
 API docs: http://localhost:4000/api/docs
+
+Email and WhatsApp: copy `backend/.env.example` to `backend/.env` and fill in what you use (an SMTP server; Meta's WhatsApp Cloud API). With nothing set, messages to buyers are only recorded under Buyers, Sent messages. Setup steps and the template wording for Meta's review are in [docs/WHATSAPP_TEMPLATES.md](docs/WHATSAPP_TEMPLATES.md).
 
 Without Ollama running, everything still works. Issue notes are then categorised by keywords and shown without a translation.
 

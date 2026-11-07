@@ -51,9 +51,9 @@ Every constraint in the brief and the design decision that answers it.
 ```
                       ┌──────────────────────────────────────────┐
   Supervisors  ──────►│                                          │
-  (phones, Tamil)     │                LoomTrack                 │──► Mock outbox
-                      │   web app + API + database + local AI    │    (buyer emails
-  Merchandisers ─────►│                                          │     recorded, not sent)
+  (phones, Tamil)     │                LoomTrack                 │──► Email (SMTP)
+                      │   web app + API + database + local AI    │    and WhatsApp
+  Merchandisers ─────►│                                          │     (Meta Cloud API)
   (office browser)    └──────────────┬───────────────────────────┘
                                      │
   Buyers  ───────────────────────────┘  read-only link, own orders only
@@ -147,7 +147,7 @@ users ──< sessions            outbox_messages
 | `issue_reasons` | AI result and human decision, side by side | `ai_*` columns vs `final_category` |
 | `warnings` | Draft and decided buyer warnings | States below |
 | `date_changes` | Every planned-date change with reason and who | Append-only by trigger |
-| `outbox_messages` | Mock buyer emails | Replace with real email later |
+| `outbox_messages` | Every email and WhatsApp message, one row per recipient, with its status and the reason if it failed | A queue as well as a log: the sender loop works through `queued` rows |
 | `users`, `sessions` | Staff accounts (scrypt hashes), session tokens | Roles: merchandiser, supervisor |
 
 ### Invariants the system enforces
@@ -218,6 +218,10 @@ The schema is in third normal form apart from two deliberate exceptions: the cac
 | One buyer sees another's design files | Every buyer file lookup joins to the owning request or order and filters on the link's buyer; our own files are private until marked visible; tests remove each check to prove they fail | None known |
 | A view-only buyer account changes something | Every buyer write route goes through one dependency that refuses an account with `can_write = 0` (403, plain message); the screens hide the buttons; a test removes the check to prove it fails | A private link always has full access; view-only applies to signed-in accounts |
 | A buyer approves, acknowledges or reads another buyer's item | Approvals, delay notices, read marks, the timeline and documents all resolve the order through the buyer's id and answer 404 otherwise; tests cover each | None known |
+| Someone forges a WhatsApp delivery report or a STOP | The webhook accepts a call only when its `X-Hub-Signature-256` matches the app secret (constant-time compare); with no secret set it refuses everything; a test covers both | The secret lives in `backend/.env` and must be kept out of the repository (it is ignored) |
+| A buyer is messaged on WhatsApp without agreeing | A number is saved only with the agreement ticked; who recorded it and when are stored; STOP switches it off at once; only approved utility templates are sent | Keep proof of consent outside the app too |
+| A mail or WhatsApp key leaks | Settings are read from the environment or `backend/.env` only; the settings page shows whether a channel is connected, never a value; a test checks no secret appears in its response | Rotate the key in the provider's dashboard if it was ever pasted somewhere |
+| A slow or failing provider hangs the app or loses a message | Nothing is sent inside a request; failures are kept on the row with the reason, retried after 1, 5 and 30 minutes, then shown as failed with a *Send again* button | A crash between sending and saving can send one message twice, which is the safer side |
 | Supervisor writes to someone else's stage | Unit check on every update | None known |
 | Tampering with the audit trail | Triggers block UPDATE/DELETE on `date_changes` | A DB admin can still drop the trigger; for compliance-grade proof, ship the log to write-once storage |
 | AI prompt injection via a note | AI output is constrained to a fixed enum + free text shown as plain text; it cannot take actions | Free-text translation could be misleading; the original is always shown beside it |

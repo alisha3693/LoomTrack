@@ -49,6 +49,11 @@ erDiagram
         TEXT country
         TEXT link_token UK "buyer credential"
         INTEGER link_active "1 = link works"
+        INTEGER notify_email "1 = email the buyer's people"
+        TEXT whatsapp_number "E.164"
+        INTEGER whatsapp_opt_in "1 = the buyer agreed"
+        TEXT whatsapp_opt_in_at
+        INTEGER whatsapp_opt_in_by FK
     }
     units {
         INTEGER id PK
@@ -311,10 +316,21 @@ erDiagram
         INTEGER id PK
         INTEGER buyer_id FK
         INTEGER order_id FK
-        TEXT channel
+        TEXT channel "email | whatsapp"
         TEXT subject
         TEXT body
         TEXT created_at
+        TEXT event "see services/notify.py"
+        TEXT audience "buyer | office"
+        TEXT recipient
+        TEXT status "logged queued sent delivered read failed skipped"
+        TEXT error
+        INTEGER attempts
+        TEXT not_before
+        TEXT provider_id "WhatsApp message id"
+        TEXT template
+        TEXT params "JSON"
+        TEXT sent_at
     }
 ```
 
@@ -332,7 +348,8 @@ erDiagram
 | Files | `attachments` | Designs, patterns, print artwork, fabric references. A file belongs to a request, an order, or both: a request's files follow it onto the order it becomes. The buyer's own uploads are always visible to that buyer; ours are private unless `buyer_visible` is set; `supervisor_visible` decides what the floor can open. |
 | Templates | `templates`, `template_steps` | A saved layout of steps with timings (days before ex-factory). Orders copy the dates when created, so editing or retiring a template never changes an existing order. The built-in three are read-only. |
 | Floor data | `daily_updates`, `photos`, `issue_reasons` | `daily_updates.id` is created on the phone, so a retried offline upload hits the same key and is ignored. |
-| Warnings | `warnings`, `outbox_messages` | Buyers see only `confirmed` warnings. Confirming writes a mock email to the outbox. |
+| Warnings | `warnings` | Buyers see only `confirmed` warnings. Confirming queues the message to the buyer (see the next row). |
+| Messages outside the app | `outbox_messages`; `buyers.notify_email`, `whatsapp_*` | One row per recipient per event, written in the same transaction as the change that caused it. `status` is `logged` when no provider is set up for the channel (the record is all there is), otherwise `queued`, then `sent`, and for WhatsApp `delivered` or `read` from Meta's reports, or `failed` with the reason in `error` after the retries. `not_before` spaces the retries. A WhatsApp row exists only for a buyer with `whatsapp_opt_in = 1`; who recorded that, and when, is kept. Old rows keep status `logged` and are never sent. |
 | Compliance | `date_changes` | Triggers abort every UPDATE and DELETE, so the table is append-only. |
 
 ## Rules enforced by the database
@@ -361,7 +378,7 @@ erDiagram
 
 ## Versions and migration
 
-`PRAGMA user_version` holds the schema version (now 9). Older databases are migrated in place when the app opens them, one version at a time: one transaction, a copy saved as `<db>.v0.bak`, `.v1.bak` or `.v5.bak`, and a foreign-key check afterwards.
+`PRAGMA user_version` holds the schema version (now 10). Older databases are migrated in place when the app opens them, one version at a time: one transaction, a copy saved as `<db>.v0.bak`, `.v1.bak` or `.v5.bak`, and a foreign-key check afterwards.
 
 | Version | Change |
 |---|---|
@@ -370,6 +387,7 @@ erDiagram
 | 2 to 3 | `templates` and `template_steps` tables; `plan_steps.builtin`. The three built-in templates are copied in from code at startup. |
 | 3 to 4 | `order_requests`, `request_sizes`, `request_messages` (new tables only, nothing rebuilt). |
 | 4 to 5 | `attachments` (new table only). |
+| 9 to 10 | Delivery of email and WhatsApp: `outbox_messages` gains `event`, `audience`, `recipient`, `status`, `error`, `attempts`, `not_before`, `provider_id`, `template`, `params`, `sent_at` (old rows become `logged`, so nothing already recorded is ever sent), and `buyers` gains `notify_email` and the WhatsApp number with its recorded agreement. |
 | 8 to 9 | `approvals`, `approval_events`, `thread_reads` (new tables and triggers), and the columns `users.can_write` (existing accounts keep full access) and `warnings.buyer_seen_at` / `buyer_ack_at`. |
 | 7 to 8 | `order_messages` (new table and triggers only). |
 | 6 to 7 | Fabric on orders and requests (`fabric_type`, `fabric_composition`, `fabric_gsm`, `fabric_note`), `units.daily_capacity`, and the `order_materials` table. Columns and a table are added; nothing is rebuilt. |
