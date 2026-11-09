@@ -3,7 +3,6 @@
 // dropped connection can never double-count pieces: the server ignores an id
 // it already has.
 
-import { getToken } from "./api";
 
 export interface OutboxItem {
   id: string;
@@ -81,8 +80,7 @@ export function flushOutbox(): Promise<void> {
 
         let res: Response;
         try {
-          const token = getToken();
-          res = await fetch("/api/s/updates", { method: "POST", body: form, headers: token ? { Authorization: `Bearer ${token}` } : {} });
+          res = await fetch("/api/s/updates", { method: "POST", body: form, credentials: "same-origin" });
         } catch {
           return; // network down: try again later
         }

@@ -16,7 +16,7 @@ export default function Feed() {
     if (data.items.length) api("/api/m/feed/read", { method: "POST", body: {} }).then(reloadMeta).catch(() => undefined);
   }, [data, reloadMeta]);
 
-  const linkFor = (i: FeedItem) => (i.topic === "Approval" ? "/m/approvals" : i.orderId && i.topic !== "Request" ? `/m/orders/${i.orderId}` : i.topic === "Request" ? "/m/requests" : "/m");
+  const linkFor = (i: FeedItem) => (i.orderId && i.topic !== "Request" ? `/m/orders/${i.orderId}` : i.topic === "Request" ? "/m/requests" : "/m");
 
   return (
     <main className="page">

@@ -133,14 +133,14 @@ export default function SupHome() {
                 <span className="num">{num(done)} {t("of")} {num(s.qty_total)}</span>
                 <span>{t("dueBy")} {fmtDate(s.planned_date)}</span>
               </div>
-              <div className="meta">
-                {s.target_per_day - todayQty > 0
-                  ? <span className="num">{t("leftToday")}: <b>{num(s.target_per_day - todayQty)}</b></span>
-                  : <span className="num t-green"><b>✓ {t("targetDone")}</b></span>}
-                {s.ready !== null && (
+              {s.target_per_day - todayQty > 0
+                ? <div className="todo"><span className="todo-label">{t("leftToday")}</span><b className="todo-num num">{num(s.target_per_day - todayQty)}</b></div>
+                : <div className="todo done"><b className="todo-num num t-green">✓ {t("targetDone")}</b></div>}
+              {s.ready !== null && (
+                <div className="meta">
                   <span className="faint">{num(Math.max(0, s.ready - queuedQty(s.milestone_id)))} {t("readyFrom")} {lang === "ta" ? s.upstream_name_ta : s.upstream_name_en}</span>
-                )}
-              </div>
+                </div>
+              )}
             </Link>
           );
         })}

@@ -4,7 +4,6 @@ import { RequestPill } from "../../components/RequestParts";
 import { EmptyState, PageHeader, Progress, Skeleton, useApi } from "../../components/ui";
 import { useBadgeRefresh } from "../../lib/badges";
 import { attentionFor, BuyerData, isClosed, orderChip } from "../../lib/buyer";
-import type { Approval } from "../../lib/flow";
 import { ago, fmtDate, num, plural } from "../../lib/format";
 import type { RequestRow } from "../../lib/requests";
 import BuyerFrame from "./BuyerFrame";
@@ -18,13 +17,11 @@ export default function BuyerHome() {
 
 function Home({ token, name, today, data }: { token: string; name: string; today: string; data: BuyerData }) {
   const { data: reqs, reload: reloadReqs } = useApi<{ requests: RequestRow[] }>(`/api/b/${token}/requests`);
-  const { data: apr, reload: reloadApr } = useApi<{ approvals: Approval[] }>(`/api/b/${token}/approvals`);
-  useBadgeRefresh(() => { void reloadReqs(); void reloadApr(); });
+  useBadgeRefresh(() => { void reloadReqs(); });
   const requests = reqs?.requests ?? [];
   const active = data.orders.filter((o) => o.state === "active");
   const open = requests.filter((r) => !isClosed(r.status));
-  const ready = !!reqs && !!apr;
-  const items = ready ? attentionFor(token, data.orders, requests, apr!.approvals) : [];
+  const items = reqs ? attentionFor(token, data.orders, requests) : [];
   const coming = [...active].sort((a, b) => a.exFactory.localeCompare(b.exFactory)).slice(0, SHOWN);
   const pieces = active.reduce((a, o) => a + o.qty, 0);
 
@@ -38,7 +35,7 @@ function Home({ token, name, today, data }: { token: string; name: string; today
 
       <section aria-label="Needs your attention">
         <div className="section-title">Needs your attention</div>
-        {ready ? <Attention items={items} clear="You are all caught up. Nothing is waiting for you right now." /> : <Skeleton rows={2} />}
+        {reqs ? <Attention items={items} clear="You are all caught up. Nothing is waiting for you right now." /> : <Skeleton rows={2} />}
       </section>
 
       <section aria-label="Coming up" className="stack" style={{ gap: 10 }}>

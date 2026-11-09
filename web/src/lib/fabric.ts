@@ -30,45 +30,6 @@ export function fabricLine(f: Fabric | null | undefined): string | null {
   return parts.length ? parts.join(" · ") : null;
 }
 
-export type MaterialState = "late" | "at_risk" | "on_track" | "received";
-
-export interface Material {
-  id: number;
-  orderId: number;
-  kind: "fabric" | "trim" | "packing";
-  name: string;
-  supplier: string | null;
-  suppliedBy: "us" | "buyer";
-  qty: number | null;
-  unit: string | null;
-  status: "not_ordered" | "ordered" | "received";
-  orderedDate: string | null;
-  expectedDate: string | null;
-  receivedDate: string | null;
-  neededFor: string | null;
-  neededForName: string | null;
-  neededBy: string;
-  neededLabel: string;
-  note: string | null;
-  risk: { state: MaterialState; message: string };
-}
-
-export interface MaterialSummary {
-  total: number;
-  received: number;
-  late: number;
-  atRisk: number;
-  worst: MaterialState | null;
-}
-
-export interface BuyerMaterial {
-  name: string;
-  kind: "fabric" | "trim" | "packing";
-  suppliedBy: "us" | "buyer";
-  received: boolean;
-  receivedDate: string | null;
-}
-
 export type Verdict = "fits" | "tight" | "over" | "no_window" | "unknown";
 
 export interface StageFit {

@@ -15,7 +15,7 @@ export interface FeedItem {
   buyerName: string;
 }
 
-const TONE: Record<string, string> = { Delay: "pill-red", Floor: "pill-amber", Order: "pill-red", Approval: "pill-amber", Request: "", Change: "" };
+const TONE: Record<string, string> = { Delay: "pill-red", Floor: "pill-amber", Order: "pill-red", Request: "", Change: "" };
 
 /** What the app has told this side, newest first and grouped by day. What is new since the last visit is marked. */
 export default function NotificationFeed({ items, seenUpTo, today, linkFor, showBuyer }: {

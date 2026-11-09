@@ -64,7 +64,7 @@ export default function Login() {
         <details className="small">
           <summary>Demo logins</summary>
           <div className="faint" style={{ marginTop: 6, lineHeight: 1.8 }}>
-            Merchandiser: priya@companya.in / loom1234
+            Merchandiser: priya@companya.example / loom1234
             <br />
             Buyer: hannah@companyb.example / buyer1234
             <br />

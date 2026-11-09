@@ -145,12 +145,12 @@ export default function SupUpdate() {
         {stage.waiting_on_en.length > 0 && (
           <div className="banner banner-warn">{t("waitingOffice")}: {(lang === "ta" ? stage.waiting_on_ta : stage.waiting_on_en).join(", ")}</div>
         )}
-        <div className="row faint small" style={{ justifyContent: "space-between" }}>
-          {stage.target_per_day - (stage.today_qty + queuedQty(stage.milestone_id, data.today)) > 0
-            ? <span className="num">{t("leftToday")}: <b>{num(stage.target_per_day - (stage.today_qty + queuedQty(stage.milestone_id, data.today)))}</b></span>
-            : <span className="num t-green"><b>✓ {t("targetDone")}</b></span>}
-          {stage.ready !== null && <span>{num(Math.max(0, stage.ready - queuedQty(stage.milestone_id)))} {t("readyFrom")} {lang === "ta" ? stage.upstream_name_ta : stage.upstream_name_en}</span>}
-        </div>
+        {stage.target_per_day - (stage.today_qty + queuedQty(stage.milestone_id, data.today)) > 0
+          ? <div className="todo"><span className="todo-label">{t("leftToday")}</span><b className="todo-num num">{num(stage.target_per_day - (stage.today_qty + queuedQty(stage.milestone_id, data.today)))}</b></div>
+          : <div className="todo done"><b className="todo-num num t-green">✓ {t("targetDone")}</b></div>}
+        {stage.ready !== null && (
+          <div className="faint small">{num(Math.max(0, stage.ready - queuedQty(stage.milestone_id)))} {t("readyFrom")} {lang === "ta" ? stage.upstream_name_ta : stage.upstream_name_en}</div>
+        )}
 
         <label className="field">
           <span style={{ fontSize: 15 }}>{t("todayQty")}</span>

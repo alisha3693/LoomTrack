@@ -3,7 +3,6 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
 import { addDaysIso, fmtDate, num } from "../../lib/format";
 import CapacityCheck, { blocks } from "../../components/CapacityCheck";
-import { Swatch } from "../../components/ui";
 import { FABRIC_TYPES, UnitFit } from "../../lib/fabric";
 import { useMeta } from "./OfficeShell";
 

@@ -1,5 +1,5 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from "react";
-import { api, getToken, setToken } from "./api";
+import { api } from "./api";
 
 export interface User {
   id: number;
@@ -44,12 +44,13 @@ function cacheUser(u: User | null) {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  // Start from the cached user so a supervisor opening the app offline still gets in.
-  const [user, setUser] = useState<User | null>(() => (getToken() ? cachedUser() : null));
-  const [loading, setLoading] = useState(() => !!getToken() && !cachedUser());
+  // Start from the cached user so a supervisor opening the app offline still gets in. The session itself is a cookie
+  // the browser holds; if it has expired, the first request answers 401 and the app signs out.
+  const [user, setUser] = useState<User | null>(() => cachedUser());
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!getToken()) return;
+    if (!cachedUser()) return;
     api<{ user: User }>("/api/auth/me")
       .then((r) => {
         setUser(r.user);
@@ -71,8 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = useCallback(async (login: string, secret: string) => {
-    const r = await api<{ token: string }>("/api/auth/login", { body: { login, secret } });
-    setToken(r.token);
+    await api("/api/auth/login", { body: { login, secret } });
     const me = await api<{ user: User }>("/api/auth/me");
     setUser(me.user);
     cacheUser(me.user);
@@ -81,7 +81,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(() => {
     api("/api/auth/logout", { method: "POST" }).catch(() => {});
-    setToken(null);
     cacheUser(null);
     setUser(null);
   }, []);

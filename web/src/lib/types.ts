@@ -2,10 +2,9 @@
 // raw database rows (order detail) keep their snake_case column names.
 
 import type { Status } from "./format";
-import type { Material, MaterialSummary } from "./fabric";
 import type { RequestStatus } from "./requests";
 
-import type { ActivityItem, Approval } from "./flow";
+import type { ActivityItem } from "./flow";
 
 export interface Meta {
   buyers: { id: number; name: string; country: string | null }[];
@@ -14,13 +13,10 @@ export interface Meta {
   reasons: { code: string; en: string; ta: string }[];
   today: string;
   openRequests: number;
-  /** Conversations where the buyer wrote last and nobody has read it yet. */
-  unreadMessages: number;
   unreadNotifications: number;
   canReset: boolean;
   testDate: string | null;
   /** Approvals where the buyer asked for changes, so the office has to answer. */
-  approvalsToAnswer: number;
   ai: { mode: "indictrans2" | "keywords"; model?: string; device?: string; reason?: string };
 }
 
@@ -52,10 +48,7 @@ export interface BoardOrder {
   headline: string | null;
   pendingWarnings: number;
   lastUpdate: string | null;
-  materials: MaterialSummary | null;
-  awaitingReply: boolean;
   /** Approvals waiting on the buyer, and ones the buyer sent back to the office. */
-  approvals: { waiting: number; sentBack: number };
   /** The latest delay notice was confirmed and the buyer has not acknowledged it. */
   noticeUnacknowledged: boolean;
 }
@@ -175,6 +168,8 @@ export interface OrderDetail {
     state: string;
     cancel_reason: string | null;
     cancelled_at: string | null;
+    shipped_date: string | null;
+    production_complete_at: string | null;
   };
   sizes: { size: string; qty: number }[];
   milestones: MilestoneRow[];
@@ -183,10 +178,6 @@ export interface OrderDetail {
   warnings: WarningRow[];
   dateChanges: DateChangeRow[];
   attachments: FileItem[];
-  materials: Material[];
-  messages: { source: "order" | "request"; id: number | null; author: "buyer" | "merchandiser"; body: string | null; at: string }[];
-  readUpTo: number;
-  approvals: Approval[];
   activity: ActivityItem[];
   buyerPath: string | null;
   changeRequests: { id: number; requestNo: string; kind: "new_order" | "amendment"; status: RequestStatus; exFactory: string; updatedAt: string }[];

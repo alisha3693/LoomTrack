@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../lib/api";
-import { refreshBadges } from "../../lib/badges";
 import { addDaysIso, fmtDate, plural } from "../../lib/format";
 import { OfficeFiles } from "../../components/Attachments";
 import CapacityCheck, { blocks, type PlanCheck } from "../../components/CapacityCheck";
@@ -17,7 +16,6 @@ function BuyerContext({ buyerId, buyer }: { buyerId: number; buyer: string }) {
   const { data } = useApi<{ orders: BoardOrder[] }>(`/api/m/board?buyer=${buyerId}`);
   const orders = data?.orders ?? [];
   const count = (s: string) => orders.filter((o) => o.status === s).length;
-  const waiting = orders.filter((o) => o.awaitingReply).length;
   return (
     <section className="card card-pad stack" style={{ gap: 10 }}>
       <h2>About {buyer}</h2>
@@ -27,7 +25,6 @@ function BuyerContext({ buyerId, buyer }: { buyerId: number; buyer: string }) {
             {plural(orders.length, "live order")}
             {count("red") ? <> · <span className="t-red">{count("red")} will miss ex-factory</span></> : null}
             {count("amber") ? <> · <span className="t-amber">{count("amber")} behind plan</span></> : null}
-            {waiting ? <> · <span className="t-amber">{plural(waiting, "message")} to answer</span></> : null}
           </p>
           <div>
             {orders.slice(0, 5).map((o) => (
@@ -52,9 +49,6 @@ export default function RequestDetail() {
   const meta = useMeta();
   const reloadMeta = useReloadMeta();
   const { data: r, error, reload } = useApi<RequestDetailData>(`/api/m/requests/${id}`);
-  useEffect(() => {
-    if (r) api(`/api/m/requests/${id}/read`, { method: "POST" }).then(refreshBadges).catch(() => {});
-  }, [id, !!r]); // eslint-disable-line react-hooks/exhaustive-deps
   const [dialog, setDialog] = useState<Dialog>(null);
   const [toast, setToast] = useState<string | null>(null);
 

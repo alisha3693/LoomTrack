@@ -4,7 +4,7 @@ import { EmptyState } from "./ui";
 import Icon, { IconName } from "./Icon";
 
 const ICON: Record<ActivityItem["kind"], IconName> = {
-  date: "clock", step: "approvals", message: "messages", request: "requests", approval: "approvals", notice: "alert", material: "file",
+  date: "clock", step: "approvals", request: "requests", notice: "alert",
 };
 
 /** A timeline of what happened on an order and who did it, newest first. */

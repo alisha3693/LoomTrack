@@ -2,8 +2,7 @@
 
 import type { AttentionItem } from "../components/Attention";
 import type { Notice } from "../components/NoticeCard";
-import type { BuyerMaterial, Fabric } from "./fabric";
-import type { Approval } from "./flow";
+import type { Fabric } from "./fabric";
 import { fmtDate } from "./format";
 import type { RequestRow } from "./requests";
 import type { FileItem } from "./types";
@@ -16,13 +15,12 @@ export interface BuyerOrder {
   colourHex: string | null;
   colourPantone: string | null;
   fabric: Fabric;
-  materials: BuyerMaterial[];
-  /** `unread` is true when the office wrote last and the buyer has not opened it. */
-  lastMessage: { author: "buyer" | "merchandiser"; at: string; count: number; unread: boolean } | null;
   qty: number;
   sizes: { size: string; qty: number }[];
   exFactory: string;
   state: string;
+  shippedDate: string | null;
+  shippedVerdict: string | null;
   notice: Notice | null;
   overallPct: number;
   milestones: { code: string; name: string; kind: "milestone" | "stage"; plannedDate: string; actualDate: string | null; pct: number; done: number | null }[];
@@ -53,11 +51,8 @@ export function orderChip(o: BuyerOrder): { text: string; tone: "" | "green" | "
 export const isClosed = (s: RequestRow["status"]) => s === "accepted" || s === "declined" || s === "withdrawn";
 
 /** Everything waiting on the buyer, most important first. */
-export function attentionFor(token: string, orders: BuyerOrder[], requests: RequestRow[], approvals: Approval[]): AttentionItem[] {
+export function attentionFor(token: string, orders: BuyerOrder[], requests: RequestRow[]): AttentionItem[] {
   const items: AttentionItem[] = [];
-  for (const a of approvals) {
-    if (a.status === "requested") items.push({ key: `ap${a.id}`, tone: "amber", title: `Approve: ${a.title}`, detail: `For ${a.poNo}. ${a.completesStep ? "Approving it completes the plan step." : "Your merchandiser is waiting for your decision."}`, cta: "Review and decide", to: `/b/${token}/approvals` });
-  }
   for (const r of requests) {
     if (r.status === "countered") items.push({ key: `rq${r.id}`, tone: "amber", title: `Agree to a new date for ${r.poNo}`, detail: "Your merchandiser proposed a different ex-factory date.", cta: "Review and answer", to: `/b/${token}/requests/${r.id}` });
     else if (r.status === "query") items.push({ key: `rq${r.id}`, tone: "amber", title: `Your merchandiser has a question about ${r.poNo}`, detail: "They need your answer before they can go on.", cta: "Answer", to: `/b/${token}/requests/${r.id}` });
@@ -65,8 +60,6 @@ export function attentionFor(token: string, orders: BuyerOrder[], requests: Requ
   for (const o of orders) {
     if (o.state !== "active") continue;
     if (o.notice && !o.notice.acknowledgedAt) items.push({ key: `n${o.id}`, tone: "red", title: `Delay notice for ${o.poNo}`, detail: `Now expected ${fmtDate(o.notice.expectedExFactory, true)}, instead of ${fmtDate(o.exFactory, true)}. Please acknowledge it.`, cta: "See the details", to: `/b/${token}/orders/${o.id}` });
-    const owed = o.materials.filter((m) => m.suppliedBy === "buyer" && !m.received);
-    if (owed.length) items.push({ key: `f${o.id}`, tone: "amber", title: `We are waiting for ${owed.map((m) => m.name.toLowerCase()).join(", ")} from you`, detail: `For ${o.poNo}. Production cannot use it until it arrives.`, cta: "See the materials", to: `/b/${token}/orders/${o.id}?tab=materials` });
   }
   return items;
 }

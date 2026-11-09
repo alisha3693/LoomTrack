@@ -8,8 +8,6 @@ import OrderDetail from "./pages/merch/OrderDetail";
 import Buyers from "./pages/merch/Buyers";
 import Notifications from "./pages/merch/Notifications";
 import BuyerProfile from "./pages/merch/BuyerProfile";
-import Approvals from "./pages/merch/Approvals";
-import Messages from "./pages/merch/Messages";
 import Requests from "./pages/merch/Requests";
 import RequestDetail from "./pages/merch/RequestDetail";
 import Templates from "./pages/merch/Templates";
@@ -22,15 +20,17 @@ import BuyerOrder from "./pages/buyer/BuyerOrder";
 import BuyerOrders from "./pages/buyer/BuyerOrders";
 import BuyerRequests from "./pages/buyer/BuyerRequests";
 import BuyerNotifications from "./pages/buyer/BuyerNotifications";
-import BuyerApprovals from "./pages/buyer/BuyerApprovals";
-import BuyerDocuments from "./pages/buyer/BuyerDocuments";
+import BuyerDetails from "./pages/buyer/BuyerDetails";
 import RequestNew from "./pages/buyer/RequestNew";
 import BuyerRequest from "./pages/buyer/BuyerRequest";
 import OrderChange from "./pages/buyer/OrderChange";
 import ResetData from "./pages/merch/ResetData";
 import Feed from "./pages/merch/Feed";
+import Reports from "./pages/merch/Reports";
+import Settings from "./pages/merch/Settings";
 import Landing from "./pages/Landing";
 import Install from "./pages/Install";
+import MyDetails from "./components/MyDetails";
 import ChangePassword from "./pages/ChangePassword";
 
 function Home() {
@@ -78,15 +78,16 @@ export default function App() {
         <Route index element={<Board />} />
         <Route path="orders/new" element={<OrderNew />} />
         <Route path="orders/:id" element={<OrderDetail />} />
+        <Route path="details" element={<MyDetails />} />
         <Route path="buyers" element={<Buyers />} />
         <Route path="buyers/:id" element={<BuyerProfile />} />
-        <Route path="messages" element={<Messages />} />
-        <Route path="approvals" element={<Approvals />} />
         <Route path="requests" element={<Requests />} />
         <Route path="requests/:id" element={<RequestDetail />} />
         <Route path="units" element={<Units />} />
         <Route path="notifications" element={<Notifications />} />
         <Route path="feed" element={<Feed />} />
+        <Route path="reports" element={<Reports />} />
+        <Route path="settings" element={<Settings />} />
         <Route path="reset" element={<ResetData />} />
         <Route path="templates" element={<Templates />} />
         <Route path="templates/new" element={<TemplateEditor />} />
@@ -101,8 +102,7 @@ export default function App() {
         <Route path="orders/:orderId" element={<BuyerOrder />} />
         <Route path="requests" element={<BuyerRequests />} />
         <Route path="notifications" element={<BuyerNotifications />} />
-        <Route path="approvals" element={<BuyerApprovals />} />
-        <Route path="documents" element={<BuyerDocuments />} />
+        <Route path="details" element={<BuyerDetails />} />
         <Route path="requests/new" element={<RequestNew />} />
         <Route path="orders/:orderId/change" element={<OrderChange />} />
         <Route path="requests/:id" element={<BuyerRequest />} />

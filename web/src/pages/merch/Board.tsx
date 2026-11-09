@@ -29,13 +29,8 @@ function StageCell({ o }: { o: BoardOrder }) {
 /** Everything that wants the merchandiser's attention on one order, in one place, most urgent first. */
 function flagsFor(o: BoardOrder): { tone: "red" | "amber"; text: string }[] {
   const out: { tone: "red" | "amber"; text: string }[] = [];
-  if (o.awaitingReply) out.push({ tone: "amber", text: "Buyer waiting for your reply" });
-  if (o.approvals.sentBack > 0) out.push({ tone: "amber", text: "Buyer asked for changes" });
   if (o.pendingWarnings > 0) out.push({ tone: "amber", text: "Delay warning to review" });
   if (o.noticeUnacknowledged) out.push({ tone: "amber", text: "Delay notice not acknowledged" });
-  const m = o.materials;
-  if (m && m.late > 0) out.push({ tone: "red", text: `${plural(m.late, "material")} late` });
-  else if (m && m.atRisk > 0) out.push({ tone: "amber", text: `${plural(m.atRisk, "material")} at risk` });
   return out;
 }
 
@@ -80,10 +75,7 @@ export default function Board() {
     return c;
   }, [data]);
   const FOCUS: Record<string, { label: string; test: (o: BoardOrder) => boolean }> = {
-    messages: { label: "orders where the buyer is waiting for your reply", test: (o) => o.awaitingReply },
     warnings: { label: "orders with a delay warning to review", test: (o) => o.pendingWarnings > 0 },
-    materials: { label: "orders with late materials", test: (o) => !!o.materials && o.materials.late > 0 },
-    approvals: { label: "orders where the buyer sent an approval back", test: (o) => o.approvals.sentBack > 0 },
     notices: { label: "orders whose delay notice the buyer has not acknowledged", test: (o) => o.noticeUnacknowledged },
     soon: { label: "orders shipping in the next 7 days", test: (o) => !!data && o.exFactory <= addDaysIso(data.today, 7) },
   };
@@ -106,17 +98,11 @@ export default function Board() {
   const needs: AttentionItem[] = [];
   const all = data?.orders ?? [];
   const named = (list: BoardOrder[]) => list.slice(0, 3).map((o) => o.poNo).join(", ") + (list.length > 3 ? ` and ${list.length - 3} more` : "");
-  const waiting = all.filter(FOCUS.messages.test);
   const warned = all.filter(FOCUS.warnings.test);
-  const short = all.filter(FOCUS.materials.test);
-  const sentBack = all.filter(FOCUS.approvals.test);
   const unacked = all.filter(FOCUS.notices.test);
   if (meta && meta.openRequests > 0) needs.push({ key: "req", tone: "amber", title: `${plural(meta.openRequests, "buyer request")} waiting for your answer`, detail: "New orders and replies to your questions", cta: "Open requests", to: "/m/requests" });
-  if (waiting.length) needs.push({ key: "msg", tone: "amber", title: `${plural(waiting.length, "buyer message")} to answer`, detail: named(waiting), cta: "Show these orders", onSelect: () => setFilter("focus", "messages") });
-  if (sentBack.length) needs.push({ key: "apr", tone: "amber", title: `${plural(sentBack.length, "approval")} sent back by the buyer`, detail: named(sentBack), cta: "Answer them", to: "/m/approvals" });
   if (warned.length) needs.push({ key: "warn", tone: "red", title: `${plural(warned.length, "delay warning")} to review`, detail: `${named(warned)}. The buyer is told nothing until you confirm.`, cta: "Show these orders", onSelect: () => setFilter("focus", "warnings") });
   if (unacked.length) needs.push({ key: "ack", tone: "amber", title: `${plural(unacked.length, "delay notice")} the buyer has not acknowledged`, detail: named(unacked), cta: "Show these orders", onSelect: () => setFilter("focus", "notices") });
-  if (short.length) needs.push({ key: "mat", tone: "red", title: `${plural(short.length, "order")} with late materials`, detail: named(short), cta: "Show these orders", onSelect: () => setFilter("focus", "materials") });
 
   const setFilter = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -164,10 +150,10 @@ export default function Board() {
               {data?.weeks.map((w) => <option key={w} value={w}>Ship week {w.split("-W")[1]} · {w.slice(0, 4)}</option>)}
             </select>
             <span className="toolbar-sep" aria-hidden="true" />
-            {([["soon", "Ships in 7 days"], ["messages", "Needs a reply"], ["materials", "Late materials"]] as [string, string][]).map(([k, label]) => (
+            {([["soon", "Ships in 7 days"]] as [string, string][]).map(([k, label]) => (
               <button key={k} className={`chip${focus === k ? " on" : ""}`} aria-pressed={focus === k} onClick={() => setFilter("focus", focus === k ? "" : k)}>{label}</button>
             ))}
-            {FOCUS[focus] && !["soon", "messages", "materials"].includes(focus) && (
+            {FOCUS[focus] && !["soon"].includes(focus) && (
               <span className="chip-filter">{FOCUS[focus].label}<button aria-label="Show all orders" onClick={() => setFilter("focus", "")}>×</button></span>
             )}
             {filtered && <button className="btn btn-ghost btn-sm" onClick={() => { setParams({}, { replace: true }); setOnly(null); }}>Clear filters</button>}

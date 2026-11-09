@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { Outlet } from "react-router-dom";
-import AppShell, { NavGroup } from "../../components/AppShell";
+import { Link, Outlet } from "react-router-dom";
+import Icon from "../../components/Icon";
+import AppShell, { NavItem } from "../../components/AppShell";
 import SearchPalette from "../../components/SearchPalette";
 import { useApi } from "../../components/ui";
 import { useAuth } from "../../lib/auth";
@@ -34,24 +35,13 @@ export default function OfficeShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const groups: NavGroup[] = [
-    {
-      items: [
-        { to: "/m", label: "Orders", icon: "orders", end: true },
-        { to: "/m/requests", label: "Requests", icon: "requests", badge: meta?.openRequests },
-        { to: "/m/feed", label: "Notifications", icon: "bell", badge: meta?.unreadNotifications },
-        { to: "/m/buyers", label: "Buyers", icon: "buyers" },
-      ],
-    },
-    {
-      label: "Set up",
-      items: [
-        { to: "/m/templates", label: "Plan templates", icon: "templates" },
-        { to: "/m/units", label: "Units and capacity", icon: "units" },
-        { to: "/m/notifications", label: "Email and WhatsApp", icon: "alert" },
-        ...(meta?.canReset ? [{ to: "/m/reset", label: "Reset test data", icon: "alert" as const }] : []),
-      ],
-    },
+  const items: NavItem[] = [
+    { to: "/m", label: "Orders", icon: "orders", end: true },
+    { to: "/m/requests", label: "Requests", icon: "requests", badge: meta?.openRequests },
+    { to: "/m/buyers", label: "Buyers", icon: "buyers" },
+    { to: "/m/reports", label: "Reports", icon: "overview" },
+    { to: "/m/feed", label: "Notifications", icon: "bell", badge: meta?.unreadNotifications },
+    { to: "/m/settings", label: "Settings", icon: "settings", also: ["/m/templates", "/m/units", "/m/notifications", "/m/reset"] },
   ];
 
   return (
@@ -60,26 +50,23 @@ export default function OfficeShell() {
         <AppShell
           brand="LoomTrack"
           home="/m"
-          groups={groups}
+          items={items}
           action={{ to: "/m/orders/new", label: "New order" }}
           onSearch={() => setSearching(true)}
           account={{
             name: user?.name ?? "",
             detail: "Merchandiser",
-            extras: meta ? (
-              <div className="menu-row" title={meta.ai.mode === "indictrans2" ? `Notes are translated by ${meta.ai.model} on this machine (${meta.ai.device === "cuda" ? "GPU" : "CPU"})` : meta.ai.reason}>
+            extras: (<>
+              <Link className="menu-link" to="/m/details"><Icon name="user" size={16} />My details</Link>
+              <Link className="menu-link" to="/account/password"><Icon name="key" size={16} />Change password</Link>
+              {meta && <div className="menu-row" title={meta.ai.mode === "indictrans2" ? `Notes are translated by ${meta.ai.model} on this machine (${meta.ai.device === "cuda" ? "GPU" : "CPU"})` : meta.ai.reason}>
                 <span>Note translation</span>
                 <span className={`pill ${meta.ai.mode === "indictrans2" ? "pill-green" : "pill-amber"}`}>{meta.ai.mode === "indictrans2" ? "Translation on" : "Keywords only"}</span>
-              </div>
-            ) : null,
+              </div>}
+            </>),
             onSignOut: signOut,
           }}
         >
-          {meta?.testDate && (
-            <div className="banner banner-warn" role="status" style={{ margin: "0 0 12px" }}>
-              The app date is set by hand to {meta.testDate}. This is a test setting; change it back on the supervisor's home screen.
-            </div>
-          )}
           <Outlet />
         </AppShell>
         {searching && <SearchPalette onClose={() => setSearching(false)} />}

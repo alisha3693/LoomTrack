@@ -23,7 +23,6 @@ function List({ token, today }: { token: string; today: string }) {
 
   const linkFor = (i: FeedItem) => {
     const base = `/b/${token}`;
-    if (i.topic === "Approval") return `${base}/approvals`;
     if (i.topic === "Request" || i.topic === "Change") return i.orderId && i.topic === "Change" ? `${base}/orders/${i.orderId}` : `${base}/requests`;
     return i.orderId ? `${base}/orders/${i.orderId}` : `${base}/orders`;
   };

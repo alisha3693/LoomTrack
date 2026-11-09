@@ -1,18 +1,15 @@
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { FileList } from "../../components/Attachments";
 import Activity from "../../components/Activity";
-import { ApprovalCard, BuyerDecision, NoApprovals } from "../../components/Approvals";
 import NoticeCard from "../../components/NoticeCard";
 import { PageHeader, Progress, Swatch, useApi, useCanWrite } from "../../components/ui";
-import { useBadgeRefresh } from "../../lib/badges";
 import { BuyerOrder as Order, CancelledOrder, orderChip } from "../../lib/buyer";
 import { fabricLine } from "../../lib/fabric";
-import type { ActivityItem, Approval } from "../../lib/flow";
+import type { ActivityItem } from "../../lib/flow";
 import { fmtDate, fmtDateTime, num } from "../../lib/format";
 import BuyerFrame from "./BuyerFrame";
 
 const FIELD: Record<string, string> = { ex_factory: "Ex-factory", planned_date: "Due date", planned_start: "Start date", actual_date: "Completed" };
-type Tab = "progress" | "approvals" | "materials" | "files" | "history";
+type Tab = "progress" | "history";
 
 export default function BuyerOrder() {
   const { token = "", orderId } = useParams();
@@ -51,18 +48,12 @@ export function CancelledCard({ token, o }: { token: string; o: CancelledOrder }
 
 function Detail({ token, o, onChanged }: { token: string; o: Order; onChanged: () => void }) {
   const canWrite = useCanWrite();
-  const { data: apr, reload: reloadApr } = useApi<{ approvals: Approval[] }>(`/api/b/${token}/approvals`);
   const { data: act } = useApi<{ activity: ActivityItem[] }>(`/api/b/${token}/orders/${o.id}/activity`);
-  useBadgeRefresh(() => void reloadApr());
-  const approvals = (apr?.approvals ?? []).filter((a) => a.orderId === o.id);
-  const toDecide = approvals.filter((a) => a.status === "requested").length;
   const [params, setParams] = useSearchParams();
-  const tab: Tab = params.get("tab") === "history" ? "history" : "progress";  // approvals, materials and files are not used
+  const tab: Tab = params.get("tab") === "history" ? "history" : "progress";
   const setTab = (t: Tab) => setParams(t === "progress" ? {} : { tab: t }, { replace: true });
   const chip = orderChip(o);
   const fabric = fabricLine(o.fabric);
-  const received = o.materials.filter((m) => m.received).length;
-  const owed = o.materials.filter((m) => m.suppliedBy === "buyer" && !m.received);
 
   const TABS: { id: Tab; label: string; extra?: React.ReactNode }[] = [
     { id: "progress", label: "Progress" },
@@ -85,7 +76,9 @@ function Detail({ token, o, onChanged }: { token: string; o: Order; onChanged: (
       <section className="card card-pad">
         <div className="kv">
           <div><span>Ex-factory (ready to ship)</span><b className="num">{fmtDate(o.exFactory, true)}</b></div>
-          <div><span>Now expected</span><b className={`num ${o.notice ? "t-red" : ""}`}>{o.notice ? fmtDate(o.notice.expectedExFactory, true) : "As planned"}</b></div>
+          {o.state === "shipped" && o.shippedDate
+            ? <div><span>Shipped</span><b className="num">{fmtDate(o.shippedDate, true)}</b></div>
+            : <div><span>Now expected</span><b className={`num ${o.notice ? "t-red" : ""}`}>{o.notice ? fmtDate(o.notice.expectedExFactory, true) : "As planned"}</b></div>}
           <div><span>Quantity</span><b className="num">{num(o.qty)} pcs</b></div>
           <div><span>Packed</span><b className="num">{o.overallPct}%</b></div>
         </div>
@@ -94,11 +87,6 @@ function Detail({ token, o, onChanged }: { token: string; o: Order; onChanged: (
       </section>
 
       {o.notice && <NoticeCard token={token} orderId={o.id} exFactory={o.exFactory} notice={o.notice} onChanged={onChanged} />}
-      {owed.length > 0 && (
-        <div className="banner banner-warn">
-          <b>We are waiting for {owed.map((m) => m.name.toLowerCase()).join(", ")} from you.</b> Production cannot use it until it arrives.
-        </div>
-      )}
 
       <div className="tabs no-print" role="tablist" aria-label="About this order">
         {TABS.map((t) => (
@@ -107,6 +95,7 @@ function Detail({ token, o, onChanged }: { token: string; o: Order; onChanged: (
       </div>
 
       {tab === "progress" && (
+        <div className="stack">
         <div className="grid-2" style={{ alignItems: "start" }}>
           <section className="card card-pad">
             <div className="section-title">Production</div>
@@ -134,6 +123,20 @@ function Detail({ token, o, onChanged }: { token: string; o: Order; onChanged: (
               ))}
             </ul>
           </section>
+        </div>
+        {o.photos.length > 0 && (
+          <section className="card card-pad">
+            <div className="section-title">Photos from the floor</div>
+            <div className="photo-grid">
+              {o.photos.map((ph) => (
+                <figure key={ph.id}>
+                  <a href={`/api/b/${token}/photos/${ph.id}`} target="_blank" rel="noreferrer"><img src={`/api/b/${token}/photos/${ph.id}`} alt={`${ph.stage}, ${fmtDate(ph.date)}`} loading="lazy" /></a>
+                  <figcaption>{ph.stage} · {fmtDate(ph.date)}</figcaption>
+                </figure>
+              ))}
+            </div>
+          </section>
+        )}
         </div>
       )}
 

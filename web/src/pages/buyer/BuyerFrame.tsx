@@ -1,13 +1,13 @@
 import { ReactNode, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import AppShell, { NavGroup } from "../../components/AppShell";
+import AppShell, { NavItem } from "../../components/AppShell";
 import Icon from "../../components/Icon";
 import { useApi } from "../../components/ui";
 import { useAuth } from "../../lib/auth";
 import { useBadgeRefresh } from "../../lib/badges";
 import type { BuyerData } from "../../lib/buyer";
 
-export interface Badges { requests: number; notifications: number; approvals: number }
+export interface Badges { requests: number; notifications: number }
 
 /**
  * The buyer's pages: a sidebar with real navigation, the way to start a new request, and the
@@ -35,20 +35,11 @@ export default function BuyerFrame({
   if (!data) return <div className="login-wrap faint">Loading…</div>;
 
   const base = `/b/${token}`;
-  const groups: NavGroup[] = [
-    {
-      items: [
-        { to: base, label: "Overview", icon: "overview", end: true },
-        { to: `${base}/orders`, label: "Orders", icon: "orders" },
-        { to: `${base}/requests`, label: "Requests", icon: "requests", badge: badges?.requests },
-      ],
-    },
-    {
-      label: "Updates",
-      items: [
-        { to: `${base}/notifications`, label: "Notifications", icon: "bell", badge: badges?.notifications },
-      ],
-    },
+  const items: NavItem[] = [
+    { to: base, label: "Overview", icon: "overview", end: true },
+    { to: `${base}/orders`, label: "Orders", icon: "orders" },
+    { to: `${base}/requests`, label: "Requests", icon: "requests", badge: badges?.requests },
+    { to: `${base}/notifications`, label: "Notifications", icon: "bell", badge: badges?.notifications },
   ];
   const isAccount = user?.role === "buyer";
 
@@ -56,12 +47,17 @@ export default function BuyerFrame({
     <AppShell
       brand="LoomTrack"
       home={base}
-      groups={groups}
+      items={items}
       action={user?.can_write === 0 ? undefined : { to: `${base}/requests/new`, label: "New request" }}
       account={{
         name: data.buyer.name,
         detail: isAccount ? user?.name : "Private link",
-        extras: isAccount ? <Link className="menu-link" to="/account/password"><Icon name="key" size={16} />Change password</Link> : null,
+        extras: isAccount ? (
+          <>
+            <Link className="menu-link" to={`${base}/details`}><Icon name="user" size={16} />My details</Link>
+            <Link className="menu-link" to="/account/password"><Icon name="key" size={16} />Change password</Link>
+          </>
+        ) : null,
         onSignOut: () => { if (isAccount) signOut(); nav("/", { replace: true }); },
       }}
     >

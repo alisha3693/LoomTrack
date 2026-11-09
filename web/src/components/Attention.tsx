@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 
 export interface AttentionItem {
   key: string;
-  tone: "red" | "amber" | "blue" | "green";
+  tone: "red" | "amber" | "green";
   title: string;
   detail?: ReactNode;
   cta?: string;

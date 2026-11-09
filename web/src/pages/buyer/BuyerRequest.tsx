@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { api } from "../../lib/api";
-import { refreshBadges } from "../../lib/badges";
 import { ago, fmtDate } from "../../lib/format";
 import { FileList, FileUpload } from "../../components/Attachments";
 import { Toast, useApi } from "../../components/ui";
@@ -16,9 +15,6 @@ export default function BuyerRequest() {
 
 function Detail({ token, id }: { token: string; id: string }) {
   const { data: r, error, reload } = useApi<RequestDetailData & { orderId?: number }>(`/api/b/${token}/requests/${id}`);
-  useEffect(() => {
-    if (r) api(`/api/b/${token}/requests/${id}/read`, { method: "POST" }).then(refreshBadges).catch(() => {});
-  }, [token, id, !!r]); // eslint-disable-line react-hooks/exhaustive-deps
   const [message, setMessage] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);

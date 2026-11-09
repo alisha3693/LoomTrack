@@ -26,6 +26,7 @@ export default function OrderDetail() {
   const [toast, setToast] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [shipping, setShipping] = useState(false);
   const [params, setParams] = useSearchParams();
 
   if (error) return <main className="page"><div className="banner banner-error">{error}</div></main>;
@@ -61,6 +62,7 @@ export default function OrderDetail() {
               <button className="btn btn-sm" onClick={() => setRecording(true)}>Record a change</button>
               <button className="btn btn-sm" onClick={() => setEdit({ kind: "exf", current: order.ex_factory })}>Change ex-factory</button>
               <button className="btn btn-sm" onClick={() => setCancelling(true)}>Cancel order</button>
+              <button className={`btn btn-sm${order.production_complete_at ? " btn-primary" : ""}`} onClick={() => setShipping(true)} title="The order has left the factory">Mark shipped</button>
             </>}
           </>}
         />
@@ -68,6 +70,16 @@ export default function OrderDetail() {
         {order.state === "cancelled" && (
           <div className="banner banner-warn" role="status">
             <b>This order was cancelled{order.cancelled_at ? ` on ${fmtDate(order.cancelled_at.slice(0, 10), true)}` : ""}.</b> The buyer was told: “{order.cancel_reason}”
+          </div>
+        )}
+        {order.state === "shipped" && order.shipped_date && (
+          <div className={`banner ${order.shipped_date > order.ex_factory ? "banner-warn" : ""}`} role="status">
+            <b>Shipped on {fmtDate(order.shipped_date, true)}.</b> It was due on {fmtDate(order.ex_factory, true)}: {shipVerdict(order.shipped_date, order.ex_factory)}. The buyer was told.
+          </div>
+        )}
+        {order.state === "active" && order.production_complete_at && (
+          <div className="banner" role="status">
+            <b>Production is complete.</b> Every stage has reached {num(order.qty_total)} pieces. When it leaves the factory, mark it shipped with the date.
           </div>
         )}
         {pending && <PendingWarning w={pending} onDone={(msg) => { setToast(msg); void reload(); }} />}
@@ -163,6 +175,10 @@ export default function OrderDetail() {
             }}
           />
         </Modal>
+      )}
+      {shipping && (
+        <ShipModal orderId={order.id} po={order.po_no} exFactory={order.ex_factory} today={data.today} onClose={() => setShipping(false)}
+          onDone={(msg) => { setShipping(false); setToast(msg); void reload(); }} />
       )}
       {cancelling && (
         <CancelModal orderId={order.id} po={order.po_no} onClose={() => setCancelling(false)}
@@ -415,6 +431,49 @@ function Updates({ updates, onChanged, toast }: { updates: UpdateRow[]; onChange
         )}
       </div>
     </section>
+  );
+}
+
+/** Calendar days between the ex-factory date and the day it shipped, in words. */
+function shipVerdict(shipped: string, due: string): string {
+  const n = Math.round((Date.parse(shipped) - Date.parse(due)) / 86400000);
+  if (n === 0) return "on time";
+  return n < 0 ? `${plural(-n, "day")} early` : `${plural(n, "day")} late`;
+}
+
+function ShipModal({ orderId, po, exFactory, today, onClose, onDone }: { orderId: number; po: string; exFactory: string; today: string; onClose: () => void; onDone: (msg: string) => void }) {
+  const [date, setDate] = useState(today);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function ship(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      await api(`/api/m/orders/${orderId}/ship`, { body: { shippedDate: date } });
+      onDone(`${po} marked shipped and the buyer told`);
+    } catch (e2) {
+      setErr((e2 as Error).message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title={`Mark ${po} shipped`} onClose={onClose}>
+      <form className="stack" onSubmit={ship}>
+        <p className="muted small" style={{ margin: 0 }}>The buyer is told by email that it has shipped. The order leaves the live board and the floor, and its date counts towards on-time shipping.</p>
+        <label className="field"><span>The day it left the factory</span>
+          <input className="input" type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} required autoFocus />
+        </label>
+        {date && <p className="small" style={{ margin: 0 }}>Due {fmtDate(exFactory, true)}: <b>{shipVerdict(date, exFactory)}</b></p>}
+        {err && <p className="error-text" role="alert">{err}</p>}
+        <div className="row" style={{ justifyContent: "flex-end" }}>
+          <button type="button" className="btn btn-ghost" onClick={onClose}>Not yet</button>
+          <button className="btn btn-primary" disabled={busy || !date}>{busy ? "Saving…" : "Mark shipped"}</button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
