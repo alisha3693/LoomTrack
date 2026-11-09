@@ -41,7 +41,7 @@ with sync_playwright() as p:
     pg.on("pageerror", lambda e: errors.append(f"office pageerror: {e}"))
     pg.goto(f"{BASE}/login")
     pg.screenshot(path=OUT / "01-login.png")
-    pg.fill("input[autocomplete=username]", "priya@companya.in")
+    pg.fill("input[autocomplete=username]", "priya@companya.example")
     pg.fill("input[type=password]", "loom1234")
     pg.click("button.btn-primary")
     pg.wait_for_selector("table.board tbody tr")
@@ -67,6 +67,9 @@ with sync_playwright() as p:
     pg.wait_for_selector("text=Cutting")
     time.sleep(0.5)
     pg.screenshot(path=OUT / "04-new-order.png", full_page=True)
+    anyway = pg.locator("label:has-text('create it anyway') input[type=checkbox]")
+    if anyway.count():  # a large order can be over capacity: the form asks for an explicit tick
+        anyway.check()
     pg.click("text=Create order")
     pg.click("[role=tab]:has-text('Plan and delay')")
     pg.wait_for_selector("text=Delay projection")

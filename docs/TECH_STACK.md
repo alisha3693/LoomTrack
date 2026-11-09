@@ -51,7 +51,7 @@ Each decision is tied to a constraint from the brief. Two decisions came from th
 - Fonts: Inter + **Noto Sans Tamil** (Google Fonts, free, open licence).
 
 ### 7. Auth and tenancy
-- **Staff:** phone + PIN (supervisors) or email + password (office) → random session token stored server-side; scrypt-hashed secrets; login lockout after 5 tries. The token is accepted from an `Authorization: Bearer` header (the app) or an `HttpOnly`, `SameSite=Lax` cookie set at login (so the API also works when opened in the browser while signed in). `SameSite=Lax` is what protects the cookie from cross-site requests.
+- **Staff:** phone + PIN (supervisors) or email + password (office) → random session token, kept by the browser in an `HttpOnly`, `SameSite=Lax` cookie and stored server-side only as its SHA-256; scrypt-hashed secrets; login lockout per sign-in name (5 tries) and per address (20 tries), saved in the database. `SameSite=Lax` (plus a refusal of changes the browser marks cross-site) protects the cookie from cross-site requests. Every response carries `nosniff`, frame, referrer and permissions headers and a Content-Security-Policy.
 - **Buyers:** a private link with a random 32-byte token per buyer (revocable and rotatable), or a personal sign-in account (scrypt-hashed password, forced change of the office-issued temporary one, role-checked so it never reaches an office endpoint). The server resolves `buyer_id` from the token and every buyer query is scoped by it. Buyer responses are built field by field from an allow-list: no unit or subcontractor names, no internal status colour, no raw supervisor notes, no unconfirmed warnings. Covered by tests (C3).
 - Staff photos and voice notes are served through short-lived HMAC-signed URLs.
 

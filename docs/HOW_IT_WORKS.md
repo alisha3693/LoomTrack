@@ -15,18 +15,18 @@ A walkthrough of what happens from a supervisor's tap to a buyer's screen. For *
               ├─ routes/        thin HTTP layer: checks who you are, validates input
               ├─ services/      loads data, runs the engine, keeps warnings in step
               ├─ domain/        pure logic: calendar, run-rate engine, TNA templates
-              └─ ai/            note → English translation + reason category
+              └─ ai/            voice → Tamil text (Whisper) → English (IndicTrans2) → reason category
                        |
               SQLite file + uploads folder (photos, voice)
                        |
-              IndicTrans2 on the same machine (GPU or CPU), optional
+              Whisper and IndicTrans2 on the same machine (GPU or CPU), optional
 ```
 
 Three kinds of user hit three separate sets of endpoints, and each set is guarded differently:
 
 | Who | URL prefix | How they're identified |
 |---|---|---|
-| Merchandiser | `/api/m/` | Signs in with email + password → session token (sent as a Bearer header by the app; also set as a cookie) |
+| Merchandiser | `/api/m/` | Signs in with email + password → a session in an `HttpOnly` cookie (the database keeps only its hash) |
 | Supervisor | `/api/s/` | Signs in with phone + PIN → session token, tied to one unit |
 | Buyer | `/api/b/<token>/` | The random token in the link *is* the credential |
 
@@ -35,11 +35,18 @@ Three kinds of user hit three separate sets of endpoints, and each set is guarde
 1. **On the phone** the supervisor enters pieces, optionally a photo and a note (typed, or spoken). The photo is shrunk to ≤1280 px first.
 2. **The update is saved to the phone's own storage (IndexedDB) before anything is sent.** It gets an ID generated on the phone. This is the offline queue.
 3. **The app tries to send it** to `POST /api/s/updates`. If there's no network, it stays queued and retries when the phone reconnects, when the app comes to the foreground, and every 30 seconds.
-4. **The server checks it:** the stage must belong to this supervisor's unit, the order must be active, the date can't be in the future or older than 7 days, the running total can't exceed the order quantity by more than 5%, and a stage can't pass what the stage before it (in our own units) has finished: stitching can't go past what has been cut. The supervisor's list shows each stage's **daily target** (pieces left over the working days left) and how many pieces the stage before has handed over.
+4. **The server checks it:** the stage must belong to this supervisor's unit, the order must be active, the date can't be in the future or older than 7 days, the running total can't exceed the order quantity by more than 5%, and a stage can't pass what the stage before it (in our own units) has finished: stitching can't go past what has been cut. A stage that is still **locked** is refused (see *What the supervisor sees*).
 5. **If the ID has been seen before, the server says "already have it" and does nothing.** That's what stops a retry from double-counting pieces.
-6. **It's stored:** one row in `daily_updates`, one in `photos` if there's a photo, and one empty row in `issue_reasons` if there's a note or voice.
+6. **It's stored:** one row in `daily_updates`, one in `photos` if there's a photo, the recording if there is one, and one empty row in `issue_reasons` if there's a note or voice.
 7. **The order is re-projected right away** (next section), so the board is current.
-8. **If there's a note, the phone doesn't wait for the AI.** The server answers "sent" and classifies the note in the background (a few seconds on the local model). When it finishes, it saves the translation and category and re-projects the order once more, because the reason feeds the suggested buyer message.
+8. **If there's a note or a recording, the phone doesn't wait for the AI.** The server answers "sent" and does the rest in the background (see *Voice notes and the reason*): it writes out a recording as Tamil text when nothing was typed, translates and classifies the note, re-projects the order once more (the reason feeds the suggested buyer message) and tells the office a reason arrived.
+9. **Offline or online makes no difference to the server.** An update that waited in the phone's queue is handled exactly like one sent at once.
+
+### What the supervisor sees
+
+- **A stage is hidden until the office has marked every earlier checkpoint done** (fit sample, fabric in-house, inspections ... whatever comes before it in the plan, and any earlier job-work step such as printing). The rule follows the order of the plan, not any step's name, so it holds for every order and every template. The server refuses an update to a locked stage with "Waiting for the office to mark done: ...". A stage that is not due, has no pieces ready from the stage before, or is finished is hidden as well.
+- **A daily target that does not move.** The target is the pieces left at the start of the day over the working days left, and stays the same all day however many pieces are entered. Beside it the screen says **how many are left to do today**, or a green "target done".
+- **The app date** can be set by hand for testing (`app_clock`, on the supervisor's home screen); the office sees a banner while it is set.
 
 ## Order requests: from a buyer's ask to an order (`services/requests.py`)
 
@@ -68,44 +75,32 @@ A buyer reaches only their own requests: another buyer's request is "not found".
 
 ## Finding your way: the sidebar, search and "needs you"
 
-- **One frame on every signed-in page** (`components/AppShell.tsx`). A sidebar with line icons, labels and counts: for the office Orders, Requests, Approvals, Messages, Buyers, then a **Set up** group (plan templates, units and capacity); for the buyer Overview, Orders, Requests, Messages, Approvals, Documents. The one primary action (**New order** / **New request**) and **Search** sit at the top; the account (theme, sign out, and for buyers the password) at the bottom. The sidebar collapses to icons (and remembers it), and on a phone becomes a tab bar with a **More** sheet. Counts come from `/api/m/meta` and `/api/b/:token/badges` and refresh when something is read or decided. **Search** (press `/` or Ctrl+K anywhere in the office) finds an order, request or buyer by PO, our LT number, request number, style, colour or buyer name, and opens it with Enter (`services/search.py`).
-- **Needs you** is the top of the order board: buyer requests waiting for your answer, buyer messages to answer, approvals the buyer sent back, delay warnings to review, delay notices the buyer has not acknowledged, orders with late materials. One quiet list, one line each, and the same pattern on the buyer's overview. Each line goes straight to the thing (or filters the board to those orders), and "nothing is waiting for you" is said plainly when that is true.
-- **Order page.** Breadcrumbs, a link from the buyer's name to all their orders, **What the buyer sees** (opens the buyer's own page for this order), and seven tabs (Overview, Plan and delay, Conversation, Approvals, Materials, Files and requests, History and floor) that the address remembers (`?tab=`). A pending delay warning, "the buyer is waiting for your reply" and an approval the buyer sent back sit above the tabs whichever one is open. Overview is the short version: the dates, why the date is where it is, whether the buyer has seen the delay notice, and the five latest things that happened.
+- **One frame on every signed-in page** (`components/AppShell.tsx`). A sidebar with line icons, labels and counts: for the office Orders, Requests, Notifications, Buyers, Reports, then a **Set up** group (plan templates, units and capacity, email and WhatsApp); for the buyer Overview, Orders, Requests, Notifications. The one primary action (**New order** / **New request**) and **Search** sit at the top; the account (theme, sign out, and for buyers the password) at the bottom. The sidebar collapses to icons (and remembers it), and on a phone becomes a tab bar with a **More** sheet. Counts come from `/api/m/meta` and `/api/b/:token/badges` and refresh when something is read or decided. **Search** (press `/` or Ctrl+K anywhere in the office) finds an order, request or buyer by PO, our LT number, request number, style, colour or buyer name, and opens it with Enter (`services/search.py`).
+- **Needs you** is the top of the order board: buyer requests waiting for your answer, delay warnings to review, delay notices the buyer has not acknowledged. One quiet list, one line each, and the same pattern on the buyer's overview. Each line goes straight to the thing (or filters the board to those orders), and "nothing is waiting for you" is said plainly when that is true.
+- **Order page.** Breadcrumbs, a link from the buyer's name to all their orders, **What the buyer sees** (opens the buyer's own page for this order), and three tabs (Overview, Plan and delay, History and floor) that the address remembers (`?tab=`). A pending delay warning, the "production is complete" notice and the shipped notice sit above the tabs whichever one is open. Overview is the short version: the dates, why the date is where it is, whether the buyer has seen the delay notice, and the latest things that happened. **Mark shipped** is in the page's actions (see *Production complete and shipped*).
 - **Request page (office).** One column: the decision (accept, ask, propose another date, decline) at the top, then the request, the conversation, the buyer's live orders and how they are going (so the answer can take that into account), and the files. The requests list says in a line what happens next on each one.
-- **Conversation about an order** (`services/order_messages.py`). A buyer can write to the merchandiser from any order (anything that is not a change of date or quantity, which stays a *change request*), and the merchandiser answers in the same thread. It is append-only, capped at 500 messages and 2,000 characters each, and scoped by buyer like everything else: another buyer's order and a cancelled order are simply "not found". The merchandiser's reply is also emailed to the buyer's people (and sent by WhatsApp if they agreed), and a buyer's message is emailed to the merchandisers. The board and the order page show who owes a reply. What was said while the order was still a request (submitted, questions, the proposed date, the acceptance) opens the same conversation, so the history is in one place.
 
-## Messages, read marks and delay-notice receipts (`services/inbox.py`, `services/notices.py`)
+## Delay-notice receipts (`services/notices.py`)
 
-- **One inbox per side** (`/m/messages`, `/b/:token/messages`). Every conversation that has something in it: an order's conversation, or an open request's. Each row shows the last message, how long ago, whose turn it is, and a dot if you have not opened it. Closed requests leave the list; their talk joins the order's.
-- **Read marks.** Opening a conversation records how far you read (`thread_reads`). That gives you the "not opened" dot going away, and gives the other side **Seen by …** under their last message, or "has not opened it yet". Nothing is ever edited.
-- **Delay notices have a receipt.** When the buyer opens a confirmed notice it is *seen*; they can then **Acknowledge** it, optionally with a note, which also goes into the conversation. The order page shows "Not opened by the buyer yet", "Opened … not acknowledged yet" or "Acknowledged …", and the board lists notices nobody has acknowledged.
+- **Delay notices have a receipt.** When the buyer opens a confirmed notice it is *seen*; they can then **Acknowledge** it, optionally with a note. The note is kept on the notice (`warnings.buyer_ack_note`), shown on the order's timeline and emailed to the office. The order page shows "Not opened by the buyer yet", "Opened ... not acknowledged yet" or "Acknowledged ...", and the board lists notices nobody has acknowledged.
 
-## Approvals (`services/approvals.py`)
+## Plan templates and checkpoints
 
 - **Plan templates** follow a buyer's usual knit time-and-action calendar, always in due order: fit sample, lab dip / colour, PP sample, fabric in-house, fabric inspection and shrinkage test, trims in-house, then cutting (printing), stitching, inline inspection, (washing), finishing, packing, final inspection and ex-factory. The merchandiser writes only the English name of a new step. The Tamil name supervisors see is made once, when the step is saved, from a glossary of floor words and then the local translation model (the English name stays if neither can). They are drawn as a chart (bars for production stages, diamonds for milestones) on the templates page and in the editor, and a stage that ends before it starts is refused. A new stage's **process** (cutting, stitching, printing, washing, ...) is chosen from a list: it decides which unit does the stage and which stage the capacity check measures, so the editor refuses a near-miss spelling of a known process. In the editor every production stage has a typed **Starts** and **Due** (days before ex-factory) and they are completely free: stages may overlap, or leave gaps, however the factory really works. The only rule is that a stage starts before it is due. The built-in plans are set up so cutting, (printing), stitching, (washing), finishing and packing each start the day after the one before it ends (lead time about 68 to 81 days from fit sample to ex-factory).
-- The office asks the buyer to approve something on an order: a **fit sample**, a **pre-production sample**, a **lab dip / colour**, **packaging** or something else, with a name and a note. The buyer is emailed (and sent a WhatsApp message if they agreed) and gets a card under **Needs your attention**.
-- The buyer **approves** or **asks for changes** (a reason is required). Changes land under **Needs you** for the office, who answers and **sends it again** (what changed is required) or **withdraws** it. Every step is kept in `approval_events` and cannot be edited.
-- Approving a fit or pre-production sample marks that plan step done (Fit sample approval, PP sample approval) and writes it into the date history, so the plan follows what actually happened.
-- The office sees whether the buyer has opened it. One open approval per kind per order.
+- **Sample approvals are checkpoints the merchandiser marks done** (fit sample, lab dip / colour, PP sample). The app does not ask the buyer to approve anything: the approval happens by email or phone, and the office records it on the plan, which writes it into the date history. Until the early checkpoints are marked, the supervisor does not see the stages after them.
 
 ## View-only buyer accounts
 
-A buyer account is created with **Full access** or **View only** (and the office can switch it later). A view-only account can read everything its buyer can, and every action that changes something (send a message, a request or a change, approve, acknowledge, upload) is refused by the server with a plain message; the screens hide the buttons. A private link always has full access, as before.
+A buyer account is created with **Full access** or **View only** (and the office can switch it later). A view-only account can read everything its buyer can, and every action that changes something (send a request or a change, acknowledge a delay notice, upload) is refused by the server with a plain message; the screens hide the buttons. A private link always has full access, as before.
 
-## The order timeline and the buyer's documents
+## The order timeline and the buyer's pages
 
-- Each order has a **timeline** of what happened and who did it (`services/activity.py`), assembled from the date history, messages, the request's steps, approvals and delay notices. Nothing extra is stored. The buyer's version leaves out what is internal (materials, dismissed warnings, who in the office changed what).
-- **Documents** (`/b/:token/documents`) lists every file shared with the buyer and every file they sent, across orders and requests, with a search box.
-- **Buyer pages.** The **overview** starts with **Needs your attention**: something to approve, a countered date to agree, a question to answer, a new reply, a delay notice to acknowledge, items the buyer must supply. Then **Coming up** (the next ship dates, with progress) and open requests. **Orders** is a sortable table with search. Each order has its own page with tabs (Progress, Conversation, Approvals, Materials, Files and photos, History); a request page begins with whose turn it is and the one thing to do. "New reply" now comes from the server's read marks, so it is the same on every device. The **new request** form asks for the essentials first (PO, style, colour, date, quantities); fabric, colour reference, notes and files are behind one optional section.
+- Each order has a **timeline** of what happened and who did it (`services/activity.py`), assembled from the date history, the request's steps and delay notices (with the buyer's acknowledgement note). Nothing extra is stored. The buyer's version leaves out what is internal (dismissed warnings, who in the office changed what, whether the buyer opened a notice).
+- **Buyer pages.** The **overview** starts with **Needs your attention**: a countered date to agree, a question to answer, a delay notice to acknowledge. Then **Coming up** (the next ship dates, with progress) and open requests. **Orders** is a sortable table with search. Each order has its own page with two tabs (Progress, History), and a shipped order shows its ship date. A request page begins with whose turn it is and the one thing to do. The **new request** form asks for the essentials first (PO, style, colour, date, quantities); fabric, colour reference, notes and files are behind one optional section. The buyer's **My details** (account menu) changes their name, sign-in email and WhatsApp number on one page.
 
-## Fabric and materials (`services/materials.py`, `domain/materials.py`)
+## Fabric
 
-- **Fabric** (type, composition, GSM, a note) is optional on a buyer's request and on a new order, and goes from the request onto the order when it is accepted. An order created with fabric starts with a **Main fabric** line under Materials. The buyer sees type, composition and GSM on their order; the note stays internal.
-- **Materials** are the lines an order needs: fabric, trims, packing. Each is *not ordered*, *ordered* (with an expected date) or *received* (with the date), may be supplied by the buyer (free issue, such as their labels), and names the plan step that needs it. **Add the standard list** adds the usual eight (main and rib fabric, thread, labels, hangtag, polybag, carton).
-- **When it is needed** is read from that step on every request: when a stage starts, or when a milestone is due. Move a step's date and every line that depends on it moves too.
-- **Late, at risk, on track**: late if the expected date is after the need date, the expected date has passed without arrival, or it is needed now with no date; at risk if it is not ordered and needed within 14 days, or ordered with no date and needed within 7; otherwise on track. The board shows "N materials late" beside the delay status. **This does not change the delay projection**, which stays driven only by the floor's numbers.
-- **Fabric in-house**: when every fabric line is received, that plan milestone is marked done on the latest receipt date; taking a received fabric line back unmarks it. Both go into the date history.
-- **What the buyer sees**: for each line only its name, whether it has arrived and when. No supplier, quantity, expected date or lateness. A line the buyer supplies that has not arrived says "We are waiting for this from you".
+**Fabric** (type, composition, GSM, a note) is optional on a buyer's request and on a new order, and goes from the request onto the order when it is accepted. The buyer sees type, composition and GSM on their order; the note stays internal. There is no materials tracking: whether fabric and trims have arrived is not recorded in the app, and the *Fabric in-house* checkpoint is marked by the merchandiser like any other.
 
 ## Capacity check (`services/capacity.py`, `domain/capacity.py`)
 
@@ -129,17 +124,37 @@ Every time numbers change, and every time the board loads, the server recomputes
 |---|---|
 | Order turns amber/red, no warning yet | A **pending** warning is created with a suggested buyer message |
 | Pending warning exists | It's updated to the latest numbers; the draft message is rewritten |
-| Buyer was already told, and it's no worse | Nothing new (the buyer isn't spammed) |
+| Buyer was already told, and it's no worse, and the supervisor's reason is the one they were told | Nothing new (the buyer isn't spammed) |
+| Buyer was told, and the supervisor has since given a *different* reason | A new **pending** draft with the new reason, for the office to review and send (a draft you dismissed is not offered again for the same reason) |
 | Order recovers to green | Pending warning → *superseded*; confirmed warning → *resolved* |
+
+A **new** warning (not an update to a draft) also emails every merchandiser "Delay detected on PO ...", once. The warning remembers the app date it was raised on and the reason it was written around (`warned_on`, `reason_category`).
+
+## Production complete and shipped (`services/shipping.py`)
+
+- When the last production stage reaches the order quantity, every merchandiser is emailed once ("Production complete on PO ..."). The order page shows a banner and the **Mark shipped** button turns blue.
+- **Mark shipped** asks for the day the order left the factory (not in the future) and shows "due ...: 2 days late" before you confirm. The order becomes `shipped`: it leaves the live board and the supervisor's list, the ex-factory checkpoint is marked done on that date, open warnings are closed, and the buyer is emailed. The shipped date against the ex-factory date is what the *Shipped on time* report counts.
+
+## Reports (`services/reports.py`)
+
+The office **Reports** page measures the client's goals from what the app already records: how many shipped orders were late (against 5%, where the client is at 8% today), how many days ahead the first delay warning came (against 14), which supervisors sent updates today and in the last seven days, and how often each buyer opened their own page (`buyer_visits`, a counter per buyer and day, never what was looked at).
+
+## The weekly status email (`services/weekly.py`)
+
+From a chosen day and hour (Monday 08:00 unless `LOOMTRACK_WEEKLY_DAY` and `LOOMTRACK_WEEKLY_HOUR` say otherwise; `LOOMTRACK_WEEKLY=off` stops it) each buyer's people get one email a week with a line per order and the buyer edition of the Excel file attached. The outbox is the record of what was queued, so a restart the same morning sends nothing twice. It shows only that buyer's orders and never the internal green, amber or red: a delay reaches a buyer only after a merchandiser confirms it.
+
+## My details (`/api/auth/profile`)
+
+Buyers and merchandisers change their own name, sign-in email and phone on one page. A new email needs the current password and signs the other devices out. A buyer's number is the company's WhatsApp number and typing it records the agreement to receive messages; a merchandiser's phone is only a contact number. Supervisors sign in with their phone number, which the office changes on the Units page. The office does not change a buyer's email or number: the buyer does it here. On the buyer's profile the office can add a person, set full or view-only access, issue a new temporary password and remove a sign-in.
 
 ## Cancelling an order (`cancel_order` in `services/orders.py`)
 When an order cannot go ahead (a delay that cannot be recovered, say), the merchandiser uses **Cancel order** on the order page and writes one reason. It is a single step with no discussion: the order's state becomes `cancelled`, its open delay notices are closed, and the buyer gets an email with the reason. WhatsApp is not used (the three approved templates are kept for request received, request accepted and delay notice). The buyer's page lists the order under *Cancelled* with the reason, and the link in the email opens it. A cancelled order cannot be reopened.
 
 ## The notifications page (`services/feed.py`)
-Both sides have a **Notifications** page that lists what the app has told them, newest first and grouped by day. Nothing new is stored for it: every email is already recorded in `outbox_messages`, and the page shows one entry per event (not per recipient). Buyers see what their merchandiser sent them; the office sees what buyers did (new requests, answers, approvals, acknowledged delay notices). The sidebar badge counts entries newer than the last visit, kept in `feed_reads`. The old setup page for email and WhatsApp is now called *Email and WhatsApp* under Set up. Buyers no longer have a Messages page or an order Conversation tab.
+Both sides have a **Notifications** page that lists what the app has told them, newest first and grouped by day. Nothing new is stored for it: every email is already recorded in `outbox_messages`, and the page shows one entry per event (not per recipient). Buyers see what their merchandiser sent them; the office sees what buyers did (new requests, answers, supervisor reasons, detected delays, completed production, acknowledged delay notices). The sidebar badge counts entries newer than the last visit, kept in `feed_reads`. The setup page for email and WhatsApp is called *Email and WhatsApp* under Set up. Floor reasons from supervisors show up here immediately as "Supervisor reported".
 
 ## Reset test data (`services/reset.py`)
-On a test machine only: with `LOOMTRACK_ALLOW_RESET=1` in `backend/.env`, *Reset test data* appears under Set up. After typing RESET it saves a copy of the database to `data/backups/`, then removes all orders and everything under them, change requests, uploaded order files and the sent-message record. Buyers, sign-ins, units, plan templates and the buyers' requests stay; a request that had become an order goes back to *submitted* so it can be accepted again. Without the setting the page and its endpoints do not exist.
+On a test machine only: with `LOOMTRACK_ALLOW_RESET=1` in `backend/.env`, *Reset test data* appears under Set up. After typing RESET it saves a copy of the database to `data/backups/`, then removes all orders and everything under them (supervisor updates, photos, delay notices), change requests, uploaded order files and the sent-message record. Buyers, sign-ins, units, plan templates and the buyers' requests stay; a request that had become an order goes back to *submitted* so it can be accepted again. Without the setting the page and its endpoints do not exist.
 
 ## Warnings and the confirm-before-buyer rule
 
@@ -151,18 +166,20 @@ On a test machine only: with `LOOMTRACK_ALLOW_RESET=1` in `backend/.env`, *Reset
 
 A warning is invisible to buyers until a merchandiser confirms it. Confirming also queues the message to the buyer in `outbox_messages` (email, and WhatsApp for a buyer who agreed), shown under **Buyers, Sent messages**. This is deliberate: the AI or the engine can be wrong, and a delay notice to a UK buyer is a business decision.
 
-## The AI step (`ai/classifier.py`)
+## Voice notes and the reason (`ai/speech.py`, `ai/translate.py`, `ai/classifier.py`)
 
-- The Tamil note is translated to English by IndicTrans2 (two small open models, one for each direction, MIT licence) running on this machine: on the GPU when there is one, on the CPU otherwise. The category is then chosen by the keyword rules from the note and its translation together, from a fixed list of 11 reason categories. So the category is only ever a guess, and the confidence number never goes above 0.6.
-- **Both the AI's answer and the human's answer are stored, in separate columns** (`ai_category` and `final_category`). When a merchandiser changes the category, the AI's original guess stays visible ("AI said …").
+- **Voice to text.** A recording with no typed note is written out as Tamil text on this machine by Whisper (large-v3, run by faster-whisper, free, about 3 GB, downloaded once with `python -m loomtrack.ai.setup_speech`). It is given the app's own Tamil reason words as a spelling hint, because Whisper otherwise drops letters in them. Silence and noise give no text. The text is marked "voice, written out by AI: check by listening" and the recording stays for the merchandiser to play. Without the model, a voice note stays a recording.
+- **Translation.** The Tamil note is translated to English by IndicTrans2 (two small open models, one for each direction, MIT licence), one sentence at a time, on the GPU when there is one and on the CPU otherwise. The category is then chosen by the keyword rules from the note and its translation together, from a fixed list of 11 reason categories. So the category is only ever a guess, and the confidence number never goes above 0.6.
+- **Both the AI's answer and the human's answer are stored, in separate columns** (`ai_category` and `final_category`). When a merchandiser changes the category, the AI's original guess stays visible ("AI said ..."), and the delay draft's message follows the change.
 - A later AI run never overwrites a category a person set by hand.
-- If the models are not downloaded, or fail, the keyword rules alone give the first guess and the note has no translation. The record says which one produced it (`ai_source`) and keeps any error. The account menu (bottom of the sidebar) shows **Translation on** or **Keywords only**, and why. The same models write a suggested Tamil name for new plan steps (after a glossary of floor words) and can translate English text for supervisors.
+- If the models are not downloaded, or fail, the keyword rules alone give the first guess and the note has no translation. The record says which one produced it (`ai_source`) and keeps any error. The account menu shows **Translation on** or **Keywords only**, and why. The same translation models write a suggested Tamil name for new plan steps (after a glossary of floor words).
+- **Telling the office.** Once a reason is classified (and is not "no issue"), every merchandiser is emailed "Supervisor reported on PO ..." with the category, the English translation and the supervisor's words.
 
 ## What buyers can see (`services/buyer_view.py`)
 
 The buyer endpoints never reuse the office responses. They build a separate response field by field:
 
-- **Included:** PO, style, colour, sizes, quantities, ex-factory, progress per stage, milestones, photos (unless hidden), date-change history, and *confirmed* notices.
+- **Included:** PO, style, colour, sizes, quantities, ex-factory, shipped date, progress per stage, milestones, photos (unless hidden), date-change history, and *confirmed* notices.
 - **Left out on purpose:** unit and subcontractor names, status colour, slack, supervisor names and notes, unconfirmed warnings.
 - Every query is filtered by the buyer ID found from the link's token. There's no buyer ID in the URL a buyer could change.
 - A buyer's token can't be used as a staff session, and rotating the link kills the old one at once.
@@ -180,12 +197,10 @@ Changing ex-factory, or any planned date, requires a reason and writes a row to 
 | Order board | `/m` | `GET /api/m/board?buyer=&unit=&week=` |
 | New order | `/m/orders/new` | `POST /api/m/plan-preview`, `POST /api/m/orders` |
 | Order detail | `/m/orders/:id` | `GET /api/m/orders/:id`, warning confirm/dismiss, date changes, reason override |
-| Materials (on the order) | `/m/orders/:id` | `GET`/`POST /api/m/orders/:id/materials`, `POST .../materials/standard`, `PATCH`/`DELETE /api/m/materials/:id` |
 | Units and capacity | `/m/units` | `GET /api/m/units`, `PATCH /api/m/units/:id`, `POST /api/m/capacity/check` |
 | Buyers | `/m/buyers` (list), `/m/buyers/:id?tab=` (Orders, People and access, Link and exports, Sent messages) | `GET /api/m/buyers`, `/exports/weekly`, `/outbox`, `PATCH /api/m/buyer-logins/:id` (full access or view only) |
-| Messages (office) | `/m/messages` | `GET /api/m/inbox`, `POST /api/m/orders/:id/messages/read`, `POST /api/m/requests/:id/read` |
-| Approvals (office) | `/m/approvals`, order page tab | `GET /api/m/approvals`, `POST /api/m/orders/:id/approvals`, `POST /api/m/approvals/:id/resubmit`, `/withdraw` |
-| Messages, approvals, documents (buyer) | `/b/:token/messages`, `/approvals`, `/documents` | `GET /api/b/:token/inbox`, `/badges`, `/approvals`, `/documents`, `POST .../approvals/:id/approve`, `/changes`, `GET .../orders/:id/activity`, `POST .../orders/:id/notice/seen`, `/notice/acknowledge` |
+| Mark shipped, Reports | order page, `/m/reports` | `POST /api/m/orders/:id/ship`, `GET /api/m/reports` |
+| Buyer: badges, notifications, timeline, delay notices | sidebar, order page | `GET /api/b/:token/badges`, `/feed`, `GET .../orders/:id/activity`, `POST .../orders/:id/notice/seen`, `/notice/acknowledge` |
 | Requests | `/m/requests`, `/m/requests/:id` | `GET /api/m/requests?filter=`, `POST /api/m/requests/:id/query`, `/counter`, `/accept`, `/decline` |
 | Buyer: new request | `/b/:token/requests/new` | `POST /api/b/:token/requests` |
 | Buyer: one request | `/b/:token/requests/:id` | `GET /api/b/:token/requests/:id`, `POST .../reply`, `.../agree`, `.../withdraw` (shown as "Cancel request") |
@@ -202,10 +217,10 @@ Changing ex-factory, or any planned date, requires a reason and writes a row to 
 | Supervisor update | `/s/update/:id` | `POST /api/s/updates` (through the offline queue) |
 | Buyer: overview | `/b/:token` | `GET /api/b/:token`, `GET /api/b/:token/requests` |
 | Buyer: orders | `/b/:token/orders` | `GET /api/b/:token` |
-| Buyer: one order | `/b/:token/orders/:id?tab=` | `GET /api/b/:token`, `GET`/`POST /api/b/:token/orders/:id/messages` |
+| Buyer: one order | `/b/:token/orders/:id?tab=` | `GET /api/b/:token`, `GET /api/b/:token/orders/:id/activity` |
 | Buyer: requests | `/b/:token/requests` | `GET /api/b/:token/requests` |
 | Office: search | `/` or Ctrl+K anywhere | `GET /api/m/search?q=` |
-| Order conversation (office) | `/m/orders/:id` | `GET`/`POST /api/m/orders/:id/messages` |
+| My details | `/m/details`, `/b/me/details` | `GET`/`PATCH /api/auth/profile` |
 
 Live API docs with every endpoint: http://localhost:4000/api/docs
 
@@ -221,7 +236,8 @@ buyers ──< orders >── units        attachments hang off a request, an or
              │                  └── issue_reasons    (AI result + human decision, kept apart)
              ├──< warnings            pending / confirmed / dismissed / superseded / resolved
              └──< date_changes        append-only audit trail
-users ──< sessions          outbox_messages (email / WhatsApp)
+users ──< sessions          outbox_messages (email / WhatsApp)       buyer_visits (page-view counters)
+                            app_clock (the test date)               unit_capacity (pieces a day per stage)
 ```
 
 `plan_steps` holds each step once (its English and Tamil name, and whether it is a stage or a milestone), so an order's `milestones` rows only store that order's dates. A *stage* is a production step with quantities (cutting, printing, stitching, washing, finishing, packing). A *milestone* is a dated checkpoint (sample approval, inspection, ex-factory). Both live in `milestones`, told apart by `kind`.
@@ -236,11 +252,12 @@ backend/loomtrack/
   security.py          password hashing, session tokens, signed media URLs
   deps.py              "who is signed in", role guards
   domain/              no database, no web: calendar, runrate, tna templates, reason list
-  services/            orders (projection + warnings), templates (load/validate/save), requests (order requests), attachments (files), buyer_view, export (Excel)
-  routes/              auth, merchandiser, templates, requests (both sides), attachments, supervisor, buyer
-  ai/translate.py      IndicTrans2 Tamil<->English, ai/classifier.py keyword rules
+  services/            orders (projection + warnings), shipping, reports, weekly (status email), templates, requests, attachments (files), buyer_view, notices,
+                       activity, feed, capacity, clock, notify + delivery (email and WhatsApp), reset, export (Excel), search
+  routes/              auth (+ My details), merchandiser, capacity, templates, requests (both sides), attachments, flow, notifications, supervisor, buyer
+  ai/translate.py      IndicTrans2 Tamil<->English, ai/speech.py Whisper, ai/classifier.py keyword rules
   seed.py / explain.py demo data / prints the run-rate maths for every order
-backend/tests/         136 tests
+backend/tests/         216 tests
 web/src/
   App.tsx              routes + role guards
   lib/                 api client, auth, Tamil strings, offline outbox, photo/voice helpers, theme
@@ -263,17 +280,25 @@ e2e/                   browser walkthrough + offline test
 
 Anything that needs the other side's attention also reaches them outside the app, so a buyer who has not opened LoomTrack still hears that their merchandiser replied.
 
-- **One list of events**, `services/notify.py`: 11 to the buyer's people (request received, question, proposed date, declined, accepted; change accepted or recorded; delay notice; a message; approval requested or sent again) and 5 to the merchandisers (a request arrived, a buyer answered, a buyer wrote, an approval decided, a delay notice acknowledged). Each has its email text and, for the buyer's events, its WhatsApp wording. Every place that used to write a mock email now calls `notify.send()`, inside the same transaction as the change, so a message exists if and only if the change was saved.
+- **One list of events**, `services/notify.py`: 11 to the buyer's people (request received, question, proposed date, declined, accepted; change accepted or recorded; delay notice; order shipped; the weekly status; order cancelled) and 6 to the merchandisers (a request arrived, a buyer answered, the supervisor reported a reason, a delay was detected, production is complete, a delay notice was acknowledged). Each has its email text and, for the buyer's events, its WhatsApp wording. Every place that used to write a mock email now calls `notify.send()`, inside the same transaction as the change, so a message exists if and only if the change was saved.
 - **Who gets it.** Email goes to each signed-in person of the buyer (and to every merchandiser for the office events). WhatsApp goes only to a buyer whose number is on file **with the box ticked that they agreed to it**; the agreement, who recorded it and when are stored, and the buyer can reply STOP to switch it off. A buyer with no email address, or with email switched off, gets a row marked *skipped* with the reason instead of silence.
 - **Sending is separate from asking.** `send()` only writes rows. A loop in the server (`services/delivery.py`, every 10 seconds, only while a provider is set up) sends the queued ones: email through any SMTP server (Python's `smtplib`), WhatsApp through Meta's Cloud API (`httpx`). A failure stays on the row with its reason; it is tried again after 1, 5 and 30 minutes, then marked *failed* and the office can press **Send again**. A wrong number or a template that does not exist fails at once.
 - **What comes back.** Meta calls `/api/webhooks/whatsapp` with delivery reports (sent, delivered, read, failed), which move the row forward and never back, and with replies; *STOP* switches WhatsApp off for that number. The call is accepted only if it is signed with the app secret.
 - **Nothing is set up by default.** Without settings the messages are only recorded (status *recorded only*), exactly as before. Settings live in `backend/.env` (see `backend/.env.example`); they never reach the browser or the database. **Notifications** in the sidebar shows what is connected, sends a test message, and lists the events.
 - The WhatsApp wording submitted to Meta is generated from the same list: [WHATSAPP_TEMPLATES.md](WHATSAPP_TEMPLATES.md).
 
+## Running it: sign-in, health, logs and backups
+
+- **Sign-in.** The server sets one `HttpOnly` cookie; the app holds no token and sends no header, and the database keeps only the token's hash (`security.hash_token`). A cookie session is refused on a change the browser marks as coming from another site. Wrong passwords are counted per sign-in name (5 tries, locked 5 minutes) and per address (20 tries in 15 minutes, locked 15 minutes) in `login_attempts` (`services/lockout.py`). Behind a tunnel or proxy on the same machine the address is read from `CF-Connecting-IP` or `X-Forwarded-For`; from anywhere else those headers are ignored.
+- **Files.** A supervisor's photo or voice note is identified from its own first bytes (`sniff_media` in `routes/supervisor.py`); the phone's claimed type is ignored. Design files are checked the same way (`services/attachments.py`). Every response carries `nosniff`, frame, referrer and permissions headers and a Content-Security-Policy built in `main.py` (scripts only from this server, plus the page's one inline theme script by its hash). All of this is in `edge.py`.
+- **Health.** `GET /api/health` needs no sign-in and says nothing about people or orders: `ok`, `database`, `uploads`, `schema`, `translation`, `speech`, `lastBackup`. It answers 503 when the database or the uploads folder fails; a missing language model is not a failure. Point an uptime monitor at it.
+- **Log.** One JSON line per request in the console and in `data/logs/access.log` (5 MB files, the last 5 kept): time, request number (also the `X-Request-ID` response header), method, path with the private buyer link hidden, status, milliseconds, address. No bodies, no query strings, no passwords or sessions. Requests over one second are logged as warnings; an unhandled error is logged with its traceback and the person sees only its request number.
+- **Backups.** About once a day the app copies the database (SQLite online backup, checked, newest 14 kept as `daily-<date>-<time>.db`) and mirrors the uploaded files (`services/backup.py`) into `data/backups/`. `python -m loomtrack.backup` does the same now, safely while the app runs. Set `LOOMTRACK_BACKUPS` to another drive or a synced folder, or the copies share a disk with the data. **Restore:** stop the app, copy a `daily-*.db` over `data/loomtrack.db` (delete `loomtrack.db-wal` and `-shm`), copy `backups/uploads/` back over `uploads/`, start the app.
+
 ## What is mocked or limited today
 
 - Email and WhatsApp are real only once you add the settings to `backend/.env` (and, for WhatsApp, Meta has approved the templates). Until then every message is recorded in the app and nothing leaves it. WhatsApp is one-way apart from STOP: a buyer's reply on WhatsApp is not added to the conversation.
-- Materials are tracked by hand; nothing reads a purchase order or a supplier's confirmation. The capacity check models stitching only, with even spreading, and assumes the unit's stated capacity is real.
-- Voice: the original audio is always kept for the merchandiser. The live transcript uses the phone browser's speech service where available; local Whisper is on the to-do list.
+- The capacity check spreads work evenly and assumes the unit's stated capacity is real.
+- Voice: the original audio is always kept for the merchandiser. Whisper's Tamil is fair, not perfect: a misheard word shows up as a wrong translation, so the text is labelled for checking and the category can be changed. A new email or phone number in My details is not verified by a code.
 - The run rate is a 7-day average and doesn't model capacity shared between orders on one line (see RUN_RATE.md, "Known limits").
 - One SQLite file is right for this size. Postgres is the path if the client wants managed backups.

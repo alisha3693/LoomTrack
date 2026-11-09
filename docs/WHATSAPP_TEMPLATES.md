@@ -10,7 +10,7 @@ LoomTrack keeps WhatsApp to what matters to a buyer: **where their order is**. T
 2. **Order confirmed**: it is accepted, with our order number.
 3. **Delay**: production is behind plan; they acknowledge it on the page.
 
-Everything else (the merchandiser and the supervisors working on the order, messages, approvals) stays in the app, with email for the office. WhatsApp is used only for **buyers who agreed to it** (the merchandiser records the number and the buyer's agreement on the buyer's profile; the agreement, who recorded it and when are stored). Every message is one of the **3 templates** below, all in the **Utility** category: each one is about an order the buyer already has with the company, and none promotes anything.
+Everything else (the merchandiser and the supervisors working on the order) stays in the app, with email for the office. WhatsApp is used only for **buyers who agreed to it** (the merchandiser records the number and the buyer's agreement on the buyer's profile; the agreement, who recorded it and when are stored). Every message is one of the **3 templates** below, all in the **Utility** category: each one is about an order the buyer already has with the company, and none promotes anything.
 
 A buyer can stop WhatsApp at any time by replying **STOP**; the webhook switches it off at once. Every template carries that line as its footer.
 
@@ -277,15 +277,14 @@ Emails go to the buyer's signed-in accounts (their email addresses), one message
 | `change_accepted` | Buyer's people | yes | email only | A change the buyer asked for on an order was accepted |
 | `change_recorded` | Buyer's people | yes | email only | The merchandiser recorded a change the buyer asked for outside the app |
 | `delay_notice` | Buyer's people | yes | `loomtrack_delay_notice` | The merchandiser confirmed a delay notice for an order |
+| `order_shipped` | Buyer's people | yes | email only | The merchandiser marked an order as shipped |
+| `weekly_status` | Buyer's people | yes | email only | Every week: where each of the buyer's orders stands (the Excel file is attached) |
 | `order_cancelled` | Buyer's people | yes | email only | The merchandiser cancelled an order |
-| `order_message` | Buyer's people | yes | email only | The merchandiser wrote in an order's conversation |
-| `approval_requested` | Buyer's people | yes | email only | The merchandiser asked for an approval (sample, lab dip, packaging) |
-| `approval_resubmitted` | Buyer's people | yes | email only | The merchandiser sent an approval again after the buyer asked for changes |
 | `request_submitted` | Merchandisers | yes | email only | A buyer sent a request (new order or a change) |
 | `buyer_reply` | Merchandisers | yes | email only | A buyer answered on a request |
-| `order_message_in` | Merchandisers | yes | email only | A buyer wrote in an order's conversation |
-| `approval_decided` | Merchandisers | yes | email only | A buyer approved, or asked for changes |
 | `supervisor_reported` | Merchandisers | yes | email only | The supervisor sent a reason for a problem on the floor |
+| `delay_detected` | Merchandisers | yes | email only | LoomTrack found an order running late (a new delay warning to look at) |
+| `production_complete` | Merchandisers | yes | email only | Every stage of an order has reached the full quantity |
 | `notice_acknowledged` | Merchandisers | yes | email only | A buyer acknowledged a delay notice |
 
 ## What happens when sending fails

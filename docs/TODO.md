@@ -25,7 +25,7 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` not started. Updated as wor
 - [ ] Notifications: Tamil versions of the WhatsApp templates; a buyer's WhatsApp reply added to the conversation (today only STOP is understood); a reminder when an approval has waited for days; a choice of events per person
 - [ ] Buyer accounts: email the invitation and the temporary password through the new mail sender (the office still passes it on by hand)
 - [x] Read receipts both ways (seen / not opened) for conversations, approvals and delay notices
-- [x] One inbox per side, a request's talk carried onto its order, a timeline per order
+- [x] A request's talk carried onto its order, a timeline per order (the separate inbox list and its read marks were removed on 9 Nov: nothing used them any more)
 - [x] Buyer approvals (fit, pre-production, lab dip, packaging) with a trail, completing the plan step
 - [x] View-only buyer accounts
 - [x] Sidebar frame for both sides (tab bar on a phone), buyer documents page, buyer profile page for the office
@@ -70,9 +70,11 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` not started. Updated as wor
 - [x] Warning lifecycle: generated → merchandiser confirms / dismisses → buyer sees confirmed only
 
 ### AI reason category  *(AI requirement)*
-- [x] Tamil to English and English to Tamil with IndicTrans2 on this machine (GPU or CPU); the category comes from keyword rules over the note and its translation. Ollama is no longer used
+- [x] Tamil to English and English to Tamil with IndicTrans2 on this machine (GPU or CPU), one sentence at a time; the category comes from keyword rules over the note and its translation. Ollama is no longer used
 - [x] Keyword fallback when the models are not downloaded or fail, or AI is switched off
-- [ ] Download the models with a Hugging Face token (`python -m loomtrack.ai.setup_models`) and check the translations on real supervisor notes
+- [x] Models downloaded with a Hugging Face token (`python -m loomtrack.ai.setup_models`), running on the GPU
+- [ ] Check the translations on real supervisor notes (some phone recordings are still misheard or mistranslated; see the eval item below)
+- [ ] Use the larger IndicTrans2 1B models for better translations: needs access requested on Hugging Face for `indictrans2-indic-en-1B` and `en-indic-1B`, then a switch in `ai/translate.py` (about 4 GB each, fits the 6 GB GPU in half precision)
 - [ ] Eval script: labelled Tamil notes → translation and category accuracy
 - [x] Order detail shows original note beside translation; merchandiser can change category
 
@@ -90,7 +92,8 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` not started. Updated as wor
 - [x] Installable on a phone: PNG and maskable icons, a complete manifest, an install page and banner (Android prompt, iPhone steps), a one-time Tamil welcome, offline start checked in a phone-sized browser, install link on the Units page (docs/SUPERVISOR_INSTALL.md)
 - [ ] Try the install on one real Android phone and one iPhone (camera and microphone prompts inside the installed app, voice on iOS); have a Tamil speaker read the new Tamil wording
 - [ ] Supervisors: self-service PIN reset, and a QR code for the install link
-- [ ] Server-side Tamil speech-to-text with faster-whisper (open source)
+- [x] Server-side Tamil speech-to-text with faster-whisper (Whisper large-v3, local, free): a voice note with no typed text is written out, translated, classified, shown as "AI-written, check by listening"; the recording stays. The app's own reason words are given to Whisper as a spelling hint (`python -m loomtrack.ai.setup_speech`)
+- [ ] Measure Whisper on real phone recordings from supervisors on the floor (noise, accents, short phrases); tune the hint and the silence filter from the results
 
 ## Phase 2b — Found while testing (5 Nov)
 - [x] Browser walkthrough of every screen (e2e/walkthrough.py) and offline-queue test (e2e/offline_test.py)
@@ -102,18 +105,48 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` not started. Updated as wor
 - [x] Dark mode: follows device, toggle on every screen (system → light → dark), print stays light
 - [ ] AI still mis-files some notes (thread → fabric). Build the labelled eval set and compare models
 
+## Phase 2c — Floor, office and buyer flow (8-9 Nov)
+- [x] A stage is hidden from the supervisor, and refused by the server, until every earlier checkpoint and subcontract step before it is marked done by the office (no hardcoded step names; follows the plan order)
+- [x] Daily target is fixed for the day, with a "left to do today" figure that counts pieces already sent, or a green "target done"
+- [x] The delay notice draft quotes the supervisor's latest reason in English (his translated words); it follows new notes while still a draft
+- [x] A new supervisor reason after a notice was sent creates a new draft in Plan and delay (once per new reason; a dismissed one is not offered again for the same reason)
+- [x] "Supervisor reported" notification to the office the moment a reason is classified (email, plus the notifications page)
+- [x] "Delay detected" email to every merchandiser when LoomTrack creates a new delay warning
+- [x] Simpler screens: approvals, messages, materials and files hidden from the office and buyer sidebars and order tabs (the code and tables stay for now); the buyer sees progress and history only
+- [x] "My details" for buyers and merchandisers: name, sign-in email and phone in one form (a new email asks for the current password; a buyer's number is their WhatsApp opt-in); the office no longer edits a buyer's email or number (the Notifications tab and the Edit form on the buyer's profile were removed, because the buyer changes them in My details)
+- [x] WhatsApp permanent system-user token in place (checked valid, never expires); the number behind it is still Meta's test number
+- [x] A test date for the whole app (`app_clock`) set from the supervisor's home screen, and a reset page that clears orders and floor data and keeps buyers, people and requests
+- [x] Phone testing through a free Cloudflare quick tunnel (`cloudflared tunnel --url http://localhost:4000`); the address changes each time
+- [x] Removed the hidden buyer approvals, the conversation about a live order and materials tracking: routes, services, screens, tables (dropped on open, schema v18) and their tests. Design and other files on requests and orders stay (buyers submit designs with a request)
+- [ ] Tamil wording I wrote (target left, target done, welcome) needs a Tamil speaker's review
+- [ ] A new email or phone number is not verified (no code sent to it); needs the mail and WhatsApp senders to be live first
+- [ ] A buyer company shares one WhatsApp number; per-person numbers if the client wants them
+- [ ] A merchandiser's phone number is stored and shown on My details but is not used anywhere yet; office alerts are email only (WhatsApp for the office would need new Meta templates)
+- [x] The demo addresses no longer use a real-looking domain: `companya.in` became `companya.example` (the `.example` ending can never be delivered). Put real addresses in My details or the buyer's Edit form before real use
+- [x] HOW_IT_WORKS and DB_SCHEMA brought up to date (stage lock, fixed daily target, voice-to-text, delay drafts per reason, shipping, reports, weekly email, My details, test date, versions 14 to 18)
+
+- [x] Shipping and reports added (schema v17: `orders.shipped_date`, `orders.production_complete_at`, `warnings.warned_on`, `buyer_visits`)
+- [ ] Warnings raised before 9 Nov have no recorded raise date, so their lead time uses the real calendar date; new ones use the app date
+
+- [x] The browser scripts in `e2e/` match the current screens: `journey.py` was rewritten (24 checks across supervisor, office and buyer, run on a fresh seed), `walkthrough.py`, `offline_test.py` and `pwa.py` pass, and `a11y.py` lists the current pages (the axe scan itself still needs a re-run after the re-theme)
+- [x] Dead code removed (9 Nov): the inbox list and the read marks (endpoints, service, `thread_reads` table, web calls), the office's edit of a buyer's email switch and WhatsApp number (buyers do it in My details), an unused domain copy of the earliest-fit search, unused helpers and imports, and about 40 unused style rules. Backend tests 234 to 227 (the removed code's tests); schema version 20
+- [x] Buyers now see the floor's photos on their order (the server already sent them, the page never showed them)
+
 ## Phase 3 — Hardening (pre-pilot)
-- [ ] Mark an order shipped and record the actual ship date (without it the 8% → 5% late-shipment goal can't be measured)
-- [ ] `/api/health` endpoint (database reachable, translation models loaded)
-- [ ] Hash session tokens in the database (stored in plain text today)
-- [ ] Move the app from the localStorage Bearer token to the `HttpOnly` cookie only (the cookie exists since login sets it; the app still sends the header)
-- [ ] Upload checks: verify file signatures, send `X-Content-Type-Options: nosniff`, add a Content-Security-Policy
-- [ ] Login lockout per IP as well as per login, persisted across restarts
-- [ ] Reports: warning lead time, supervisor adoption (no update today), buyer link views
-- [ ] Structured request logging with durations
+- [x] Mark an order shipped with the actual ship date (button on the order, buyer told by email, order leaves the board and floor, ex-factory step marked done); the office is told once when production is complete
+- [x] `/api/health` endpoint: database reachable, uploads writable, translation and speech state, time of the last backup; 503 when the database or uploads fail. Point an uptime monitor at it
+- [x] Session tokens are stored as their SHA-256 (schema v19); sessions already in the database were hashed in place, nobody was signed out
+- [x] The app uses the `HttpOnly` cookie only: login no longer returns the token, nothing is kept in localStorage (an old `lt.token` is deleted), the app sends no header. A cookie session is refused on a change the browser says came from another site (`Sec-Fetch-Site`)
+- [x] Upload checks: supervisor photos and voice notes are now identified from their first bytes (JPEG, PNG, WebP; WebM, Ogg, MP4 audio) and stored under the real type; design files already were. Every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` and a Content-Security-Policy (scripts only from this server plus the one inline theme script by hash; HSTS over HTTPS)
+- [x] Login lockout per sign-in name (5 wrong tries, 5 minutes) and per address (20 wrong tries in 15 minutes, locked 15 minutes), kept in the database so a restart does not clear it. The address behind a tunnel or proxy on this machine is read from `CF-Connecting-IP` / `X-Forwarded-For`
+- [x] Reports page: shipped on time against the 8% to 5% goal, how many days ahead the first warning came (goal 14), supervisors who sent updates today and this week, buyer page views
+- [ ] Reports: a per-month trend, export to Excel, and a shipped-orders view on the board; buyer page views count opens of the page, not who looked (a baseline of buyer status emails before LoomTrack is needed to show the 60% drop)
+- [x] Request log: one JSON line per request (time, request number, method, path with the private link hidden, status, milliseconds, address) to the console and `data/logs/access.log` (5 MB, 5 files); slow requests (over 1 s) and errors stand out; an unhandled error is logged with its traceback and the person sees only the request number. No bodies, query strings, passwords or sessions are logged
 - [x] Rate limiting on login
 - [ ] Postgres migration path tested (only if the client wants it)
-- [ ] Backups (DB + photos)
+- [x] Backups: the database is copied about once a day (SQLite online backup, integrity-checked, newest 14 kept) and uploaded photos, voice notes and files are mirrored, into `data/backups/`. Run one now with `python -m loomtrack.backup`; `LOOMTRACK_BACKUP=off` stops it
+- [ ] Put the backups where losing this computer does not lose them (`LOOMTRACK_BACKUPS` on another drive or a synced folder), and try a restore on a clean machine once
+- [ ] Point an uptime monitor at `/api/health` and decide who reads `data/logs/access.log`
 - [ ] Field test on a 2 GB Android phone over throttled 3G
 
 ## Constraints from the client

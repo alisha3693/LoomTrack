@@ -1,5 +1,7 @@
 # Demo and test guide
 
+> **Note (9 Nov 2026):** buyer approvals, the conversation on live orders, materials tracking and the documents page were taken out after this guide was written, and the seeded board now shows 3 red, 4 amber and 2 green. Sections that mention them no longer apply. The current, tested walkthrough is in [DEPLOYMENT.md](DEPLOYMENT.md).
+
 A click-by-click script that walks through every requirement in the brief. It works for testing the build yourself and for showing it to the client (about 15 minutes). Every step lists what you should see.
 
 ## Before you start
@@ -16,7 +18,7 @@ A click-by-click script that walks through every requirement in the brief. It wo
 ---
 
 ## 1. The order board: trouble at a glance (Must have #3)
-Log in as **priya@companya.in / loom1234**.
+Log in as **priya@companya.example / loom1234**.
 
 - **Expect:** 3 red · 2 amber · 4 green, sorted trouble first.
 - Each row shows one line of maths, e.g. **B-PO-88213** (sample data): *Stitching 57% · need 743/day, making 669/day*.

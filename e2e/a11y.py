@@ -22,8 +22,8 @@ oid = db.execute("SELECT id FROM orders WHERE po_no = 'B-PO-88240'").fetchone()[
 bid = db.execute("SELECT id FROM buyers WHERE name LIKE 'Company B%'").fetchone()[0]
 scheme = sys.argv[1] if len(sys.argv) > 1 else "light"
 
-OFFICE = ["/m", f"/m/orders/{oid}", f"/m/orders/{oid}?tab=approvals", f"/m/orders/{oid}?tab=conversation", "/m/messages", "/m/approvals", "/m/requests", "/m/buyers", f"/m/buyers/{bid}?tab=people", f"/m/buyers/{bid}?tab=notify", f"/m/buyers/{bid}?tab=sent", "/m/units", "/m/templates", "/m/notifications"]
-BUYER = [f"/b/{token}", f"/b/{token}/orders", f"/b/{token}/orders/{oid}", f"/b/{token}/approvals", f"/b/{token}/messages", f"/b/{token}/documents", f"/b/{token}/requests", f"/b/{token}/requests/new"]
+OFFICE = ["/m", f"/m/orders/{oid}", f"/m/orders/{oid}?tab=plan", f"/m/orders/{oid}?tab=history", "/m/requests", "/m/buyers", f"/m/buyers/{bid}?tab=people", f"/m/buyers/{bid}?tab=sent", "/m/reports", "/m/feed", "/m/units", "/m/templates", "/m/notifications", "/m/settings"]
+BUYER = [f"/b/{token}", f"/b/{token}/orders", f"/b/{token}/orders/{oid}", f"/b/{token}/requests", f"/b/{token}/requests/new", f"/b/{token}/notifications"]
 PUBLIC = ["/", "/login"]
 issues = defaultdict(set)
 with sync_playwright() as p:
@@ -44,7 +44,7 @@ with sync_playwright() as p:
     for path in PUBLIC:
         scan(path)
     pg.goto(BASE + "/login")
-    pg.fill("input[autocomplete=username]", "priya@companya.in")
+    pg.fill("input[autocomplete=username]", "priya@companya.example")
     pg.fill("input[type=password]", "loom1234")
     pg.click("button.btn-primary")
     pg.wait_for_selector(".rail", state="attached")

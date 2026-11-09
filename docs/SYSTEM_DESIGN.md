@@ -188,7 +188,7 @@ The schema is in third normal form apart from two deliberate exceptions: the cac
 
 - **REST + JSON**, one prefix per actor: `/api/auth`, `/api/m` (office), `/api/s` (floor), `/api/b/:token` (buyer, read plus the request endpoints), plus signed media at `/api/media/*`. Interactive docs at `/api/docs`.
 - **One error shape** everywhere: `{"error": "human-readable message"}`. 400 validation, 401 sign-in, 403 role or unit, 404, 409 conflict, 422 business rule, 429 lockout.
-- **Auth:** the session token is accepted from either `Authorization: Bearer <token>` (what the app sends, from localStorage) or the `loomtrack_session` cookie (set at login: `HttpOnly`, `SameSite=Lax`, `Secure` over HTTPS). The cookie lets the API be opened directly in a browser while signed in. The header wins if both are present. A buyer link token is never accepted as either. Buyer accounts use the same session (role `buyer`); the buyer endpoints accept either the link token or the word `me` in its place, and `me` is only honoured for a signed-in buyer whose password is not a temporary one.
+- **Auth:** the session token is the `loomtrack_session` cookie (set at login: `HttpOnly`, `SameSite=Lax`, `Secure` over HTTPS); the app relies on it alone and keeps nothing in localStorage but who signed in (for offline start-up). The login response carries no token. A script may still send `Authorization: Bearer <token>`, which wins if both are present. The database stores only the SHA-256 of the token. A buyer link token is never accepted as either. Buyer accounts use the same session (role `buyer`); the buyer endpoints accept either the link token or the word `me` in its place, and `me` is only honoured for a signed-in buyer whose password is not a temporary one.
 - **Idempotency:** `POST /api/s/updates` is idempotent on the client ID (second send returns 200 `duplicate: true`).
 - **Dates** are ISO `YYYY-MM-DD` strings everywhere; time zone is never involved in date arithmetic.
 - **Media:** photos and voice served by short-lived HMAC-signed URLs (an `<img>` can't send a Bearer header). Buyer photos go through the buyer-scoped endpoint instead.
@@ -210,14 +210,14 @@ The schema is in third normal form apart from two deliberate exceptions: the cac
 |---|---|---|
 | Buyer A sees buyer B's data | Scoping by token-derived buyer ID; allow-listed shape; isolation tests | None known |
 | Guessing or leaking a buyer link | 32-byte random token; revocable; `no-store` and no-referrer headers | Optional expiry; link view logging |
-| Password guessing | scrypt hashing; lockout after 5 tries for 5 minutes | Lockout is per login and in memory (resets on restart; an attacker can lock a real user out). Add per-IP limit |
-| Stolen session token | 90-day supervisor / 14-day office expiry; logout deletes the session and clears the cookie; the cookie is `HttpOnly` | **Session tokens are stored in plain text in the database**; hash them. The app still keeps a copy of the token in localStorage (XSS-exposed; the cookie's `HttpOnly` protection doesn't cover that copy); mitigated by React escaping, no third-party scripts, but add a Content-Security-Policy. Moving the app fully to the cookie would remove the localStorage copy |
-| Cross-site request forgery (cookie auth) | `SameSite=Lax`: browsers don't send the cookie on cross-site POST/PATCH. Write routes need a JSON body | No CSRF token. Relies on `SameSite` browser support; keep state changes off GET (`GET /board` only refreshes a cached status). Add a token if the API is ever served from a different site |
-| Malicious upload (photos and voice) | Size cap (6 MB), top-level type check (image/audio) | Type comes from the client; **verify file signatures** and send `X-Content-Type-Options: nosniff` |
+| Password guessing | scrypt hashing; lockout per sign-in name (5 wrong tries, 5 minutes) and per address (20 in 15 minutes, locked 15 minutes), kept in the database so a restart does not clear it | An attacker can still lock a real person's name out for five minutes by guessing at it. A shared address (one factory unit) is allowed more tries so a few typos do not lock everyone |
+| Stolen session token | 90-day supervisor / 14-day office expiry; logout deletes the session and clears the cookie; the token lives only in an `HttpOnly` cookie (no script can read it, the app keeps no copy and sends no header); the database holds only its SHA-256, so a copy of the database signs nobody in; a Content-Security-Policy limits scripts to this server | A stolen phone with an open session is still a signed-in phone (sessions are not bound to a device). Changing a password or sign-in email signs the person out of other devices |
+| Cross-site request forgery (cookie auth) | `SameSite=Lax`: browsers don't send the cookie on cross-site POST/PATCH. A cookie session is also refused on a change the browser marks `Sec-Fetch-Site: cross-site`. Write routes need a JSON body | No CSRF token. Keep state changes off GET (`GET /board` only refreshes a cached status). Add a token if the API is ever served from a different site |
+| Malicious upload (photos and voice) | Size cap (6 MB); the type is read from the file's own first bytes (JPEG, PNG, WebP; WebM, Ogg, MP4 audio), what the phone claims is ignored, and the stored type and extension come from the bytes; everything is served with `nosniff` | A file with a genuine header and a hostile body is still stored (never executed or unpacked). No virus scan |
 | Malicious upload (design files) | Type decided from the file's own bytes (PDF, JPG, PNG, WebP, GIF, TIFF, PSD, ZIP/Office, DXF only; HTML, SVG and executables are refused); random stored name, display name sanitised; 15 MB cap; 10 files per request, 30 per order; served with `nosniff`, and only images and PDF open inline; ZIPs are never unpacked | No virus scan. ZIP and Office files are opaque downloads. A buyer-link holder can upload (see requests). Add scanning if files will be opened on shared office machines |
 | One buyer sees another's design files | Every buyer file lookup joins to the owning request or order and filters on the link's buyer; our own files are private until marked visible; tests remove each check to prove they fail | None known |
 | A view-only buyer account changes something | Every buyer write route goes through one dependency that refuses an account with `can_write = 0` (403, plain message); the screens hide the buttons; a test removes the check to prove it fails | A private link always has full access; view-only applies to signed-in accounts |
-| A buyer approves, acknowledges or reads another buyer's item | Approvals, delay notices, read marks, the timeline and documents all resolve the order through the buyer's id and answer 404 otherwise; tests cover each | None known |
+| A buyer acknowledges or reads another buyer's item | Delay notices, the timeline, photos and files all resolve the order through the buyer's id and answer 404 otherwise; tests cover each | None known |
 | Someone forges a WhatsApp delivery report or a STOP | The webhook accepts a call only when its `X-Hub-Signature-256` matches the app secret (constant-time compare); with no secret set it refuses everything; a test covers both | The secret lives in `backend/.env` and must be kept out of the repository (it is ignored) |
 | A buyer is messaged on WhatsApp without agreeing | A number is saved only with the agreement ticked; who recorded it and when are stored; STOP switches it off at once; only approved utility templates are sent | Keep proof of consent outside the app too |
 | A mail or WhatsApp key leaks | Settings are read from the environment or `backend/.env` only; the settings page shows whether a channel is connected, never a value; a test checks no secret appears in its response | Rotate the key in the provider's dashboard if it was ever pasted somewhere |
@@ -244,7 +244,7 @@ Personal data held is small: staff names, phone numbers (as logins), PIN/passwor
 | AI returns a wrong category | Original note beside translation; dropdown to fix | Human decision stored and never overwritten by a later AI run |
 | Two updates for the same stage | Both stored and summed | Cap check prevents runaway totals |
 | Phone clock wrong | Update dated by the server's "today" shown on the phone from the last sync | Server rejects future or too-old dates |
-| Disk full or corrupted | Server errors | **No backups yet** (see §12) |
+| Disk full or corrupted | `/api/health` fails (503) when the database or uploads cannot be used; the database is copied about daily and the uploads mirrored (§12) | The copies are on the same disk unless `LOOMTRACK_BACKUPS` points elsewhere; a restore has not been rehearsed on a clean machine |
 | Process crash | Service stops | Needs a process supervisor in production (systemd/NSSM) |
 
 ---
@@ -289,7 +289,7 @@ Internet ── HTTPS ──► Caddy (free, automatic certificates)
    SQLite file     uploads/ folder     IndicTrans2 (in the same process;
    (/var/lib/…)    (/var/lib/…)         GPU if present, otherwise CPU)
          │               │
-         └── nightly backup: sqlite3 ".backup" + copy uploads → second disk / free object storage
+         └── daily backup (built in): SQLite online backup + mirror of uploads → set LOOMTRACK_BACKUPS to a second disk / synced folder
 ```
 
 The Windows equivalent is NSSM or Task Scheduler for the service and Caddy for HTTPS. Everything is free and open source; the only recurring cost is the server.
@@ -305,16 +305,19 @@ The Windows equivalent is NSSM or Task Scheduler for the service and Caddy for H
 | `HF_TOKEN` | none | Free Hugging Face token, only to download the translation models |
 | `LOOMTRACK_TRANSLATE_DEVICE` | `auto` | `auto` (GPU if available), `cuda` or `cpu` |
 | `LOOMTRACK_SIGNING_KEY` | random per start | Set a fixed value so media links survive restarts |
+| `LOOMTRACK_BACKUPS` | `data/backups` | Where the daily database copies and the uploads mirror go; use another drive or a synced folder |
+| `LOOMTRACK_BACKUP` / `LOOMTRACK_BACKUP_KEEP` | on / `14` | `off` stops the daily backup; how many database copies to keep |
+| `LOOMTRACK_LOGS` | `data/logs` | Where `access.log` is written (5 MB files, last 5 kept) |
 
 ### Operations checklist (not yet done)
-Backups with a restore test · HTTPS · process supervisor · log rotation · seeded demo accounts removed and real users created · demo date pin removed · fixed signing key.
+Done: daily backups, request log with rotation, health check. Still to do: a restore rehearsed on a clean machine, the backups on another disk · HTTPS · process supervisor · seeded demo accounts removed and real users created · demo date pin removed · fixed signing key.
 
 ---
 
 ## 13. Observability
 
-**Today:** uvicorn access logs; stored AI errors (`issue_reasons.ai_error`); `/api/docs`; the top-bar AI status.
-**Needed for a pilot:** structured request logs with durations; an error log someone reads; a `/api/health` endpoint (DB reachable, translation models loaded) for an uptime monitor; counts of updates received per unit per day, which also shows which supervisors have stopped reporting.
+**Today:** one JSON log line per request with a request number and duration (console and `data/logs/access.log`), errors with tracebacks under the same number, `GET /api/health` for an uptime monitor, stored AI errors (`issue_reasons.ai_error`), `/api/docs`, the top-bar AI status.
+**Needed for a pilot:** someone who reads the log and an uptime monitor pointed at the health endpoint; counts of updates received per unit per day, which also shows which supervisors have stopped reporting.
 
 ---
 
@@ -381,6 +384,6 @@ The brief's success criteria, and honest status of how LoomTrack would measure e
 |---|---|---|
 | 1. Core build | Setup + TNA, supervisor update (offline), board, projection, AI reason, buyer link | **Done** |
 | 2. Depth | Weekly export, mock outbox, milestone marking, dark mode, PWA shell | **Done** |
-| 3. Pilot-ready | Mark shipped + actual ship date, health endpoint, session-token hashing, upload checks, CSP, backups, HTTPS, real accounts, adoption and warning-lead-time reports, real-phone test | To do |
+| 3. Pilot-ready | Done: mark shipped + actual ship date, adoption and warning-lead-time reports, health endpoint, session-token hashing and cookie-only sign-in, upload checks and security headers, CSP, login lockout by address, request log, backups. To do: HTTPS, real accounts, backups on another disk, real-phone test | In progress |
 | 4. Improve | AI eval and model choice, local Whisper, weighted run rate, per-unit capacity view (done: Units page and the acceptance check) | To do |
 | 5. Grow | Real email/WhatsApp, Postgres if needed, multi-factory, line loading | Later |

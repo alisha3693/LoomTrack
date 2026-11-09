@@ -6,7 +6,8 @@ Free and open source end to end. The AI runs locally.
 
 | Doc | What's in it |
 |---|---|
-| [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | **Click-by-click demo and test script** |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | **Run it, demo logins, a ten-minute walkthrough, deployment, environment variable names** |
+| [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | Longer click-by-click script (parts describe screens removed later: see its first lines) |
 | [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) | **Whole system design**: requirements, architecture, data, security, failure modes, capacity, deployment, roadmap |
 | [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md) | **How it all works**: data flow, warnings, AI, buyer isolation, offline, code map |
 | [docs/TODO.md](docs/TODO.md) | Build plan and progress |
@@ -51,11 +52,11 @@ npm run dev        # or: API on :4000 + web with live reload on :5173
 
 | Command | |
 |---|---|
-| `npm test` | backend tests (202) |
+| `npm test` | backend tests (227) |
 | `npm run explain` | run-rate maths for every order, in the terminal |
 | `python e2e/walkthrough.py` | headless browser walkthrough with screenshots |
 | `python e2e/offline_test.py` | offline queue check |
-| `python e2e/journey.py` | the buyer-and-merchandiser journey (sidebar, inbox, approvals, receipts, view-only accounts), plus phone-width layout checks (needs a freshly seeded database) |
+| `python e2e/journey.py` | the supervisor, office and buyer journey in a browser (a Tamil note from a phone, the drafted warning, the buyer's acknowledgement, a request through the capacity check), plus phone-width checks; needs a freshly seeded database |
 | `python e2e/pwa.py` | installability (manifest, icons, service worker), offline start, the Android and iPhone install pages and the supervisor's first-time welcome |
 | `python e2e/a11y.py [light\|dark]` | an automated accessibility scan (axe) of the main pages, in light or dark |
 
@@ -70,7 +71,10 @@ To try the supervisor screens on a real phone on the same Wi-Fi, open `http://<l
 ## Demo logins
 | Who | Login | PIN / password |
 |---|---|---|
-| Merchandiser | priya@companya.in | loom1234 |
+| Merchandiser | priya@companya.example | loom1234 |
+| Buyer, Company B (UK) | hannah@companyb.example | buyer1234 |
+| Buyer, Company B, view only | qc@companyb.example | buyer1234 |
+| Buyer, Company C (Germany) | jonas@companyc.example | buyer1234 |
 | Supervisor, Unit 1 · Avinashi Road | 9840000001 | 1111 |
 | Supervisor, Unit 2 · Tiruppur North | 9840000002 | 2222 |
 | Supervisor, Unit 3 · Palladam | 9840000003 | 3333 |

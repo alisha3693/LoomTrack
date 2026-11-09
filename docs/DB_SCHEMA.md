@@ -1,6 +1,6 @@
 # LoomTrack database schema
 
-SQLite, 24 tables, defined in [backend/loomtrack/db.py](../backend/loomtrack/db.py). The schema is normalised (third normal form) apart from two deliberate caches. The diagram below is a Mermaid ER diagram: it renders on GitHub, and in VS Code with the "Markdown Preview Mermaid Support" extension.
+SQLite, 25 tables, defined in [backend/loomtrack/db.py](../backend/loomtrack/db.py). The schema is normalised (third normal form) apart from two deliberate caches. The diagram below is a Mermaid ER diagram: it renders on GitHub, and in VS Code with the "Markdown Preview Mermaid Support" extension.
 
 `PK` primary key, `FK` foreign key, `UK` unique. `||--o{` means one-to-many.
 
@@ -27,12 +27,6 @@ erDiagram
     users ||--o{ request_messages : "wrote"
     order_requests ||--o{ attachments : "has files"
     orders ||--o{ attachments : "has files"
-    orders ||--o{ order_materials : "needs"
-    orders ||--o{ order_messages : "discussed in"
-    orders ||--o{ approvals : "needs sign-off"
-    approvals ||--|{ approval_events : "history"
-    plan_steps ||--o{ approvals : "completed by"
-    plan_steps ||--o{ order_materials : "needed for"
     orders ||--o{ daily_updates : "receives"
     milestones ||--o{ daily_updates : "progress on"
     daily_updates ||--o{ photos : "has"
@@ -42,6 +36,8 @@ erDiagram
     milestones ||--o{ date_changes : "date moved"
     buyers ||--o{ outbox_messages : "emailed"
     orders ||--o{ outbox_messages : "about"
+    buyers ||--o{ buyer_visits : "opens its pages"
+    units ||--o{ unit_capacity : "capacity per stage"
 
     buyers {
         INTEGER id PK
@@ -62,6 +58,11 @@ erDiagram
         TEXT process "printing or washing"
         INTEGER daily_capacity "pieces a day it can stitch; own units (other stages: unit_capacity)"
     }
+    unit_capacity {
+        INTEGER unit_id PK, FK
+        TEXT process PK "cutting, finishing, packing ..."
+        INTEGER daily_capacity "pieces a day"
+    }
     users {
         INTEGER id PK
         TEXT name
@@ -72,10 +73,11 @@ erDiagram
         TEXT lang "en or ta"
         INTEGER buyer_id FK "buyer accounts only"
         INTEGER must_change_secret "1 until the buyer picks their own"
-        INTEGER can_write "0 = a buyer account that can look but not send, approve or change"
+        INTEGER can_write "0 = a buyer account that can look but not send or change"
+        TEXT phone "office accounts: a contact number, E.164"
     }
     sessions {
-        TEXT token PK
+        TEXT token PK "SHA-256 of the session token, never the token"
         INTEGER user_id FK
         TEXT expires_at
     }
@@ -103,6 +105,8 @@ erDiagram
         TEXT status_computed_at
         TEXT cancel_reason "why the merchandiser cancelled; shown to the buyer"
         TEXT cancelled_at
+        TEXT shipped_date "the day it left the factory; set by Mark shipped"
+        TEXT production_complete_at "app date the last stage reached the full quantity"
         TEXT created_at
     }
     order_sizes {
@@ -168,61 +172,6 @@ erDiagram
         TEXT proposed_ex_factory
         TEXT created_at
     }
-    order_materials {
-        INTEGER id PK
-        INTEGER order_id FK
-        TEXT kind "fabric, trim, packing"
-        TEXT name
-        TEXT supplier "optional"
-        TEXT supplied_by "us or buyer"
-        REAL qty "optional"
-        TEXT unit "kg, pcs ..."
-        TEXT status "not_ordered, ordered, received"
-        TEXT ordered_date
-        TEXT expected_date
-        TEXT received_date "required once received"
-        TEXT needed_for FK "plan step that needs it"
-        TEXT needed_by "only when there is no step"
-        TEXT note
-        TEXT updated_at
-        INTEGER updated_by FK
-    }
-    order_messages {
-        INTEGER id PK
-        INTEGER order_id FK
-        TEXT author "buyer or merchandiser"
-        INTEGER user_id FK "merchandiser only"
-        TEXT body "1 to 2000 characters"
-        TEXT created_at
-    }
-    thread_reads {
-        TEXT kind PK "order or request"
-        INTEGER ref_id PK
-        TEXT reader PK "buyer or merchandiser"
-        INTEGER last_id "newest message id this reader has opened"
-        TEXT read_at
-    }
-    approvals {
-        INTEGER id PK
-        INTEGER order_id FK
-        TEXT kind "fit_sample, pp_sample, lab_dip, packaging, other"
-        TEXT title "1 to 120 characters"
-        TEXT note
-        TEXT milestone_code FK "the plan step approving it completes"
-        TEXT status "requested, approved, changes, withdrawn"
-        TEXT requested_at
-        TEXT decided_at
-        TEXT buyer_seen_at
-    }
-    approval_events {
-        INTEGER id PK
-        INTEGER approval_id FK
-        TEXT actor "buyer or merchandiser"
-        INTEGER user_id FK "merchandiser only"
-        TEXT action "requested, resubmitted, approved, changes, withdrawn"
-        TEXT note
-        TEXT created_at
-    }
     attachments {
         INTEGER id PK
         INTEGER request_id FK "a request, an order, or both"
@@ -264,7 +213,7 @@ erDiagram
         TEXT work_date
         INTEGER qty
         TEXT note_text
-        TEXT note_source "text or voice"
+        TEXT note_source "text, or voice (written out by Whisper)"
         TEXT audio_path
         TEXT created_at_client
         TEXT received_at
@@ -303,6 +252,9 @@ erDiagram
         TEXT created_at
         TEXT buyer_seen_at "when the buyer first opened the notice"
         TEXT buyer_ack_at "when the buyer acknowledged it"
+        TEXT buyer_ack_note "what the buyer wrote when acknowledging"
+        TEXT reason_category "the floor reason the message was written around"
+        TEXT warned_on "app date the warning was raised"
     }
     date_changes {
         INTEGER id PK
@@ -335,24 +287,47 @@ erDiagram
         TEXT params "JSON"
         TEXT sent_at
     }
+    feed_reads {
+        TEXT reader PK "buyer or merchandiser"
+        INTEGER ref_id PK "buyer id, or user id"
+        INTEGER last_id "newest outbox id seen on the notifications page"
+        TEXT read_at
+    }
+    buyer_visits {
+        INTEGER buyer_id PK, FK
+        TEXT day PK "app date"
+        TEXT via PK "link or account"
+        INTEGER n "page opens that day"
+    }
+    login_attempts {
+        TEXT scope PK "login or ip"
+        TEXT key PK "the sign-in name, or the network address"
+        INTEGER fails "wrong tries counted so far"
+        REAL last_fail "unix seconds"
+        REAL locked_until "unix seconds, 0 = not locked"
+    }
+    app_clock {
+        INTEGER id PK "always 1"
+        TEXT test_date "null = use the real date"
+    }
 ```
 
 ## Reading the diagram
 
 | Area | Tables | Note |
 |---|---|---|
-| People and access | `buyers`, `users`, `sessions`, `units` | A buyer's `link_token` is a credential, and so is a buyer account (`users.role = 'buyer'`, tied to one buyer by `buyer_id`; a CHECK keeps the two in step). A supervisor's `unit_id` limits which stages they see. |
+| People and access | `buyers`, `users`, `sessions`, `login_attempts`, `units` | A buyer's `link_token` is a credential, and so is a buyer account (`users.role = 'buyer'`, tied to one buyer by `buyer_id`; a CHECK keeps the two in step). A supervisor's `unit_id` limits which stages they see. `sessions.token` is the SHA-256 of the session token. `login_attempts` counts wrong passwords per sign-in name and per network address so a lockout survives a restart. |
 | The plan | `orders`, `order_sizes`, `plan_steps`, `milestones` | `plan_steps` holds each kind of step once (names, stage or milestone). `milestones` is one order's plan: a row per step with that order's dates. |
 | Requests | `order_requests`, `request_sizes`, `request_messages` | A buyer's request is a conversation, either a new order or a change to an existing one (`kind = 'amendment'`, with `order_id` set and `request_sizes` holding the full new quantities). `status` says whose turn it is: `submitted` is the merchandiser's, `query` and `countered` are the buyer's. `request_messages` is the history and is append-only (triggers). Accepting creates an `orders` row and sets `order_requests.order_id`. |
-| Conversation | `order_messages` | Messages between the buyer and the merchandiser about an order that exists (a request has its own thread in `request_messages`). Append-only (triggers), at most 500 per order. Whose turn it is comes from who wrote last. |
-| Reading | `thread_reads` | How far each side has read each conversation (`last_id` is the newest message id they have opened). It gives the reader an "unread" marker and the other side a "seen" mark; no message is ever changed. |
-| Approvals | `approvals`, `approval_events` | What the buyer has to sign off: a fit or pre-production sample, a lab dip, packaging. `status` says where it stands; `approval_events` is the history and is append-only (triggers). Approving a fit or pre-production sample sets `actual_date` on the matching `milestones` row and writes the date history, with no user (the buyer did it). |
-| Materials | `order_materials` | What an order needs before it can be made: fabric, trims, packing. Each line says where it stands and which plan step needs it (`needed_for`). The date it is needed by is read from that step's `milestones` row each time, so it follows the plan when a date moves; `needed_by` is only for something that belongs to no step. Whether a line is late is worked out, not stored (`domain/materials.py`), and it does not feed the delay projection. |
 | Files | `attachments` | Designs, patterns, print artwork, fabric references. A file belongs to a request, an order, or both: a request's files follow it onto the order it becomes. The buyer's own uploads are always visible to that buyer; ours are private unless `buyer_visible` is set; `supervisor_visible` decides what the floor can open. |
 | Templates | `templates`, `template_steps` | A saved layout of steps with timings (days before ex-factory). A stage can be set to start the day after another step ends (`after_code`); its `start_offset` is then always that step's end minus one, recalculated whenever the template is saved. Orders copy the dates when created, so editing or retiring a template never changes an existing order. The built-in three are read-only. |
 | Floor data | `daily_updates`, `photos`, `issue_reasons` | `daily_updates.id` is created on the phone, so a retried offline upload hits the same key and is ignored. |
 | Warnings | `warnings` | Buyers see only `confirmed` warnings. Confirming queues the message to the buyer (see the next row). |
 | Messages outside the app | `outbox_messages`; `buyers.notify_email`, `whatsapp_*` | One row per recipient per event, written in the same transaction as the change that caused it. `status` is `logged` when no provider is set up for the channel (the record is all there is), otherwise `queued`, then `sent`, and for WhatsApp `delivered` or `read` from Meta's reports, or `failed` with the reason in `error` after the retries. `not_before` spaces the retries. A WhatsApp row exists only for a buyer with `whatsapp_opt_in = 1`; who recorded that, and when, is kept. Old rows keep status `logged` and are never sent. |
+| Capacity | `unit_capacity`, `units.daily_capacity` | Pieces a day per stage a unit does itself; stitching is stored on the unit, the other stages in `unit_capacity`. A stage with no row is "not set" and never blocks. |
+| Notifications page | `feed_reads` | The newest outbox row each reader has seen, for the badge. The page itself is built from `outbox_messages`; nothing else is stored. |
+| Reports | `buyer_visits`, `orders.shipped_date`, `warnings.warned_on` | One counter per buyer, day and way in (link or account) for the page-view report; the ship date and the day each warning was raised feed the on-time and early-warning reports. |
+| Test date | `app_clock` | One row. When `test_date` is set, the whole app (board, floor, targets, reports) behaves as if that were today; the office sees a banner. |
 | Compliance | `date_changes` | Triggers abort every UPDATE and DELETE, so the table is append-only. |
 
 ## Rules enforced by the database
@@ -381,7 +356,7 @@ erDiagram
 
 ## Versions and migration
 
-`PRAGMA user_version` holds the schema version (now 13). Older databases are migrated in place when the app opens them, one version at a time: one transaction, a copy saved as `<db>.v0.bak`, `.v1.bak` or `.v5.bak`, and a foreign-key check afterwards.
+`PRAGMA user_version` holds the schema version (now 20). Older databases are migrated in place when the app opens them, one version at a time: one transaction, a copy saved as `<db>.v0.bak`, `.v1.bak` or `.v5.bak`, and a foreign-key check afterwards.
 
 | Version | Change |
 |---|---|
@@ -390,10 +365,20 @@ erDiagram
 | 2 to 3 | `templates` and `template_steps` tables; `plan_steps.builtin`. The three built-in templates are copied in from code at startup. |
 | 3 to 4 | `order_requests`, `request_sizes`, `request_messages` (new tables only, nothing rebuilt). |
 | 4 to 5 | `attachments` (new table only). |
+| 19 to 20 | The `thread_reads` table (how far each side had read a request's conversation) was dropped: nothing showed the marks after the inbox list was removed. Opening an older database drops it; no other table changes. |
+| 18 to 19 | Session tokens are kept as their SHA-256 (`sessions.token`); the ones already stored in plain text are hashed in place when the database is opened, found by length (43 characters is a plain token, 64 a hash), so nobody is signed out. New table `login_attempts` (`scope` `login` or `ip`, `key`, `fails`, `last_fail`, `locked_until`) holds wrong-password counts so a lockout survives a restart. |
+| 17 to 18 | The buyer approvals (`approvals`, `approval_events`), the conversation about a live order (`order_messages`) and materials tracking (`order_materials`) were taken out of the app. Their tables are dropped when the database is opened, and the "order" read marks in `thread_reads` are deleted. Orders and everything else are untouched; the data in those tables is gone. |
+| 16 to 17 | Shipping and reports: `orders.shipped_date`, `orders.production_complete_at`, `warnings.warned_on`, and the `buyer_visits` table. |
+| 15 to 16 | `users.phone` (a contact number for office accounts) and `warnings.reason_category` (the floor reason a delay notice was written around, so a new reason can be told apart). Also `warnings.buyer_ack_note` arrived with 17 to 18. |
+| 14 to 15 | The test date: the `app_clock` table (one row). |
+| 13 to 14 | Capacity for every stage a unit does itself: the `unit_capacity` table. |
+| 12 to 13 | The notifications page: `feed_reads`. |
+| 11 to 12 | Cancelling an order: `orders.cancel_reason`, `orders.cancelled_at`. |
+| 10 to 11 | A stage can start the day after another step ends: `template_steps.after_code`. |
 | 9 to 10 | Delivery of email and WhatsApp: `outbox_messages` gains `event`, `audience`, `recipient`, `status`, `error`, `attempts`, `not_before`, `provider_id`, `template`, `params`, `sent_at` (old rows become `logged`, so nothing already recorded is ever sent), and `buyers` gains `notify_email` and the WhatsApp number with its recorded agreement. |
-| 8 to 9 | `approvals`, `approval_events`, `thread_reads` (new tables and triggers), and the columns `users.can_write` (existing accounts keep full access) and `warnings.buyer_seen_at` / `buyer_ack_at`. |
-| 7 to 8 | `order_messages` (new table and triggers only). |
-| 6 to 7 | Fabric on orders and requests (`fabric_type`, `fabric_composition`, `fabric_gsm`, `fabric_note`), `units.daily_capacity`, and the `order_materials` table. Columns and a table are added; nothing is rebuilt. |
+| 8 to 9 | `approvals`, `approval_events`, `thread_reads` (new tables and triggers; the approval tables were removed again in 17 to 18), and the columns `users.can_write` (existing accounts keep full access) and `warnings.buyer_seen_at` / `buyer_ack_at`. |
+| 7 to 8 | `order_messages` (new table and triggers only; removed again in 17 to 18). |
+| 6 to 7 | Fabric on orders and requests (`fabric_type`, `fabric_composition`, `fabric_gsm`, `fabric_note`), `units.daily_capacity`, and the `order_materials` table (removed again in 17 to 18). Columns and a table are added; nothing is rebuilt. |
 | 5 to 6 | Buyer accounts: `users` gains the `buyer` role, `buyer_id` and `must_change_secret`. SQLite cannot change a CHECK in place, so the table is rebuilt and refilled; sessions and every user keep their ids. |
 
 Code: `_migrate_v0`, `_migrate_v1` and `_migrate_v5` in [db.py](../backend/loomtrack/db.py). Tests: [test_migration.py](../backend/tests/test_migration.py).

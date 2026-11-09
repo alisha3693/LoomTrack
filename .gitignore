@@ -10,3 +10,8 @@ backend/data/
 .env
 e2e/shots/
 backend/server.log
+*.log
+*.bak
+.env.*
+!.env.example
+backend/Benchmarking/

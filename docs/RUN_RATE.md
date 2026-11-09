@@ -33,20 +33,21 @@ The goal from the brief: *warnings two weeks early, not two days*, with the math
 - **Green:** otherwise.
 - **Key stage** (shown on the board): the worst-slipping stage that is slow on its own numbers, i.e. the root cause rather than a stage merely waiting on it.
 
-## Worked example: B-PO-88213 (sample data), 5 Nov 2026
-12,000 men's crew neck tees, ex-factory Fri 20 Nov. Stitching plan ends Fri 13 Nov.
+## Worked example: D-PO-1112 (synthetic sample order), 5 Nov 2026
+6,500 long-sleeve tees, ex-factory Thu 26 Nov. The stitching plan ends Fri 6 Nov.
 
-- Stitching done 6,800 → remaining **5,200**
-- Working days left: 6, 7, 9, 10, 11, 12, 13 Nov = **7** (Sunday 8 Nov off)
-- Required: 5,200 ÷ 7 = **743 pcs/day**
-- Run rate, 7-day average: **669 pcs/day**
-- Own finish: ⌈5,200 ÷ 669⌉ = 8 working days → Sat 14 Nov, **1 day late**
-- Finishing and packing at planned capacity absorb it → projected ex-factory 20 Nov → **amber**
+- Stitching done 3,900 → remaining **2,600**
+- Today's number is not in yet, so the as-of day is Wed 4 Nov. Working days left to the planned end: Thu 5 and Fri 6 Nov = **2**
+- Required: 2,600 ÷ 2 = **1,300 pcs/day**
+- Run rate, 7-day average: **371.3 pcs/day**
+- Own finish: ⌈2,600 ÷ 371.3⌉ = ⌈7.002⌉ = 8 working days after 4 Nov → Fri 13 Nov, **6 working days late**
+- Finishing and packing at planned capacity absorb it → projected ex-factory Thu 26 Nov = planned → **amber**
 
-On the board: *Stitching is 1 working day behind plan; the buffer still covers ex-factory. Need 743 pcs/day for 7 days, making 669 pcs/day.*
+On the board: *Stitching is 6 working days behind plan; the buffer still covers ex-factory. Need 1,300 pcs/day for 2 days, making 371 pcs/day (7-day average).*
+(`npm run explain` prints these numbers for every order. The seeded date is 5 Nov 2026.)
 
 ## The early warning in action: C-PO-0488
-Printing (job work) is at 3,100 / 10,000. It needs 767 pcs/day and is making 443. The projection says ex-factory slips past 28 Nov. That shows up **on 5 Nov, 23 days before ex-factory**: three weeks to add a second print unit, not two days to beg for air freight.
+Printing (job work) is at 3,100 / 10,000, its planned end (21 Oct) long gone, and is making 443 pcs/day: 6,900 ÷ 442.9 = 15.6, so 16 working days, ending Mon 23 Nov. The chain pushes ex-factory to Mon 30 Nov against Sat 28 Nov. That shows up **on 5 Nov, 23 days before ex-factory**: three weeks to add a second print unit, not two days to beg for air freight.
 
 ## Known limits
 - A 7-day average reacts to a bad week in about a week. A weighted average is an easy change if the client wants faster reaction.

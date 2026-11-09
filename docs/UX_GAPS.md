@@ -1,5 +1,7 @@
 # Gaps between the buyer and the merchandiser, and what was done about them
 
+> **Note (9 Nov 2026):** this is a record of an earlier audit. Some fixes it lists (the Messages inbox, read marks and approvals) were later taken out again with the features they served; the buyer's and the office's pages now rely on "Needs you", the notification feeds and delay-notice receipts.
+
 An audit of the real screens (desktop and phone), walking one order from the buyer's request to the shipped order. Each gap is something a person would have got stuck on. **Fixed** means it is built and covered by the browser journey in `e2e/` or by tests; **Open** means it is still a gap.
 
 ## What was wrong

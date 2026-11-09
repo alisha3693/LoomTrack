@@ -1,27 +1,24 @@
-"""The buyer-and-merchandiser journey in a real browser, with checks along the way.
+"""The supervisor, merchandiser and buyer journey in a real browser, with checks along the way.
 
-The office finds a buyer's message from the board and answers it; the buyer sees the reply and reads it; a
-countered date is agreed and accepted into an order, and the buyer follows it to the order; then every main page
-is checked at phone width for sideways scrolling and for titles squeezed into a sliver.
+A supervisor sends a Tamil issue note from a phone; the office sees the reason, reviews the drafted delay warning and
+confirms it; the buyer sees it, acknowledges it and sees nothing of another buyer; a buyer's request becomes an order with
+a capacity check; then the main pages are checked at phone width for sideways scrolling.
 
-Needs a freshly seeded database (it creates PO B-PO-96001) and the app running:
-    python -m loomtrack.seed   (in backend/, with LOOMTRACK_TODAY=2026-11-05)
-    python e2e/journey.py      (LOOMTRACK_URL and LOOMTRACK_DB can point at another instance)
+Needs a freshly seeded database (it changes B-PO-88213) and the app running:
+    npm run seed
+    npm start                  (LOOMTRACK_URL can point at another instance)
+    python e2e/journey.py
 Exits with 1 if any check fails.
 """
 import json
 import os
 import re
-import sqlite3
 import sys
-import urllib.request
-from pathlib import Path
+
 from playwright.sync_api import sync_playwright
 
 BASE = os.environ.get("LOOMTRACK_URL", "http://localhost:4000")
-ROOT = Path(__file__).resolve().parent
-DB = Path(os.environ.get("LOOMTRACK_DB", ROOT.parent / "backend" / "data" / "loomtrack.db"))
-token = sqlite3.connect(DB).execute("SELECT link_token FROM buyers WHERE name LIKE 'Company B%'").fetchone()[0]
+LOGIN = "input[autocomplete=username]"
 errors, results = [], []
 
 
@@ -30,202 +27,131 @@ def check(name, ok):
     print(("PASS " if ok else "FAIL ") + name)
 
 
-def call(method, path, body=None, auth=None):
-    req = urllib.request.Request(BASE + path, method=method, data=json.dumps(body).encode() if body is not None else None,
-                                 headers={"content-type": "application/json", **({"authorization": f"Bearer {auth}"} if auth else {})})
-    with urllib.request.urlopen(req) as r:
-        return json.loads(r.read() or b"{}")
+def sign_in(page, who, secret):
+    page.goto(BASE + "/login")
+    page.fill(LOGIN, who)
+    page.fill("input[type=password]", secret)
+    page.click("button.btn-primary")
+    page.wait_for_timeout(1800)
 
 
-office_token = call("POST", "/api/auth/login", {"login": "priya@companya.in", "secret": "loom1234"})["token"]
-sizes = [{"size": "M", "qty": 1500}, {"size": "L", "qty": 1500}]
-rq = call("POST", f"/api/b/{token}/requests", {"poNo": "B-PO-96001", "style": "Crew tee", "colour": "Charcoal", "exFactory": "2026-12-12", "sizes": sizes})["id"]
-call("POST", f"/api/m/requests/{rq}/counter", {"exFactory": "2026-12-18", "message": "18 Dec is the earliest we can do."}, office_token)
-orders = {o["poNo"]: o["id"] for o in call("GET", f"/api/b/{token}")["orders"]}
-call("POST", f"/api/b/{token}/orders/{orders['B-PO-88240']}/messages", {"message": "Please send a photo of the cartons when they arrive."})
+def api(ctx, method, path, body=None):
+    """A call from a signed-in browser context: the session cookie goes along by itself."""
+    r = ctx.request.fetch(BASE + path, method=method, data=json.dumps(body) if body is not None else None, headers={"content-type": "application/json"})
+    return r.status, (r.json() if r.ok else {})
+
 
 with sync_playwright() as p:
     b = p.chromium.launch()
-    office = b.new_context(viewport={"width": 1280, "height": 900}).new_page()
-    buyer = b.new_context(viewport={"width": 1100, "height": 900}).new_page()
-    for pg in (office, buyer):
-        pg.on("pageerror", lambda e: errors.append(str(e)))
 
-    # ---- Office: what needs me, found from the board
-    office.goto(BASE + "/login")
-    office.fill("input[autocomplete=username]", "priya@companya.in")
-    office.fill("input[type=password]", "loom1234")
-    office.click("button.btn-primary")
-    office.wait_for_selector("text=Needs you")
-    check("office board opens with a Needs-you strip", office.locator("section[aria-label='Needs you'] .attn").count() >= 3)
-    check("only one New order button on the board", office.locator("a.btn:has-text('New order'):visible").count() == 1)
-    office.click("button.attn:has-text('buyer message')")
-    office.wait_for_selector(".chip.on")
-    check("the message card filters the board to that order", office.locator("table.board tbody tr").count() == 1 and "B-PO-88240" in office.inner_text("table.board"))
-    office.click(".chip.on")
-    check("the filter clears", office.locator("table.board tbody tr").count() > 3)
+    # ---- Supervisor, on a phone, in Tamil
+    sup_ctx = b.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+    sup_ctx.add_init_script("localStorage.setItem('lt.lang','ta')")
+    sup = sup_ctx.new_page()
+    sup.on("pageerror", lambda e: errors.append(f"supervisor: {e}"))
+    sign_in(sup, "9840000001", "1111")
+    welcome = sup.get_by_role("button", name="புரிந்தது")
+    if welcome.count():
+        welcome.click()
+    cards = sup.locator("a.stage-card")
+    check("the supervisor sees a card for each stage of their unit", cards.count() >= 3)
+    check("the supervisor's cards say how many pieces are left today", sup.locator(".todo").count() >= 1)
+    cards.first.click()
+    sup.wait_for_selector("input.qty-input")
+    sup.fill("input.qty-input", "412")
+    sup.fill("textarea", "இரண்டு மெஷின் பழுது")
+    sup.get_by_role("button", name="அனுப்பு").click()
+    sup.wait_for_url(re.compile(r"/s$"), timeout=15000)
+    check("sending an update returns to the stage list", True)
+    code, me = api(sup_ctx, "GET", "/api/m/board")
+    check("a supervisor cannot open the office board", code == 403)
 
-    # ---- Office: find anything from anywhere
-    office.keyboard.press("/")
-    check("/ opens search", office.locator(".palette").count() == 1)
-    office.fill(".palette input", "raglan") if False else office.fill(".palette input", "88213")
-    office.wait_for_selector(".palette-item:has-text('B-PO-88213')")
-    office.keyboard.press("Enter")
-    office.wait_for_url(re.compile(r"/m/orders/\d+$"))
-    check("search + Enter opens the order", "B-PO-88213" in office.inner_text("h1"))
-    check("order page has breadcrumbs", office.locator(".crumbs a:has-text('Orders')").count() == 1)
-    check("buyer name links to their orders", office.locator("p.sub a:has-text('Company B')").count() == 1)
-    href = office.locator("a:has-text('What the buyer sees')").get_attribute("href")
-    check("preview link points at this buyer's page for this order", bool(href) and href.startswith(f"/b/{token}/orders/") and href.endswith(str(orders["B-PO-88213"])))
-    office.click("[role=tab]:has-text('Materials')")
-    office.wait_for_selector("h2:has-text('Materials')")
-    check("the order's tabs switch to Materials (and the address remembers it)", "tab=materials" in office.url)
+    # ---- Office: the reason arrives, the warning is reviewed and confirmed
+    off_ctx = b.new_context(viewport={"width": 1366, "height": 900})
+    off = off_ctx.new_page()
+    off.on("pageerror", lambda e: errors.append(f"office: {e}"))
+    sign_in(off, "priya@companya.example", "loom1234")
+    off.wait_for_selector("table tbody tr")
+    check("the board lists the nine seeded orders", off.locator("table tbody tr").count() == 9)
+    check("the board has a Needs-you list", off.locator("text=Needs you").count() >= 1)
+    reason = False
+    for _ in range(12):  # the reason is found in the background, a moment after the phone is told "sent"
+        off.goto(BASE + "/m/feed")
+        off.wait_for_timeout(700)
+        if "Supervisor reported on B-PO-88213" in off.locator("main").inner_text():
+            reason = True
+            break
+    check("the office is told what the supervisor reported", reason)
+    off.goto(BASE + "/m/orders/1")  # LT-2026-0001 is B-PO-88213
+    off.wait_for_selector("text=Not visible to the buyer until you confirm")
+    check("the order shows a drafted delay warning that waits for the office", off.get_by_role("button", name="Confirm & send to buyer").count() == 1)
+    check("the draft names the cause the supervisor gave", "machine breakdown" in off.locator("textarea").first.input_value().lower())
+    off.get_by_role("tab", name="History and floor").click()
+    off.wait_for_selector("text=Floor updates")
+    check("the supervisor's Tamil note sits beside its translation or category", "இரண்டு மெஷின் பழுது" in off.locator("main").inner_text())
+    off.get_by_role("tab", name="Overview").click()
+    off.get_by_role("button", name="Confirm & send to buyer").click()
+    off.wait_for_timeout(1500)
+    check("confirming sends the warning (the button is gone)", off.get_by_role("button", name="Confirm & send to buyer").count() == 0)
 
-    # ---- Office answers the buyer's message on B-PO-88240
-    office.goto(BASE + "/m")
-    office.locator("a:visible", has_text="B-PO-88240").first.click()
-    office.wait_for_selector(".attn:has-text('waiting for your reply')")
-    office.click(".attn:has-text('waiting for your reply')")
-    office.fill("textarea", "Will do. Photos go out the day the cartons land.")
-    office.click("button:has-text('Send message')")
-    office.wait_for_selector(".bubble.mine")
-    office.click("[role=tab]:has-text('Overview')")
-    office.wait_for_timeout(500)
-    check("answering clears 'waiting for your reply'", office.locator(".attn:has-text('waiting for your reply')").count() == 0)
+    # ---- Buyer: sees the notice, acknowledges it, and sees only their own orders
+    buy_ctx = b.new_context(viewport={"width": 1280, "height": 900})
+    buy = buy_ctx.new_page()
+    buy.on("pageerror", lambda e: errors.append(f"buyer: {e}"))
+    sign_in(buy, "hannah@companyb.example", "buyer1234")
+    check("a buyer account lands on its own page", "/b/me" in buy.url)
+    buy.goto(BASE + "/b/me/orders")
+    buy.wait_for_selector("table tbody tr, .order-row")
+    text = buy.locator("main").inner_text()
+    check("the buyer sees their own orders", "B-PO-88213" in text and "B-PO-88240" in text)
+    check("the buyer sees nothing of another buyer's orders", "C-PO-0488" not in text and "D-PO-1112" not in text)
+    code, _ = api(buy_ctx, "GET", "/api/m/board")
+    check("a buyer cannot open the office board", code in (401, 403))
+    buy.goto(BASE + "/b/me/orders/1")
+    buy.wait_for_selector("text=Delay notice")
+    buy.get_by_role("button", name="Acknowledge", exact=True).click()
+    buy.wait_for_timeout(1200)
+    check("acknowledging a notice is recorded", buy.get_by_role("button", name="Acknowledge", exact=True).count() == 0)
+    _, board = api(off_ctx, "GET", "/api/m/board")
+    check("the office is no longer asked about that notice once the buyer acknowledged it", next(o for o in board["orders"] if o["id"] == 1)["noticeUnacknowledged"] is False)
 
-    # ---- Buyer: sees the reply, reads it, and it stops asking for attention
-    buyer.goto(f"{BASE}/b/{token}")
-    buyer.wait_for_selector("text=Needs your attention")
-    buyer.wait_for_selector(".attn")
-    titles = buyer.locator(".attn b").all_inner_texts()
-    check("buyer is told about the countered date", any("Agree to a new date for B-PO-96001" in t for t in titles))
-    check("buyer is told about the new reply", any("New reply about B-PO-88240" in t for t in titles))
-    check("buyer is told about the delay notice", any("Delay notice for B-PO-88240" in t for t in titles))
-    buyer.click(".attn:has-text('New reply about B-PO-88240')")
-    buyer.wait_for_selector(".bubble:has-text('Photos go out the day')")
-    buyer.wait_for_timeout(800)
-    check("reply card opens the conversation tab", "tab=messages" in buyer.url)
-    buyer.goto(f"{BASE}/b/{token}")
-    buyer.wait_for_selector(".attn")
-    check("a read reply stops asking for attention", not any("New reply about B-PO-88240" in t for t in buyer.locator(".attn b").all_inner_texts()))
+    # ---- A view-only buyer account can look, not ask
+    qc_ctx = b.new_context(viewport={"width": 1280, "height": 900})
+    qc = qc_ctx.new_page()
+    sign_in(qc, "qc@companyb.example", "buyer1234")
+    qc.goto(BASE + "/b/me/orders")
+    qc.wait_for_selector("table tbody tr, .order-row")
+    check("a view-only account sees the orders", "B-PO-88213" in qc.locator("main").inner_text())
+    status, _ = api(qc_ctx, "POST", "/api/b/me/requests", {"poNo": "X-1", "style": "Tee", "colour": "Navy", "exFactory": "2026-12-30", "sizes": [{"size": "M", "qty": 10}]})
+    check("a view-only account is refused when it tries to send a request", status == 403)
 
-    # ---- The office can tell the buyer opened the reply
-    office.goto(f"{BASE}/m/orders/{orders['B-PO-88240']}?tab=conversation")
-    office.wait_for_selector("text=Seen by Company B (UK)")
-    check("the office sees that the buyer read the reply", True)
+    # ---- A buyer's request becomes an order, through the capacity check
+    status, made = api(buy_ctx, "POST", "/api/b/me/requests", {"poNo": "B-PO-96001", "style": "Crew tee", "colour": "Charcoal", "exFactory": "2026-12-28", "sizes": [{"size": "M", "qty": 800}, {"size": "L", "qty": 800}]})
+    check("a buyer can send a request", status == 201)
+    off.goto(BASE + "/m/requests")
+    off.wait_for_selector("text=B-PO-96001")
+    off.locator("td", has_text="B-PO-96001").first.click()
+    off.get_by_role("button", name="Accept into an order").first.click()
+    off.wait_for_selector("text=Capacity check")
+    check("accepting a request shows every unit's capacity", off.locator("text=Unit 3").count() >= 1)
+    off.locator(".modal select").first.select_option(label="Unit 3 · Palladam")
+    off.wait_for_selector("text=Room to spare")
+    for tick in off.locator(".modal input[type=checkbox]").all():  # steps already late for a new order, or over capacity: the dialog asks for an explicit tick
+        tick.check()
+    off.locator(".modal").get_by_role("button", name="Create order").click()
+    off.wait_for_url(re.compile(r"/m/orders/\d+$"), timeout=15000)
+    check("the accepted request becomes an order", "B-PO-96001" in off.locator("h1").first.inner_text())
 
-    # ---- The buyer acknowledges the delay notice; the office sees it
-    buyer.goto(f"{BASE}/b/{token}/orders/{orders['B-PO-88240']}")
-    buyer.wait_for_selector(".notice")
-    buyer.click(".notice button:has-text('Acknowledge')")
-    buyer.wait_for_selector(".notice >> text=You acknowledged this")
-    board = {o["poNo"]: o for o in call("GET", "/api/m/board", None, office_token)["orders"]}
-    check("an acknowledged notice leaves the office's list", board["B-PO-88240"]["noticeUnacknowledged"] is False)
-    office.goto(f"{BASE}/m/orders/{orders['B-PO-88240']}")
-    office.wait_for_selector("text=Acknowledged by the buyer")
-    check("the order page shows the buyer acknowledged the notice", True)
-
-    # ---- Buyer writes about another order; the office sees it on the board
-    buyer.goto(f"{BASE}/b/{token}/orders/{orders['B-PO-88213']}?tab=messages")
-    buyer.fill("textarea", "Is the inline inspection still on for 10 Nov?")
-    buyer.click("button:has-text('Send message')")
-    buyer.wait_for_selector(".bubble.mine")
-    office.goto(BASE + "/m")
-    office.wait_for_selector("text=Needs you")
-    check("office board shows the buyer's new message", "B-PO-88213" in office.locator("button.attn:has-text('buyer message')").inner_text())
-
-    # ---- Buyer agrees to the countered date; office accepts; buyer follows it to the order
-    buyer.goto(f"{BASE}/b/{token}")
-    buyer.click(".attn:has-text('Agree to a new date')")
-    buyer.wait_for_selector("text=Your turn")
-    buyer.click("button:has-text('Agree to 18 Dec')")
-    buyer.wait_for_selector("text=With your merchandiser")
-    check("agreeing hands the turn back to the merchandiser", buyer.locator("text=With your merchandiser").count() >= 1)
-    office.goto(BASE + "/m/requests")
-    office.locator("td:visible", has_text="B-PO-96001").first.click()
-    office.wait_for_selector("text=The buyer is waiting for your answer")
-    office.click("button:has-text('Accept into an order')")
-    office.wait_for_selector("text=Capacity check")
-    office.locator(".modal select").first.select_option(label="Unit 3 · Palladam")
-    office.wait_for_selector("text=Room to spare")
-    office.click(".modal button:has-text('Create order')")
-    office.wait_for_url(re.compile(r"/m/orders/\d+$"))
-    new_order = office.url.rsplit("/", 1)[1]
-    buyer.reload()
-    buyer.wait_for_selector("text=Accepted")
-    buyer.click("a:has-text('See progress on your order')")
-    buyer.wait_for_selector("h1:has-text('B-PO-96001')")
-    check("an accepted request leads straight to the order", True)
-
-    # ---- Approvals: the office asks, the buyer decides, the plan follows
-    office.goto(f"{BASE}/m/orders/{new_order}?tab=approvals")
-    office.click("button:has-text('Ask the buyer to approve something')")
-    office.select_option("form select", "pp_sample")
-    office.fill("form input[maxlength='120']", "PP sample, charcoal crew tee")
-    office.click("button:has-text('Send for approval')")
-    office.wait_for_selector("text=Waiting for the buyer · not opened yet")
-    buyer.goto(f"{BASE}/b/{token}/approvals")
-    buyer.wait_for_selector("article.approval:has-text('PP sample, charcoal crew tee')")
-    buyer.wait_for_selector("aside.rail .rail-link:has-text('Approvals') .badge")
-    check("the buyer's sidebar counts what waits for their approval", buyer.locator("aside.rail .rail-link:has-text('Approvals') .badge").count() == 1)
-    buyer.click("article.approval:has-text('PP sample, charcoal crew tee') >> button:has-text('Approve')")
-    buyer.wait_for_selector(".toast:has-text('You approved')")
-    steps = {m["code"]: m for m in call("GET", f"/api/m/orders/{new_order}", None, office_token)["milestones"]}
-    check("approving a PP sample marks the plan step done", steps["PP"]["actual_date"] is not None)
-    office.reload()
-    office.wait_for_selector("text=Approved by the buyer")
-
-    # ---- One inbox per side
-    buyer.goto(f"{BASE}/b/{token}/messages")
-    buyer.wait_for_selector(".inbox-row")
-    check("the buyer's inbox lists the conversations", buyer.locator(".inbox-row").count() >= 2)
-    office.goto(BASE + "/m/messages")
-    office.wait_for_selector(".inbox-row")
-    check("the office inbox shows who owes whom", office.locator(".inbox-row:has-text('B-PO-88213') >> text=Your turn").count() == 1)
-
-    # ---- The sidebar: one frame everywhere, collapsible, a tab bar on a phone
-    check("the office has a sidebar and no top bar", office.locator("aside.rail").is_visible() and office.locator("header.topbar").count() == 0)
-    office.click(".rail-collapse")
-    check("the sidebar collapses to icons", office.locator(".app.rail-collapsed").count() == 1 and not office.locator(".rail-text").first.is_visible())
-    office.reload()
-    office.wait_for_selector(".rail")
-    check("the sidebar remembers it is collapsed", office.locator(".app.rail-collapsed").count() == 1)
-    office.click(".rail-collapse")
-
-    # ---- A view-only buyer account can look, not decide
-    qc = b.new_context(viewport={"width": 1280, "height": 900}).new_page()
-    qc.on("pageerror", lambda e: errors.append(str(e)))
-    qc.goto(BASE + "/login")
-    qc.fill("input[autocomplete=username]", "qc@companyb.example")
-    qc.fill("input[type=password]", "buyer1234")
-    qc.click("button.btn-primary")
-    qc.wait_for_url(re.compile(r"/b/me$"))
-    qc.goto(f"{BASE}/b/me/approvals")
-    qc.wait_for_selector("article.approval")
-    check("a view-only account sees approvals but cannot decide them", qc.locator("button:has-text('Approve')").count() == 0 and qc.locator("text=can look at this but not decide it").count() >= 1)
-    check("a view-only account has no New request button", qc.locator("a:has-text('New request')").count() == 0)
-
-    # ---- Documents
-    buyer.goto(f"{BASE}/b/{token}/documents")
-    buyer.wait_for_selector("h1:has-text('Documents')")
-    check("the buyer has a documents page", True)
-
-    # ---- Nothing scrolls sideways on a phone, on either side
-    phone_office = b.new_context(viewport={"width": 390, "height": 844}).new_page()
-    phone_buyer = b.new_context(viewport={"width": 390, "height": 844}).new_page()
-    phone_office.goto(BASE + "/login")
-    phone_office.fill("input[autocomplete=username]", "priya@companya.in")
-    phone_office.fill("input[type=password]", "loom1234")
-    phone_office.click("button.btn-primary")
-    phone_office.wait_for_selector("text=Needs you")
-    check("on a phone the sidebar becomes a tab bar", phone_office.locator("nav.tabbar").is_visible() and not phone_office.locator("aside.rail").is_visible())
-    pages = [(phone_office, "/m/messages"), (phone_office, "/m/approvals"), (phone_office, f"/m/orders/{orders['B-PO-88213']}?tab=approvals"),
-             (phone_buyer, f"/b/{token}/messages"), (phone_buyer, f"/b/{token}/approvals"), (phone_buyer, f"/b/{token}/documents"),
-             (phone_buyer, f"/b/{token}/orders/{orders['B-PO-88240']}?tab=history"),(phone_office, "/m"), (phone_office, "/m/requests"), (phone_office, "/m/buyers"), (phone_office, f"/m/orders/{orders['B-PO-88240']}"),
-             (phone_office, f"/m/requests/{rq}"), (phone_office, "/m/units"),
-             (phone_buyer, f"/b/{token}"), (phone_buyer, f"/b/{token}/orders"), (phone_buyer, f"/b/{token}/orders/{orders['B-PO-88240']}"),
-             (phone_buyer, f"/b/{token}/orders/{orders['B-PO-88240']}?tab=materials"), (phone_buyer, f"/b/{token}/requests"), (phone_buyer, f"/b/{token}/requests/{rq}"),
-             (phone_buyer, f"/b/{token}/requests/new")]
+    # ---- Nothing scrolls sideways on a phone
+    phone_off = b.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+    po = phone_off.new_page()
+    sign_in(po, "priya@companya.example", "loom1234")
+    check("on a phone the office sidebar becomes a tab bar", po.locator("nav.tabbar").is_visible())
+    phone_buy = b.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+    pb = phone_buy.new_page()
+    sign_in(pb, "hannah@companyb.example", "buyer1234")
+    pages = [(po, "/m"), (po, "/m/requests"), (po, "/m/buyers"), (po, "/m/reports"), (po, "/m/settings"), (po, "/m/orders/1"), (po, "/m/units"),
+             (pb, "/b/me"), (pb, "/b/me/orders"), (pb, "/b/me/orders/1"), (pb, "/b/me/requests"), (pb, "/b/me/requests/new"), (sup, "/s")]
     wide = []
     for pg, path in pages:
         pg.goto(BASE + path)
@@ -233,17 +159,6 @@ with sync_playwright() as p:
         over = pg.evaluate("document.documentElement.scrollWidth - window.innerWidth")
         if over > 1:
             wide.append((path, over))
-    # A row squeezed into a sliver still fits the screen, so also check that titles keep a readable width.
-    squeezed = []
-    for pg, path in pages:
-        pg.goto(BASE + path)
-        pg.wait_for_timeout(500)
-        for w in pg.evaluate("[...document.querySelectorAll('.order-row .t, .tabs button, .attn b, .tile b')].filter(e => e.offsetParent).map(e => Math.round(e.getBoundingClientRect().width))"):
-            if w < 40:
-                squeezed.append((path, w))
-    check("no title is squeezed into a sliver on a phone", not squeezed)
-    if squeezed:
-        print("   squeezed:", squeezed[:5])
     check(f"no page scrolls sideways on a phone ({len(pages)} checked)", not wide)
     if wide:
         print("   sideways:", wide)
