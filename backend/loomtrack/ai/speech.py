@@ -16,6 +16,7 @@ import threading
 import time
 
 from .. import config
+from ..domain.reasons import REASON_CATEGORIES
 
 REPO = "Systran/faster-whisper-large-v3"
 LABEL = "Whisper large-v3"
@@ -97,10 +98,17 @@ def _load():
         return _model
 
 
+def _spelling_hint() -> str:
+    """The words a supervisor reports problems with, spelled the way the app spells them. Whisper otherwise
+    drops letters in them (it wrote பற்றக்குரை for பற்றாக்குறை, 'shortage'), and a misspelt word translates wrongly."""
+    return ", ".join(c["ta"] for c in REASON_CATEGORIES if c["code"] not in ("NO_ISSUE", "OTHER"))
+
+
 def _transcribe(path: str) -> str:
     segments, _ = _load().transcribe(
         path, language=LANGUAGE, task="transcribe", beam_size=5, vad_filter=True,
         condition_on_previous_text=False, no_speech_threshold=0.6, temperature=0.0,
+        initial_prompt=_spelling_hint(),
     )
     parts = []
     for s in segments:

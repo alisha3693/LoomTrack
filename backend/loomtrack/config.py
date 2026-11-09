@@ -28,6 +28,23 @@ _load_env_file(BACKEND_ROOT / ".env")
 DB_FILE = os.environ.get("LOOMTRACK_DB", str(BACKEND_ROOT / "data" / "loomtrack.db"))
 UPLOAD_DIR = Path(os.environ.get("LOOMTRACK_UPLOADS", str(BACKEND_ROOT / "data" / "uploads")))
 WEB_DIST = REPO_ROOT / "web" / "dist"
+BACKUP_DIR = Path(os.environ.get("LOOMTRACK_BACKUPS", str(Path(DB_FILE).parent / "backups")))
+LOG_DIR = Path(os.environ.get("LOOMTRACK_LOGS", str(Path(DB_FILE).parent / "logs")))
+
+
+def backup_enabled() -> bool:
+    """A copy of the database and the photos is made about once a day unless LOOMTRACK_BACKUP=off."""
+    return os.environ.get("LOOMTRACK_BACKUP", "").strip().lower() not in ("off", "0", "no", "false")
+
+
+def backup_keep() -> int:
+    """How many daily copies of the database to keep (the older ones are deleted)."""
+    try:
+        return max(1, int(os.environ.get("LOOMTRACK_BACKUP_KEEP", "14")))
+    except ValueError:
+        return 14
+
+
 def ai_enabled() -> bool:
     """Translation is on unless switched off; until the models are downloaded the keyword fallback is used."""
     return os.environ.get("LOOMTRACK_AI", "on") != "off"
@@ -104,3 +121,17 @@ def whatsapp_settings() -> dict | None:
         "verify_token": os.environ.get("LOOMTRACK_WA_VERIFY_TOKEN") or None,
         "app_secret": os.environ.get("LOOMTRACK_WA_APP_SECRET") or None,
     }
+
+
+def weekly_schedule() -> tuple[int, int] | None:
+    """(weekday, hour) when each buyer's weekly status email goes out, on the server's clock; None = switched off.
+    Monday 08:00 unless LOOMTRACK_WEEKLY_DAY (mon..sun) and LOOMTRACK_WEEKLY_HOUR (0-23) say otherwise; LOOMTRACK_WEEKLY=off stops it."""
+    if os.environ.get("LOOMTRACK_WEEKLY", "").strip().lower() in ("off", "0", "no", "false"):
+        return None
+    days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    day = os.environ.get("LOOMTRACK_WEEKLY_DAY", "mon").strip().lower()[:3]
+    try:
+        hour = int(os.environ.get("LOOMTRACK_WEEKLY_HOUR", "8"))
+    except ValueError:
+        hour = 8
+    return (days.index(day) if day in days else 0, min(max(hour, 0), 23))

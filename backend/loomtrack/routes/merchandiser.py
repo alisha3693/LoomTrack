@@ -10,13 +10,11 @@ from pydantic import BaseModel, Field
 
 from .. import config
 from ..ai.classifier import ai_status
-from ..config import CALENDAR
 from ..db import transaction
 from ..deps import AppContext, User, ctx, merchandiser
 from ..domain.reasons import REASON_CATEGORIES, REASON_CODES
-from ..domain.tna import plan_from_template
 from ..security import new_token, sign_path
-from ..services import clock, accounts, activity, approvals, capacity, feed, inbox, reset, materials, notices, notify, order_messages, search as search_service
+from ..services import clock, reports, shipping, accounts, activity, capacity, feed, reset, notices, notify, search as search_service
 from ..services.export import weekly_workbook
 from ..services.attachments import for_office
 from ..services.requests import open_count
@@ -50,11 +48,9 @@ async def meta(user: User = Depends(merchandiser), c: AppContext = Depends(ctx))
         "reasons": REASON_CATEGORIES,
         "today": c.today(),
         "openRequests": open_count(db),
-        "unreadMessages": inbox.unread_count(db, "merchandiser"),
         "canReset": config.allow_reset(),
         "testDate": clock.test_date(db),
         "unreadNotifications": feed.unread_count(db, "merchandiser", user.id, "office"),
-        "approvalsToAnswer": approvals.to_answer(db),
         "ai": await ai_status(),
     }
 
@@ -84,9 +80,6 @@ async def board(buyer: int | None = None, unit: int | None = None, week: str | N
         args,
     ).fetchall()
 
-    stock = materials.summaries_for_active_orders(db, today)
-    talk = order_messages.last_by_order(db, [o["id"] for o in found])
-    approval_state = approvals.open_by_order(db)
     unacked = set(notices.unacknowledged(db))
     orders = []
     for o in found:
@@ -108,9 +101,6 @@ async def board(buyer: int | None = None, unit: int | None = None, week: str | N
                 "headline": p.reasons[0] if p.reasons else None,
                 "pendingWarnings": o["pending_warnings"],
                 "lastUpdate": o["last_update"],
-                "materials": stock.get(o["id"]),
-                "awaitingReply": bool(talk.get(o["id"]) and talk[o["id"]]["author"] == "buyer"),
-                "approvals": approval_state.get(o["id"], {"waiting": 0, "sentBack": 0}),
                 "noticeUnacknowledged": o["id"] in unacked,
             }
         )
@@ -228,10 +218,6 @@ async def order_detail(order_id: int, c: AppContext = Depends(ctx)):
             (order_id,),
         )),
         "attachments": [{**a, "url": sign_path(f"/api/media/attachments/{a['id']}")} for a in for_office(db, order_id=order_id)],
-        "materials": materials.list_for_order(db, order_id, today),
-        "messages": order_messages.thread(db, order_id),
-        "readUpTo": inbox.other_read_up_to(db, "order", order_id, "merchandiser"),
-        "approvals": approvals.for_order(db, order_id),
         "activity": activity.for_order(db, order_id, "office"),
         "buyerPath": (lambda t: f"/b/{t['link_token']}/orders/{order_id}" if t and t["link_active"] else None)(
             db.execute("SELECT link_token, link_active FROM buyers WHERE id = ?", (order["buyer_id"],)).fetchone()),
@@ -353,6 +339,25 @@ async def override_reason(update_id: str, body: ReasonIn, user: User = Depends(m
     if not cur.rowcount:
         raise HttpError(404, "No reason recorded for that update")
     return {"ok": True}
+
+
+# --- Shipping and the success-measure reports ---------------------------------------------
+
+
+class ShipIn(BaseModel):
+    shippedDate: IsoDate
+
+
+@router.post("/orders/{order_id}/ship")
+async def ship_order(order_id: int, body: ShipIn, c: AppContext = Depends(ctx)):
+    """The order left the factory on this date. The buyer is told, and the date counts towards on-time shipping."""
+    return shipping.mark_shipped(c.db, order_id, body.shippedDate, c.today())
+
+
+@router.get("/reports")
+async def reports_page(c: AppContext = Depends(ctx)):
+    refresh_all_active(c.db, c.today())
+    return reports.all_reports(c.db, c.today())
 
 
 # --- Warnings: nothing reaches a buyer until a merchandiser confirms --------------

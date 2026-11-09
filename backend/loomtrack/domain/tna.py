@@ -34,10 +34,6 @@ def _m(code, en, ta, end):
     return TemplateItem(code, en, ta, "milestone", end)
 
 
-def _s(code, en, ta, process, start, end):
-    return TemplateItem(code, en, ta, "stage", end, start, process)
-
-
 FIT = _m("FIT", "Fit sample approval", "ஃபிட் மாதிரி ஒப்புதல்", 0)
 LAB = _m("LAB", "Lab dip / colour approval", "லேப் டிப் / நிற ஒப்புதல்", 0)
 PP = _m("PP", "PP sample approval", "பிபி மாதிரி ஒப்புதல்", 0)
@@ -68,7 +64,7 @@ def _build(*stages: tuple) -> tuple[TemplateItem, ...]:
     The checkpoints sit where a buyer expects them: fabric in and inspected before cutting starts, trims before
     stitching starts, the inline inspection while stitching runs, the approvals ahead of all of it."""
     items: dict[str, TemplateItem] = {}
-    end, after = PACK_DUE, None
+    end = PACK_DUE
     for code, en, ta, process, runs in reversed(stages):
         start = end + runs
         items[code] = TemplateItem(code, en, ta, "stage", end, start, process, None)

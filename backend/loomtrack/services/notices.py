@@ -1,7 +1,7 @@
 """What a buyer does with a delay notice: opening it is "seen", answering it is "acknowledged".
 
 The office sees both on the order, so a notice that was never opened is told apart from one that was read
-and accepted. A note with the acknowledgement lands in the order's conversation as well.
+and accepted. A note with the acknowledgement is kept on the notice and emailed to the office.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import sqlite3
 
 from ..db import transaction
 from ..util import HttpError
-from . import notify, order_messages
+from . import notify
 
 
 def _latest(db: sqlite3.Connection, buyer_id: int, order_id: int) -> sqlite3.Row:
@@ -34,13 +34,12 @@ def acknowledge(db: sqlite3.Connection, buyer_id: int, order_id: int, note: str 
     note = (note or "").strip()
     with transaction(db):
         db.execute(
-            "UPDATE warnings SET buyer_seen_at = COALESCE(buyer_seen_at, datetime('now')), buyer_ack_at = COALESCE(buyer_ack_at, datetime('now')) WHERE id = ?",
-            (w["id"],),
+            """UPDATE warnings SET buyer_seen_at = COALESCE(buyer_seen_at, datetime('now')), buyer_ack_at = COALESCE(buyer_ack_at, datetime('now')),
+                 buyer_ack_note = COALESCE(?, buyer_ack_note) WHERE id = ?""",
+            (note or None, w["id"]),
         )
         po = db.execute("SELECT po_no FROM orders WHERE id = ?", (order_id,)).fetchone()["po_no"]
         notify.send(db, "notice_acknowledged", buyer_id, order_id, po=po, text=note)
-        if note:
-            order_messages.post(db, order_id, "buyer", f"About the delay notice: {note}", buyer_id=buyer_id)
 
 
 def unacknowledged(db: sqlite3.Connection) -> list[int]:

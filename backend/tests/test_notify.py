@@ -12,6 +12,7 @@ import httpx
 import pytest
 
 from loomtrack import config
+from loomtrack.routes import notifications
 from loomtrack.services import delivery, notify
 from test_api import _new_login, _new_order, env, fake_classify  # noqa: F401
 
@@ -37,13 +38,26 @@ def _rows(env, **where):
 
 
 def _enable_whatsapp(env, buyer_id=1, number="+91 98765-43210", optin=True):
-    r = env["client"].patch(f"/api/m/buyers/{buyer_id}/notifications", headers=env["merch"], json={"notifyEmail": True, "whatsappNumber": number, "whatsappOptIn": optin})
-    assert r.status_code == 200, r.text
-    return r.json()
+    """What a buyer's own "My details" save does: a number is on file only together with the buyer's agreement."""
+    number = notifications.clean_number(number) if (number or "").strip() else None
+    on = bool(number) and optin
+    env["db"].execute(
+        """UPDATE buyers SET whatsapp_number = ?, whatsapp_opt_in = ?, whatsapp_opt_in_at = CASE WHEN ? THEN datetime('now') END,
+             whatsapp_opt_in_by = CASE WHEN ? THEN 1 END WHERE id = ?""",
+        (number, int(on), on, on, buyer_id),
+    )
+    return {"whatsappNumber": number}
+
+
+def _email_on(env, buyer_id, on):
+    env["db"].execute("UPDATE buyers SET notify_email = ? WHERE id = ?", (int(on), buyer_id))
 
 
 def _say(env, oid, text="Samples left the unit today."):
-    return env["client"].post(f"/api/m/orders/{oid}/messages", headers=env["merch"], json={"message": text})
+    """Tell the order's buyer something by email (an order cancellation is the plainest event that goes to the buyer by email only)."""
+    buyer_id, po = env["db"].execute("SELECT buyer_id, po_no FROM orders WHERE id = ?", (oid,)).fetchone()
+    with env["db"]:
+        notify.send(env["db"], "order_cancelled", buyer_id, oid, po=po, text=text)
 
 
 # --- who gets what ---------------------------------------------------------------------------------------
@@ -53,7 +67,7 @@ def test_without_a_provider_the_messages_are_only_recorded(env, no_providers):
     oid = _new_order(env, "NT-1", 1).json()["id"]
     login = _new_login(env, 1, "hannah@buyerb.example")
     _say(env, oid)
-    sent = [m for m in _rows(env, order_id=oid) if m["event"] == "order_message"]
+    sent = [m for m in _rows(env, order_id=oid) if m["event"] == "order_cancelled"]
     assert [(m["channel"], m["recipient"], m["status"], m["audience"]) for m in sent] == [("email", login["login"], "logged", "buyer")]
     assert sent[0]["body"].startswith("Hello Hannah,") and "Samples left the unit today." in sent[0]["body"]
 
@@ -61,51 +75,36 @@ def test_without_a_provider_the_messages_are_only_recorded(env, no_providers):
 def test_with_a_provider_the_messages_wait_for_the_sender(env, providers):
     oid = _new_order(env, "NT-2", 1).json()["id"]
     _say(env, oid)
-    assert {m["status"] for m in _rows(env, order_id=oid, event="order_message")} == {"queued"}
+    assert {m["status"] for m in _rows(env, order_id=oid, event="order_cancelled")} == {"queued"}
 
 
 def test_a_buyer_without_an_email_address_is_told_so_not_silently_skipped(env, no_providers):
     oid = _new_order(env, "NT-3", 2).json()["id"]                       # buyer C has no accounts
     _say(env, oid)
-    (m,) = _rows(env, order_id=oid, event="order_message")
+    (m,) = _rows(env, order_id=oid, event="order_cancelled")
     assert (m["status"], m["recipient"], m["error"]) == ("skipped", None, "No email address on file")
 
 
 def test_email_can_be_switched_off_for_a_buyer(env, no_providers):
     oid = _new_order(env, "NT-4", 1).json()["id"]
-    env["client"].patch("/api/m/buyers/1/notifications", headers=env["merch"], json={"notifyEmail": False})
+    _email_on(env, 1, False)
     try:
         _say(env, oid)
-        assert {(m["status"], m["error"]) for m in _rows(env, order_id=oid, event="order_message")} == {("skipped", "Email is switched off for this buyer")}
+        assert {(m["status"], m["error"]) for m in _rows(env, order_id=oid, event="order_cancelled")} == {("skipped", "Email is switched off for this buyer")}
     finally:
-        env["client"].patch("/api/m/buyers/1/notifications", headers=env["merch"], json={"notifyEmail": True})
+        _email_on(env, 1, True)
 
 
-def test_a_buyers_message_goes_to_the_merchandisers_by_email_only(env, no_providers):
+def test_a_buyers_reply_goes_to_the_merchandisers_by_email_only(env, no_providers):
     oid = _new_order(env, "NT-5", 1).json()["id"]
-    r = env["client"].post(f"/api/b/{env['tokenB']}/orders/{oid}/messages", json={"message": "Can we ship by air?"})
-    assert r.status_code == 201
-    got = _rows(env, order_id=oid, event="order_message_in")
+    with env["db"]:
+        notify.send(env["db"], "buyer_reply", 1, oid, po="NT-5", request_no="REQ-1", text="Can we ship by air?")
+    got = _rows(env, order_id=oid, event="buyer_reply")
     assert [(m["audience"], m["channel"], m["recipient"]) for m in got] == [("office", "email", "m@x.in")]
-    assert "Buyer B wrote about PO NT-5" in got[0]["body"]
+    assert "Buyer B answered on request REQ-1" in got[0]["body"]
 
 
 # --- consent for WhatsApp -------------------------------------------------------------------------------
-
-
-def test_a_whatsapp_number_is_stored_only_with_the_buyers_agreement_on_record(env):
-    c, h = env["client"], env["merch"]
-    patch = lambda **b: c.patch("/api/m/buyers/2/notifications", headers=h, json={"notifyEmail": True, **b})
-    assert patch(whatsappNumber="98765 43210", whatsappOptIn=True).status_code == 400            # no country code
-    assert patch(whatsappNumber="+919876543210", whatsappOptIn=False).status_code == 400         # a number without agreement
-    assert patch(whatsappOptIn=True).status_code == 400                                          # agreement without a number
-    assert patch(whatsappNumber="+91 (98765) 43-210", whatsappOptIn=True).json()["whatsappNumber"] == "+919876543210"
-    b = next(b for b in c.get("/api/m/buyers", headers=h).json() if b["id"] == 2)
-    assert (b["whatsappNumber"], b["whatsappOptIn"]) == ("+919876543210", 1) and b["whatsappOptInAt"]
-    by = env["db"].execute("SELECT whatsapp_opt_in_by FROM buyers WHERE id = 2").fetchone()[0]
-    assert by is not None                                                                         # who recorded it
-    assert patch(whatsappNumber=None, whatsappOptIn=False).status_code == 200
-    assert env["db"].execute("SELECT whatsapp_number, whatsapp_opt_in, whatsapp_opt_in_at, whatsapp_opt_in_by FROM buyers WHERE id = 2").fetchone()[:] == (None, 0, None, None)
 
 
 def test_whatsapp_goes_only_to_a_buyer_who_agreed_and_only_as_the_approved_template(env, providers):
@@ -127,8 +126,8 @@ def test_whatsapp_goes_only_to_a_buyer_who_agreed_and_only_as_the_approved_templ
         assert m["body"] == f"Hello Buyer B, there is a delay on PO NT-6: Packing starts tomorrow. We will send photos. The details are at {link} where you can acknowledge it."
         tell("x" * 400)
         assert all(len(v) <= notify.WA_VALUE_LIMIT for v in json.loads(_rows(env, order_id=oid, channel="whatsapp")[-1]["params"])[:-1])
-        _say(env, oid)                                                                            # the order's conversation: email only now
-        assert {m["channel"] for m in _rows(env, order_id=oid, event="order_message")} == {"email"}
+        _say(env, oid)                                                                            # an event with no WhatsApp template: email only
+        assert {m["channel"] for m in _rows(env, order_id=oid, event="order_cancelled")} == {"email"}
     finally:
         _enable_whatsapp(env, number="", optin=False)
 
@@ -192,7 +191,7 @@ def test_a_failure_is_kept_with_its_reason_and_retried_later_then_gives_up(env, 
         raise delivery.SendError("Could not send the email: timed out")
 
     _deliver(env, smtp=down)
-    (m,) = [m for m in _rows(env, order_id=oid, event="order_message", channel="email")]
+    (m,) = [m for m in _rows(env, order_id=oid, event="order_cancelled", channel="email")]
     assert (m["status"], m["attempts"], m["error"]) == ("queued", 1, "Could not send the email: timed out") and m["not_before"]
     assert _deliver(env, smtp=down)[0] == 0                                                   # not due yet: no hammering
     for expect in (2, 3):
@@ -219,7 +218,7 @@ def test_a_refusal_that_cannot_succeed_fails_at_once(env, providers):
         raise delivery.SendError("The mail server refused the address", permanent=True)
 
     _deliver(env, smtp=refused)
-    assert {(m["status"], m["attempts"]) for m in _rows(env, order_id=oid, event="order_message")} == {("failed", 1)}
+    assert {(m["status"], m["attempts"]) for m in _rows(env, order_id=oid, event="order_cancelled")} == {("failed", 1)}
 
 
 def test_a_message_queued_before_the_provider_was_removed_fails_with_a_reason(env, providers, monkeypatch):
@@ -228,7 +227,7 @@ def test_a_message_queued_before_the_provider_was_removed_fails_with_a_reason(en
     _say(env, oid)
     monkeypatch.delenv("LOOMTRACK_SMTP_HOST")
     _deliver(env)
-    assert {(m["status"], m["error"]) for m in _rows(env, order_id=oid, event="order_message")} == {("failed", "Email is not set up any more")}
+    assert {(m["status"], m["error"]) for m in _rows(env, order_id=oid, event="order_cancelled")} == {("failed", "Email is not set up any more")}
 
 
 def test_smtp_logs_in_over_starttls_and_sends_a_plain_message(monkeypatch):
@@ -478,3 +477,4 @@ def test_the_notifications_page_lists_each_event_once_and_remembers_what_was_see
     assert all(i["event"] not in ("order_message", "order_message_in") for i in c.get(f"/api/b/{tok}/feed").json()["items"])
     office = c.get("/api/m/feed", headers=env["merch"]).json()
     assert office["seenUpTo"] == 0 and all(i["event"] not in ("order_message", "order_message_in") for i in office["items"])
+

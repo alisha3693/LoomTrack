@@ -89,34 +89,6 @@ async def test_send(body: TestIn, c: AppContext = Depends(ctx), user: User = Dep
     return {"ok": True, "message": f"Sent to {to}. On a test number it only reaches numbers added in the Meta dashboard."}
 
 
-class BuyerNotifyIn(BaseModel):
-    notifyEmail: bool
-    whatsappNumber: str | None = Field(default=None, max_length=40)
-    whatsappOptIn: bool = False
-
-
-@router.patch("/buyers/{buyer_id}/notifications")
-async def buyer_notifications(buyer_id: int, body: BuyerNotifyIn, user: User = Depends(merchandiser), c: AppContext = Depends(ctx)):
-    """Who hears from LoomTrack outside the app. A WhatsApp number is stored only with the buyer's agreement on record."""
-    b = c.db.execute("SELECT whatsapp_number, whatsapp_opt_in FROM buyers WHERE id = ?", (buyer_id,)).fetchone()
-    if b is None:
-        raise HttpError(404, "Buyer not found")
-    number = clean_number(body.whatsappNumber) if (body.whatsappNumber or "").strip() else None
-    if body.whatsappOptIn and not number:
-        raise HttpError(400, "Enter the WhatsApp number to switch WhatsApp on")
-    if number and not body.whatsappOptIn:
-        raise HttpError(400, "Tick that the buyer agreed to WhatsApp messages, or remove the number")
-    keep_consent = bool(b["whatsapp_opt_in"]) and b["whatsapp_number"] == number  # the same number, still agreed to
-    c.db.execute(
-        """UPDATE buyers SET notify_email = ?, whatsapp_number = ?, whatsapp_opt_in = ?,
-             whatsapp_opt_in_at = CASE WHEN ? THEN COALESCE(whatsapp_opt_in_at, datetime('now')) WHEN ? THEN datetime('now') END,
-             whatsapp_opt_in_by = CASE WHEN ? THEN whatsapp_opt_in_by WHEN ? THEN ? END
-           WHERE id = ?""",
-        (int(body.notifyEmail), number, int(body.whatsappOptIn), keep_consent, body.whatsappOptIn, keep_consent, body.whatsappOptIn, user.id, buyer_id),
-    )
-    return {"ok": True, "whatsappNumber": number}
-
-
 @router.post("/outbox/{message_id}/retry")
 async def retry(message_id: int, user: User = Depends(merchandiser), c: AppContext = Depends(ctx)):
     if not delivery.retry(c.db, message_id):

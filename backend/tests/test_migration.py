@@ -5,6 +5,7 @@ import sqlite3
 import pytest
 
 from loomtrack.db import SCHEMA_VERSION, open_db
+from loomtrack.security import hash_token
 
 V0_TABLES = """
 CREATE TABLE buyers (id INTEGER PRIMARY KEY, name TEXT NOT NULL, country TEXT, link_token TEXT NOT NULL UNIQUE, link_active INTEGER NOT NULL DEFAULT 1);
@@ -182,21 +183,20 @@ def test_v5_database_gets_buyer_accounts_and_keeps_its_users_and_sessions(tmp_pa
     db = open_db(str(f))
     assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     assert tuple(db.execute("SELECT name, buyer_id, must_change_secret FROM users").fetchone()) == ("Priya", None, 0)
-    assert db.execute("SELECT user_id FROM sessions WHERE token = 'tok'").fetchone()[0] == 1
+    assert db.execute("SELECT user_id FROM sessions WHERE token = ?", (hash_token('tok'),)).fetchone()[0] == 1  # kept, and now stored as a hash
     assert (tmp_path / "v5.db.v5.bak").exists()
     assert db.execute("PRAGMA foreign_key_check").fetchall() == []
     db.execute("INSERT INTO buyers (id, name, link_token) VALUES (1, 'B', 't')")
     db.execute("INSERT INTO users (name, role, login, secret_hash, buyer_id) VALUES ('Hannah', 'buyer', 'h@b.example', 'h', 1)")  # the new role is accepted
 
 
-def test_v6_database_gets_fabric_materials_and_unit_capacity_and_keeps_its_orders(tmp_path):
-    """Before this version orders and requests had no fabric columns, units no capacity, and there was no materials table."""
+def test_v6_database_gets_fabric_and_unit_capacity_and_keeps_its_orders(tmp_path):
+    """Before this version orders and requests had no fabric columns and units no capacity."""
     f = tmp_path / "v6.db"
     db = open_db(str(f))
     db.execute("INSERT INTO buyers (id, name, link_token) VALUES (1, 'B', 't')")
     db.execute("INSERT INTO units (id, name, kind) VALUES (1, 'U', 'own')")
     db.execute("INSERT INTO orders (id, order_no, po_no, buyer_id, style, colour, qty_total, ex_factory, unit_id, template_key) VALUES (1,'LT-2026-0001','P',1,'s','c',10,'2026-11-20',1,'basic')")
-    db.execute("DROP TABLE order_materials")
     for table, cols in (("orders", ("fabric_type", "fabric_composition", "fabric_gsm", "fabric_note")),
                         ("order_requests", ("fabric_type", "fabric_composition", "fabric_gsm", "fabric_note")), ("units", ("daily_capacity",))):
         for col in cols:
@@ -208,46 +208,40 @@ def test_v6_database_gets_fabric_materials_and_unit_capacity_and_keeps_its_order
     assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     assert db.execute("SELECT po_no, fabric_type, fabric_gsm FROM orders").fetchone()[:] == ("P", None, None)   # the order is untouched
     assert db.execute("SELECT daily_capacity FROM units").fetchone()[0] is None
-    assert db.execute("SELECT COUNT(*) FROM order_materials").fetchone()[0] == 0
     db.execute("UPDATE orders SET fabric_gsm = 180")
     for bad in (49, 801):
         with pytest.raises(sqlite3.IntegrityError):
             db.execute("UPDATE orders SET fabric_gsm = ?", (bad,))
     with pytest.raises(sqlite3.IntegrityError):
         db.execute("UPDATE units SET daily_capacity = 0")
-    with pytest.raises(sqlite3.IntegrityError):                                    # a line needs a step or a date, and a received one needs its date
-        db.execute("INSERT INTO order_materials (order_id, kind, name) VALUES (1, 'trim', 'x')")
-    with pytest.raises(sqlite3.IntegrityError):
-        db.execute("INSERT INTO order_materials (order_id, kind, name, needed_by, status) VALUES (1, 'trim', 'x', '2026-11-01', 'received')")
 
 
-def test_v7_database_gets_order_messages_and_keeps_its_orders(tmp_path):
-    """Before this version there was no conversation about an existing order."""
-    f = tmp_path / "v7.db"
+def test_a_database_with_the_retired_features_loses_their_tables_and_keeps_its_orders(tmp_path):
+    """Buyer approvals, the conversation about a live order, materials tracking and the unused read marks were taken out; their tables go on opening."""
+    f = tmp_path / "retired.db"
     db = open_db(str(f))
     db.execute("INSERT INTO buyers (id, name, link_token) VALUES (1, 'B', 't')")
     db.execute("INSERT INTO units (id, name, kind) VALUES (1, 'U', 'own')")
     db.execute("INSERT INTO orders (id, order_no, po_no, buyer_id, style, colour, qty_total, ex_factory, unit_id, template_key) VALUES (1,'LT-2026-0001','P',1,'s','c',10,'2026-11-20',1,'basic')")
-    db.execute("DROP TABLE order_messages")
-    db.execute("PRAGMA user_version = 7")
+    for ddl in ("CREATE TABLE order_messages (id INTEGER PRIMARY KEY, order_id INTEGER, body TEXT)",
+                "CREATE TABLE order_materials (id INTEGER PRIMARY KEY, order_id INTEGER)",
+                "CREATE TABLE approvals (id INTEGER PRIMARY KEY, order_id INTEGER)",
+                "CREATE TABLE approval_events (id INTEGER PRIMARY KEY, approval_id INTEGER)",
+                "CREATE TABLE thread_reads (kind TEXT, ref_id INTEGER, reader TEXT, last_id INTEGER)",
+                "INSERT INTO thread_reads (kind, ref_id, reader, last_id) VALUES ('request', 1, 'buyer', 3)"):
+        db.execute(ddl)
+    db.execute("PRAGMA user_version = 17")
     db.close()
 
     db = open_db(str(f))
     assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     assert db.execute("SELECT po_no FROM orders").fetchone()[0] == "P"                     # the order is untouched
-    db.execute("INSERT INTO order_messages (order_id, author, body) VALUES (1, 'buyer', 'hello')")
-    with pytest.raises(sqlite3.IntegrityError):
-        db.execute("UPDATE order_messages SET body = 'edited'")                            # append-only
-    with pytest.raises(sqlite3.IntegrityError):
-        db.execute("DELETE FROM order_messages")
-    with pytest.raises(sqlite3.IntegrityError):
-        db.execute("INSERT INTO order_messages (order_id, author, body) VALUES (1, 'stranger', 'x')")
-    with pytest.raises(sqlite3.IntegrityError):
-        db.execute("INSERT INTO order_messages (order_id, author, body) VALUES (1, 'buyer', '')")
+    left = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert not left & {"order_messages", "order_materials", "approvals", "approval_events", "thread_reads"}
 
 
-def test_v8_database_gets_approvals_read_marks_and_view_only_accounts_and_keeps_its_data(tmp_path):
-    """Before this version there were no approvals, no read marks, and every buyer account could make changes."""
+def test_v8_database_gets_view_only_accounts_and_delay_notice_receipts_and_keeps_its_data(tmp_path):
+    """Before this version every buyer account could make changes, and a delay notice had no receipt."""
     f = tmp_path / "v8.db"
     db = open_db(str(f))
     db.execute("INSERT INTO buyers (id, name, link_token) VALUES (1, 'B', 't')")
@@ -255,8 +249,6 @@ def test_v8_database_gets_approvals_read_marks_and_view_only_accounts_and_keeps_
     db.execute("INSERT INTO orders (id, order_no, po_no, buyer_id, style, colour, qty_total, ex_factory, unit_id, template_key) VALUES (1,'LT-2026-0001','P',1,'s','c',10,'2026-11-20',1,'basic')")
     db.execute("INSERT INTO users (name, role, login, secret_hash, buyer_id) VALUES ('Hannah', 'buyer', 'h@b.example', 'x', 1)")
     db.execute("INSERT INTO warnings (order_id, level, projected_ex_factory, slack_days, summary, state) VALUES (1, 'red', '2026-12-01', -3, 'x', 'confirmed')")
-    for table in ("approval_events", "approvals", "thread_reads"):
-        db.execute(f"DROP TABLE {table}")
     for table, column in (("users", "can_write"), ("warnings", "buyer_seen_at"), ("warnings", "buyer_ack_at")):
         db.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
     db.execute("PRAGMA user_version = 8")
@@ -267,14 +259,6 @@ def test_v8_database_gets_approvals_read_marks_and_view_only_accounts_and_keeps_
     assert db.execute("SELECT po_no FROM orders").fetchone()[0] == "P"
     assert db.execute("SELECT can_write FROM users").fetchone()[0] == 1                     # existing accounts keep full access
     assert db.execute("SELECT buyer_seen_at, buyer_ack_at FROM warnings").fetchone()[:] == (None, None)
-    db.execute("INSERT INTO approvals (order_id, kind, title) VALUES (1, 'fit_sample', 'Fit sample')")
-    db.execute("INSERT INTO approval_events (approval_id, actor, action) VALUES (1, 'merchandiser', 'requested')")
-    with pytest.raises(sqlite3.IntegrityError):
-        db.execute("UPDATE approval_events SET note = 'edited'")                            # append-only
-    with pytest.raises(sqlite3.IntegrityError):
-        db.execute("INSERT INTO approvals (order_id, kind, title) VALUES (1, 'nonsense', 'x')")
-    with pytest.raises(sqlite3.IntegrityError):
-        db.execute("INSERT INTO thread_reads (kind, ref_id, reader) VALUES ('order', 1, 'stranger')")
 
 
 def test_v9_database_gets_delivery_columns_and_keeps_its_outbox_and_buyers(tmp_path):

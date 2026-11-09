@@ -12,7 +12,7 @@ from ..domain.reasons import REASON_LABEL_EN
 from ..domain.tna import Template, plan_from_template
 from ..domain.runrate import DailyQty, OrderProjection, StageInput, pretty_date, project_order
 from ..util import HttpError
-from . import materials, notify
+from . import notify, shipping
 from .templates import load_template
 
 
@@ -81,7 +81,7 @@ def compute_projection(db: sqlite3.Connection, order: sqlite3.Row, today: str) -
     ]
     p = project_order(today=today, ex_factory=order["ex_factory"], order_qty=order["qty_total"], stages=stages, calendar=CALENDAR)
 
-    # Missed TNA milestones (approvals, inspections) also need attention.
+    # Missed TNA milestones (sample approvals, inspections) also need attention.
     overdue = [
         {"code": m["code"], "name": m["name_en"], "plannedDate": m["planned_date"]}
         for m in ms
@@ -121,6 +121,7 @@ def refresh_order(db: sqlite3.Connection, order_id: int, today: str) -> FullProj
             (fp.status, fp.p.projected_ex_factory, order_id),
         )
         _sync_warnings(db, order, fp, today)
+        shipping.check_production_complete(db, order, today)
     return fp
 
 
@@ -135,7 +136,7 @@ _LEVEL_RANK = {"amber": 1, "red": 2}
 def _sync_warnings(db: sqlite3.Connection, order: sqlite3.Row, fp: FullProjection, today: str) -> None:
     p = fp.p
     open_rows = db.execute(
-        "SELECT id, level, projected_ex_factory, state FROM warnings WHERE order_id = ? AND state IN ('pending','confirmed') ORDER BY id DESC",
+        "SELECT id, level, projected_ex_factory, state, reason_category FROM warnings WHERE order_id = ? AND state IN ('pending','confirmed') ORDER BY id DESC",
         (order["id"],),
     ).fetchall()
     pending = next((w for w in open_rows if w["state"] == "pending"), None)
@@ -150,23 +151,51 @@ def _sync_warnings(db: sqlite3.Connection, order: sqlite3.Row, fp: FullProjectio
     summary = " ".join(p.reasons)
     message = _default_buyer_message(db, order, fp, today)
 
-    # A confirmed warning that still describes the situation needs nothing new.
+    reason = recent_reason(db, order["id"], today)
+    reason_cat = reason[0] if reason else None
+
+    # A confirmed warning that still describes the situation needs nothing new, unless the supervisor has since
+    # given a different reason than the one the buyer was told.
     if confirmed and _LEVEL_RANK[confirmed["level"]] >= _LEVEL_RANK[level] and confirmed["projected_ex_factory"] >= p.projected_ex_factory:
-        if pending:
-            db.execute("UPDATE warnings SET state = 'superseded' WHERE id = ?", (pending["id"],))
-        return
+        if not _new_reason_since(db, order["id"], confirmed, reason_cat):
+            if pending:
+                db.execute("UPDATE warnings SET state = 'superseded' WHERE id = ?", (pending["id"],))
+            return
 
     if pending:
         # Still a draft, so the suggested buyer message follows the latest numbers.
         db.execute(
-            "UPDATE warnings SET level = ?, projected_ex_factory = ?, slack_days = ?, summary = ?, buyer_message = ? WHERE id = ?",
-            (level, p.projected_ex_factory, p.slack_days, summary, message, pending["id"]),
+            "UPDATE warnings SET level = ?, projected_ex_factory = ?, slack_days = ?, summary = ?, buyer_message = ?, reason_category = ? WHERE id = ?",
+            (level, p.projected_ex_factory, p.slack_days, summary, message, reason_cat, pending["id"]),
         )
     else:
         db.execute(
-            "INSERT INTO warnings (order_id, level, projected_ex_factory, slack_days, summary, buyer_message) VALUES (?,?,?,?,?,?)",
-            (order["id"], level, p.projected_ex_factory, p.slack_days, summary, message),
+            "INSERT INTO warnings (order_id, level, projected_ex_factory, slack_days, summary, buyer_message, reason_category, warned_on) VALUES (?,?,?,?,?,?,?,?)",
+            (order["id"], level, p.projected_ex_factory, p.slack_days, summary, message, reason_cat, today),
         )
+        # A new warning is the moment the office should hear of it; later updates to the same draft are quiet.
+        notify.send(db, "delay_detected", order["buyer_id"], order["id"], po=order["po_no"], level="at risk" if level == "amber" else "late",
+                    date=pretty_date(p.projected_ex_factory), text=summary)
+
+
+def _new_reason_since(db: sqlite3.Connection, order_id: int, confirmed: sqlite3.Row, reason_cat: str | None) -> bool:
+    """True when the supervisor has reported a reason, after the buyer was told, that differs from the one the buyer was told.
+    A notice the office dismissed for the same reason is not offered again."""
+    if reason_cat is None or reason_cat == confirmed["reason_category"]:
+        return False
+    since = db.execute("SELECT decided_at FROM warnings WHERE id = ?", (confirmed["id"],)).fetchone()["decided_at"] or ""
+    reported = db.execute(
+        """SELECT 1 FROM daily_updates u JOIN issue_reasons r ON r.update_id = u.id JOIN milestones m ON m.id = u.milestone_id
+           WHERE m.order_id = ? AND r.final_category = ? AND u.received_at >= ? LIMIT 1""",
+        (order_id, reason_cat, since),
+    ).fetchone()
+    if reported is None:
+        return False
+    waved_off = db.execute(
+        "SELECT 1 FROM warnings WHERE order_id = ? AND state = 'dismissed' AND reason_category = ? AND decided_at >= ? LIMIT 1",
+        (order_id, reason_cat, since),
+    ).fetchone()
+    return waved_off is None
 
 
 def recent_reason(db: sqlite3.Connection, order_id: int, today: str) -> tuple[str, str | None] | None:
@@ -252,7 +281,6 @@ def insert_order(db: sqlite3.Connection, body, t: Template, user_id: int, today:
             "INSERT INTO milestones (order_id, seq, code, planned_start, planned_date, unit_id) VALUES (?,?,?,?,?,?)",
             (order_id, p.seq, it.code, (o.plannedStart if o else None) or p.planned_start, o.plannedDate if o else p.planned_date, unit_id),
         )
-    materials.add_main_fabric(db, order_id, user_id, body.exFactory, {p.item.code for p in plan_from_template(CALENDAR, t, body.exFactory)}, fabric)
     return order_id, order_no
 
 

@@ -2,22 +2,18 @@
 
 from __future__ import annotations
 
-import time
-
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from ..deps import SESSION_COOKIE, AppContext, User, bearer, ctx, signed_in
-from ..services import accounts
-from ..security import session_expiry, verify_secret, verify_signed_path, new_token
+from ..deps import SESSION_COOKIE, AppContext, User, bearer, client_ip, ctx, signed_in
+from ..services import accounts, lockout
+from . import notifications
+from ..security import hash_token, session_expiry, verify_secret, verify_signed_path, new_token
 from ..util import HttpError
 
 router = APIRouter(prefix="/api")
 
-# Per-login lockout: 5 wrong tries → 5 minutes. In memory is enough for one server.
-_attempts: dict[str, tuple[int, float]] = {}
-MAX_TRIES, LOCK_SECONDS = 5, 300
 COOKIE_DAYS = {"supervisor": 90, "merchandiser": 14, "buyer": 30}  # matches security.session_expiry
 
 
@@ -28,28 +24,24 @@ class LoginIn(BaseModel):
 
 @router.post("/auth/login")
 async def login(body: LoginIn, request: Request, response: Response, c: AppContext = Depends(ctx)):
-    key = body.login.strip().lower()
-    n, until = _attempts.get(key, (0, 0.0))
-    if until < time.time():
-        n = 0
-    if n >= MAX_TRIES:
-        raise HttpError(429, "Too many attempts. Wait 5 minutes.")
+    key, ip = body.login.strip().lower(), client_ip(request)
+    lockout.check(c.db, key, ip)
 
     user = c.db.execute("SELECT id, name, role, unit_id, lang, buyer_id, must_change_secret, secret_hash FROM users WHERE lower(login) = ?", (key,)).fetchone()
     if user is None or not verify_secret(body.secret, user["secret_hash"]):
-        _attempts[key] = (n + 1, time.time() + LOCK_SECONDS)
+        lockout.record_failure(c.db, key, ip)
         raise HttpError(401, "Wrong login or PIN")
-    _attempts.pop(key, None)
+    lockout.record_success(c.db, key)
 
-    token = new_token()
-    c.db.execute("INSERT INTO sessions (token, user_id, expires_at) VALUES (?,?,?)", (token, user["id"], session_expiry(user["role"])))
-    # Same session token as a cookie, so the API also works when opened in the browser.
+    # The session lives in an HttpOnly cookie, so no script on the page can read it, and the database keeps only its hash.
     # SameSite=Lax stops other sites from making this browser send state-changing requests.
+    token = new_token()
+    c.db.execute("INSERT INTO sessions (token, user_id, expires_at) VALUES (?,?,?)", (hash_token(token), user["id"], session_expiry(user["role"])))
     response.set_cookie(
         SESSION_COOKIE, token, max_age=COOKIE_DAYS[user["role"]] * 86400,
         httponly=True, samesite="lax", secure=request.url.scheme == "https",
     )
-    return {"token": token}
+    return {"ok": True}
 
 
 @router.get("/auth/me")
@@ -70,11 +62,63 @@ async def change_password(body: PasswordIn, request: Request, user: User = Depen
     return {"ok": True}
 
 
+def _profile(c: AppContext, user: User) -> dict:
+    """A buyer's phone belongs to their company; an office person's belongs to them. Supervisors sign in with their phone."""
+    if user.role == "supervisor":
+        raise HttpError(403, "A supervisor's phone number is their sign-in; the office changes it on the Units page")
+    u = c.db.execute("SELECT name, login, phone FROM users WHERE id = ?", (user.id,)).fetchone()
+    if user.role == "buyer":
+        b = c.db.execute("SELECT name, whatsapp_number FROM buyers WHERE id = ?", (user.buyer_id,)).fetchone()
+        return {"role": "buyer", "name": u["name"], "email": u["login"], "phone": b["whatsapp_number"], "company": b["name"]}
+    return {"role": "merchandiser", "name": u["name"], "email": u["login"], "phone": u["phone"], "company": None}
+
+
+@router.get("/auth/profile")
+async def profile(user: User = Depends(signed_in), c: AppContext = Depends(ctx)):
+    """The signed-in person's own name, sign-in email and phone number, for the "My details" page."""
+    return _profile(c, user)
+
+
+class ProfileIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    email: str = Field(min_length=3, max_length=120)
+    phone: str | None = Field(default=None, max_length=40)
+    currentPassword: str | None = Field(default=None, max_length=100)  # needed only when the email changes
+
+
+@router.patch("/auth/profile")
+async def update_profile(body: ProfileIn, request: Request, user: User = Depends(signed_in), c: AppContext = Depends(ctx)):
+    """Change your own name, sign-in email and phone number in one go.
+
+    Changing the email asks for the current password, so someone at an unlocked phone cannot take the account over.
+    For a buyer the number is the company's WhatsApp number for order alerts; typing it here is the agreement to receive them.
+    """
+    before = _profile(c, user)
+    new_email = body.email.strip().lower()
+    if new_email != before["email"].lower():
+        row = c.db.execute("SELECT secret_hash FROM users WHERE id = ?", (user.id,)).fetchone()
+        if not body.currentPassword or not verify_secret(body.currentPassword, row["secret_hash"]):
+            raise HttpError(400, "Enter your current password to change your email")
+    phone = notifications.clean_number(body.phone) if (body.phone or "").strip() else None  # validate before saving anything
+    accounts.update_details(c.db, user.id, body.name, body.email, bearer(request), roles=("buyer", "merchandiser"))
+    if phone != before["phone"]:
+        if user.role == "buyer":
+            c.db.execute(
+                """UPDATE buyers SET whatsapp_number = ?, whatsapp_opt_in = ?,
+                     whatsapp_opt_in_at = CASE WHEN ? THEN datetime('now') END, whatsapp_opt_in_by = CASE WHEN ? THEN ? END
+                   WHERE id = ?""",
+                (phone, int(phone is not None), phone is not None, phone is not None, user.id, user.buyer_id),
+            )
+        else:
+            c.db.execute("UPDATE users SET phone = ? WHERE id = ?", (phone, user.id))
+    return _profile(c, user)
+
+
 @router.post("/auth/logout")
 async def logout(request: Request, response: Response, c: AppContext = Depends(ctx)):
     token = bearer(request)
     if token:
-        c.db.execute("DELETE FROM sessions WHERE token = ?", (token,))
+        c.db.execute("DELETE FROM sessions WHERE token = ?", (hash_token(token),))
     response.delete_cookie(SESSION_COOKIE)
     return {"ok": True}
 

@@ -2,7 +2,6 @@
 supervisor update path (idempotency, unit scoping), the AI override, warning
 confirmation and the date-change audit trail."""
 
-import json
 import sqlite3
 
 import pytest
@@ -14,6 +13,9 @@ from loomtrack.main import create_app
 from loomtrack.security import hash_secret, new_token
 
 TODAY = "2026-11-05"
+# The first bytes of real recordings: the app reads the type from these, not from what the phone says.
+WEBM = b"\x1a\x45\xdf\xa3" + bytes(32)
+OGG = b"OggS" + bytes(34)
 
 
 async def fake_transcribe(path: str):
@@ -39,7 +41,7 @@ def env(tmp_path_factory):
     def login(who, secret):
         r = client.post("/api/auth/login", json={"login": who, "secret": secret})
         assert r.status_code == 200, r.text
-        return {"Authorization": f"Bearer {r.json()['token']}"}
+        return {"Authorization": f"Bearer {r.cookies['loomtrack_session']}"}
 
     e["merch"], e["sup1"], e["sup2"] = login("m@x.in", "pass1234"), login("9000000001", "1111"), login("9000000002", "2222")
 
@@ -194,8 +196,8 @@ def test_a_supervisors_reason_reaches_the_merchandisers_notifications_at_once(en
 
 
 def test_a_voice_note_is_written_out_translated_and_classified(env):
-    db, c = env["db"], env["client"]
-    r = post_update(env, "sup1", "voice-update-0001", stage_id(db, env["orderB"], "CUT"), 5, files={"audio": ("note.webm", b"not really audio", "audio/webm")})
+    db = env["db"]
+    r = post_update(env, "sup1", "voice-update-0001", stage_id(db, env["orderB"], "CUT"), 5, files={"audio": ("note.webm", WEBM, "audio/webm")})
     assert r.status_code == 201
     u = db.execute("SELECT note_text, note_source, audio_path FROM daily_updates WHERE id = 'voice-update-0001'").fetchone()
     assert u["note_source"] == "voice" and u["note_text"] and u["audio_path"]  # the words are there beside the recording
@@ -204,7 +206,7 @@ def test_a_voice_note_is_written_out_translated_and_classified(env):
 
 def test_a_voice_note_stays_a_recording_when_nothing_can_be_made_of_it(env):
     db = env["db"]
-    r = post_update(env, "sup1", "voice-update-0002", stage_id(db, env["orderB"], "CUT"), 5, files={"audio": ("note.ogg", b"not really audio", "audio/ogg")})
+    r = post_update(env, "sup1", "voice-update-0002", stage_id(db, env["orderB"], "CUT"), 5, files={"audio": ("note.ogg", OGG, "audio/ogg")})
     assert r.status_code == 201
     u = db.execute("SELECT note_text, audio_path FROM daily_updates WHERE id = 'voice-update-0002'").fetchone()
     assert u["note_text"] is None and u["audio_path"]
@@ -679,8 +681,8 @@ def test_files_follow_a_request_onto_its_order_and_the_floor_sees_only_what_is_s
     extra = _upload(env, ("office-order", oid), PDF, "spec.pdf", kind="pattern", claimed="application/pdf", supervisorVisible=True)
     assert extra.status_code == 201
     assert len(env["client"].get(f"/api/s/orders/{oid}/attachments", headers=env["sup1"]).json()["files"]) == 2
-    assert env["client"].post(f"/api/m/orders/999999/attachments", headers=env["merch"], data={"kind": "design"}, files={"file": ("a.png", PNG, "image/png")}).status_code == 404
-    assert env["client"].get(f"/api/m/requests", headers=env["sup1"]).status_code == 403
+    assert env["client"].post("/api/m/orders/999999/attachments", headers=env["merch"], data={"kind": "design"}, files={"file": ("a.png", PNG, "image/png")}).status_code == 404
+    assert env["client"].get("/api/m/requests", headers=env["sup1"]).status_code == 403
 
 
 def test_a_closed_request_takes_no_more_files(env):
@@ -824,7 +826,7 @@ def _sign_in(env, email, secret):
     env["client"].cookies.clear()
     r = env["client"].post("/api/auth/login", json={"login": email, "secret": secret})
     assert r.status_code == 200, r.text
-    return {"Authorization": f"Bearer {r.json()['token']}"}
+    return {"Authorization": f"Bearer {r.cookies['loomtrack_session']}"}
 
 
 def test_a_buyer_account_signs_in_and_sees_only_its_own_buyer(env):
@@ -933,3 +935,46 @@ def test_a_buyer_account_must_belong_to_a_buyer(env):
         db.execute("INSERT INTO users (name, role, login, secret_hash) VALUES ('B', 'buyer', 'x@y.example', 'h')")
     with pytest.raises(sqlite3.IntegrityError):
         db.execute("INSERT INTO users (name, role, login, secret_hash, buyer_id) VALUES ('M', 'merchandiser', 'm2@y.example', 'h', 1)")
+
+
+def test_a_buyer_changes_their_own_email_and_number_on_one_page(env):
+    c, db = env["client"], env["db"]
+    made = _new_login(env, 1, "owner@buyerb.example", "Owner")
+    h = _sign_in(env, made["login"], made["password"])
+    other = _sign_in(env, made["login"], made["password"])          # a second device
+    h = _sign_in(env, made["login"], made["password"])
+    p0 = c.get("/api/auth/profile", headers=h).json()
+    assert (p0["role"], p0["name"], p0["email"], p0["phone"]) == ("buyer", "Owner", "owner@buyerb.example", None)
+
+    # Name and number need no password; typing a number is the buyer's own agreement, recorded.
+    r = c.patch("/api/auth/profile", headers=h, json={"name": "Owner Two", "email": "owner@buyerb.example", "phone": "+44 7700 900123"})
+    assert r.status_code == 200 and r.json()["phone"] == "+447700900123" and r.json()["name"] == "Owner Two"
+    row = db.execute("SELECT whatsapp_number, whatsapp_opt_in, whatsapp_opt_in_by FROM buyers WHERE id = 1").fetchone()
+    assert tuple(row) == ("+447700900123", 1, db.execute("SELECT id FROM users WHERE login = 'owner@buyerb.example'").fetchone()[0])
+    # A number without a country code is refused, and nothing else was changed by that attempt.
+    bad = c.patch("/api/auth/profile", headers=h, json={"name": "Hacked", "email": "owner@buyerb.example", "phone": "98765"})
+    assert bad.status_code == 400 and c.get("/api/auth/profile", headers=h).json()["name"] == "Owner Two"
+
+    # A new email needs the current password; with it, other devices are signed out and this one stays in.
+    new = {"name": "Owner Two", "email": "Boss@BuyerB.example", "phone": "+447700900123"}
+    assert c.patch("/api/auth/profile", headers=h, json=new).status_code == 400
+    assert c.patch("/api/auth/profile", headers=h, json={**new, "currentPassword": "wrong-password"}).status_code == 400
+    ok = c.patch("/api/auth/profile", headers=h, json={**new, "currentPassword": made["password"]})
+    assert ok.status_code == 200 and ok.json()["email"] == "boss@buyerb.example"
+    assert c.get("/api/auth/me", headers=h).status_code == 200
+    assert c.get("/api/auth/me", headers=other).status_code == 401
+    assert c.post("/api/auth/login", json={"login": "boss@buyerb.example", "secret": made["password"]}).status_code == 200
+    # An email another account uses is refused; clearing the number turns WhatsApp off.
+    assert c.patch("/api/auth/profile", headers=h, json={"name": "O", "email": "9000000001", "currentPassword": made["password"]}).status_code == 400
+    cleared = c.patch("/api/auth/profile", headers=h, json={"name": "Owner Two", "email": "boss@buyerb.example", "phone": ""})
+    assert cleared.json()["phone"] is None
+    assert tuple(db.execute("SELECT whatsapp_number, whatsapp_opt_in FROM buyers WHERE id = 1").fetchone()) == (None, 0)
+
+    # An office person has the same page, with their own phone number; a supervisor's phone is their sign-in.
+    m = c.get("/api/auth/profile", headers=env["merch"]).json()
+    assert (m["role"], m["email"], m["phone"]) == ("merchandiser", "m@x.in", None)
+    assert c.patch("/api/auth/profile", headers=env["merch"], json={"name": "Priya S.", "email": "m@x.in", "phone": "98765"}).status_code == 400
+    done = c.patch("/api/auth/profile", headers=env["merch"], json={"name": "Priya S.", "email": "m@x.in", "phone": "+91 98765 43210"})
+    assert done.status_code == 200 and done.json()["phone"] == "+919876543210"
+    assert db.execute("SELECT phone FROM users WHERE login = 'm@x.in'").fetchone()[0] == "+919876543210"
+    assert c.get("/api/auth/profile", headers=env["sup1"]).status_code == 403

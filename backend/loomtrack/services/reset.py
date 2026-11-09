@@ -1,7 +1,7 @@
 """Start testing again from an empty shop floor, keeping what the buyers asked for.
 
-Removed: orders and everything under them (plans, supervisor updates and photos, delay notices, approvals,
-materials, conversations, files), changes buyers asked for on orders, and the record of messages sent.
+Removed: orders and everything under them (plans, supervisor updates and photos, delay notices, files), changes
+buyers asked for on orders, and the record of messages sent.
 Kept: buyers, people and sign-ins, units, plan templates, and the requests buyers sent. A request that had
 become an order goes back to waiting for an answer, so it can be accepted again.
 A copy of the database is saved first. The button is off unless LOOMTRACK_ALLOW_RESET is set (see config).
@@ -17,7 +17,7 @@ from ..db import transaction
 from ..util import HttpError
 
 # Tables that refuse deletes on purpose; the guard is lifted only inside the one transaction that clears them.
-_GUARDED = ("approval_events", "date_changes", "order_messages", "request_messages")
+_GUARDED = ("date_changes", "request_messages")
 
 
 def _count(db: sqlite3.Connection, sql: str) -> int:
@@ -78,13 +78,11 @@ def clear(db: sqlite3.Connection, backup_dir: Path, upload_dir: Path) -> dict:
         for g in guards:
             db.execute(f"DROP TRIGGER {g['name']}")
         for sql in (
-            "DELETE FROM approval_events", "DELETE FROM approvals", "DELETE FROM photos", "DELETE FROM issue_reasons",
+            "DELETE FROM photos", "DELETE FROM issue_reasons",
             "DELETE FROM daily_updates", "DELETE FROM warnings", "DELETE FROM date_changes", "DELETE FROM milestones",
-            "DELETE FROM order_sizes", "DELETE FROM order_materials", "DELETE FROM order_messages",
-            "DELETE FROM thread_reads WHERE kind = 'order'",
+            "DELETE FROM order_sizes",
             f"DELETE FROM request_sizes WHERE request_id IN {amend}",
             f"DELETE FROM request_messages WHERE request_id IN {amend}",
-            f"DELETE FROM thread_reads WHERE kind = 'request' AND ref_id IN {amend}",
             f"DELETE FROM attachments WHERE request_id IN {amend}",
             "DELETE FROM attachments WHERE request_id IS NULL",
             "UPDATE attachments SET order_id = NULL WHERE order_id IS NOT NULL",

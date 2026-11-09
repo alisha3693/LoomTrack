@@ -25,7 +25,6 @@ from .db import SCHEMA, open_db, transaction
 from .domain.tna import plan_from_template
 from .security import hash_secret, new_token
 from .services.orders import next_order_no, refresh_all_active
-from .services import approvals, materials
 from .services.templates import load_template
 
 BUYERS = [
@@ -50,8 +49,8 @@ SUBCONTRACTOR = {"printing": PRINTER, "washing": WASHER}
 CAPACITY = {UNIT1: 1400, UNIT2: 1300, UNIT3: 1200}
 
 USERS = [
-    ("Priya S.", "merchandiser", "priya@companya.in", "loom1234", None, "en"),
-    ("Arun K.", "merchandiser", "arun@companya.in", "loom1234", None, "en"),
+    ("Priya S.", "merchandiser", "priya@companya.example", "loom1234", None, "en"),
+    ("Arun K.", "merchandiser", "arun@companya.example", "loom1234", None, "en"),
     ("Murugan", "supervisor", "9840000001", "1111", UNIT1, "ta"),
     ("Lakshmi", "supervisor", "9840000002", "2222", UNIT2, "ta"),
     ("Selvi", "supervisor", "9840000003", "3333", UNIT3, "ta"),
@@ -80,7 +79,6 @@ class Order:
     sizes: list[tuple[str, int]]
     stages: dict[str, Stage]
     pending_milestones: tuple[str, ...] = ()  # deliberately left not done (overdue TNA items)
-    synthetic: bool = False
 
 
 ORDERS = [
@@ -103,24 +101,24 @@ ORDERS = [
     # --- Synthetic orders -------------------------------------------------------------
     Order("B-PO-88277", "Company B (UK)", "Ladies vest top", "Black", "2026-11-25", UNIT3, "basic",
           [("XS", 1000), ("S", 2200), ("M", 2800), ("L", 2000), ("XL", 1000)],
-          {"CUT": Stage(9000, 1200), "STITCH": Stage(7600, 820, today=True, notes=["எல்லாம் சரியாக நடக்கிறது"]),
-           "FINISH": Stage(3000, 700)}, synthetic=True),
+          {"CUT": Stage(9000, 1200), "STITCH": Stage(9000, 820, today=True, notes=["எல்லாம் சரியாக நடக்கிறது"]),
+           "FINISH": Stage(3000, 700)}),
     Order("B-PO-88301", "Company B (UK)", "Men's henley", "Grey marl", "2026-12-10", UNIT2, "basic",
           [("S", 900), ("M", 1800), ("L", 1800), ("XL", 1100), ("XXL", 400)],
-          {"CUT": Stage(2400, 600)}, synthetic=True),
+          {"CUT": Stage(2400, 600)}),
     Order("C-PO-0495", "Company C (Germany)", "Kids hoodie, garment washed", "Washed blue", "2026-11-18", UNIT3, "washed",
           [("4-5Y", 1200), ("6-7Y", 1400), ("8-9Y", 1400), ("10-11Y", 1000)],
           {"CUT": Stage(5000, 800), "STITCH": Stage(5000, 600),
            "WASH": Stage(2200, 420, notes=["வாஷிங் கெமிக்கல் தாமதம், நாளை முதல் சரியாகும்"]),
-           "FINISH": Stage(1500, 400)}, synthetic=True),
+           "FINISH": Stage(1500, 400)}),
     Order("C-PO-0502", "Company C (Germany)", "Kids shorts set", "Navy / white", "2026-12-05", UNIT2, "printed",
           [("2-3Y", 1400), ("4-5Y", 2000), ("6-7Y", 2000), ("8-9Y", 1600)],
-          {"CUT": Stage(1500, 500)}, pending_milestones=("PP",), synthetic=True),
+          {"CUT": Stage(1500, 500)}, pending_milestones=("PP",)),
     Order("D-PO-1107", "Company D (Netherlands)", "Organic cotton tee", "Ecru", "2026-12-15", UNIT1, "basic",
-          [("S", 3000), ("M", 4500), ("L", 4500), ("XL", 3000)], {}, synthetic=True),
+          [("S", 3000), ("M", 4500), ("L", 4500), ("XL", 3000)], {"CUT": Stage(12000, 1500)}),
     Order("D-PO-1112", "Company D (Netherlands)", "Long-sleeve tee", "Olive", "2026-11-26", UNIT3, "basic",
           [("S", 1300), ("M", 2000), ("L", 2000), ("XL", 1200)],
-          {"CUT": Stage(6500, 900), "STITCH": Stage(3900, 380)}, synthetic=True),
+          {"CUT": Stage(6500, 900), "STITCH": Stage(3900, 380)}),
 ]
 
 
@@ -136,46 +134,6 @@ FABRIC = {
     "D-PO-1107": ("Single jersey", "100% organic cotton (GOTS)", 180, "Certified mill, longer lead time"),
     "D-PO-1112": ("Rib 1x1", "95% cotton, 5% elastane", 200, None),
 }
-
-# Where a demo material stands when it is not simply "arrived in time": (status, ordered, expected, received).
-STOCK_OVERRIDES = {
-    ("B-PO-88240", "Carton"): ("ordered", "2026-10-28", "2026-11-04", None),          # the floor note says the cartons have not come
-    ("B-PO-88301", "Sewing thread"): ("ordered", "2026-11-03", "2026-11-20", None),   # arrives after stitching starts
-    ("B-PO-88301", "Main label"): ("not_ordered", None, None, None),                 # not ordered and stitching starts soon
-    ("D-PO-1107", "Main fabric"): ("ordered", "2026-10-27", "2026-11-20", None),     # organic cotton: arrives after the plan wants it
-    ("D-PO-1107", "Rib / collar fabric"): ("ordered", "2026-10-27", "2026-11-12", None),
-}
-
-
-def _stock_up(db, order_id: int, po: str, today: str, user_id: int) -> None:
-    """Give a demo order its materials. Fabric is in once cutting has begun; trims and packing are in once the step that uses them has started."""
-    materials.add_standard(db, order_id, user_id, today)
-    yesterday = CALENDAR.prev_working_day(today)
-    plan = {r["code"]: r for r in db.execute("SELECT code, planned_start, planned_date FROM milestones WHERE order_id = ?", (order_id,))}
-    cutting = db.execute(
-        "SELECT 1 FROM daily_updates d JOIN milestones m ON m.id = d.milestone_id WHERE m.order_id = ? AND m.code = 'CUT'", (order_id,)
-    ).fetchone()
-    with transaction(db):
-        for m in db.execute("SELECT id, kind, name, needed_for FROM order_materials WHERE order_id = ?", (order_id,)).fetchall():
-            step = plan.get(m["needed_for"])
-            needed = (step["planned_start"] or step["planned_date"]) if step else None
-            if m["kind"] == "fabric":
-                arrived = bool(cutting) or (step is not None and step["planned_date"] < today)
-                state = ("received", None, None, min(step["planned_date"], yesterday)) if arrived else ("ordered", None, step["planned_date"], None)
-            else:
-                if needed is not None and needed < today:
-                    state = ("received", None, None, CALENDAR.shift_working_days(needed, -2))
-                elif needed is not None and needed <= CALENDAR.shift_working_days(today, 20):
-                    state = ("ordered", None, max(CALENDAR.shift_working_days(needed, -3), CALENDAR.next_working_day(today)), None)
-                else:
-                    state = ("not_ordered", None, None, None)
-            status, ordered, expected, received = STOCK_OVERRIDES.get((po, m["name"]), state)
-            db.execute(
-                "UPDATE order_materials SET status = ?, ordered_date = ?, expected_date = ?, received_date = ? WHERE id = ?",
-                (status, ordered or (CALENDAR.shift_working_days(expected, -10) if status == "ordered" and expected else None), expected, received, m["id"]),
-            )
-        materials.sync_fabric_milestone(db, order_id, user_id, undo=False)
-
 
 def _jitter(key: str) -> float:
     """Deterministic ±15% so the same seed gives the same history."""
@@ -213,10 +171,10 @@ COLOUR_HEX = {"Navy": "#1F2A44", "White": "#FFFFFF", "Yellow": "#F2C400", "Black
 
 async def seed(db, today: str) -> None:
     # The append-only trails refuse deletes; lift that for the reset and restore it from the schema afterwards.
-    for trigger in ("date_changes_no_delete", "request_messages_no_delete", "order_messages_no_delete", "approval_events_no_delete"):
+    for trigger in ("date_changes_no_delete", "request_messages_no_delete"):
         db.execute(f"DROP TRIGGER IF EXISTS {trigger}")
-    for t in ["approval_events", "approvals", "thread_reads", "attachments", "request_messages", "request_sizes", "order_requests", "order_messages", "date_changes", "outbox_messages", "warnings",
-              "issue_reasons", "photos", "daily_updates", "order_materials", "milestones", "order_sizes", "orders", "sessions", "users", "unit_capacity", "units", "buyers"]:
+    for t in ["attachments", "request_messages", "request_sizes", "order_requests", "date_changes", "outbox_messages", "warnings",
+              "issue_reasons", "photos", "daily_updates", "milestones", "order_sizes", "orders", "sessions", "users", "unit_capacity", "units", "buyers"]:
         db.execute(f"DELETE FROM {t}")
     db.executescript(SCHEMA)
 
@@ -259,7 +217,6 @@ async def seed(db, today: str) -> None:
                 db.execute("INSERT INTO order_sizes (order_id, seq, size, qty) VALUES (?,?,?,?)", (order_id, n, size, q))
             fab = FABRIC[o.po]
             db.execute("UPDATE orders SET fabric_type = ?, fabric_composition = ?, fabric_gsm = ?, fabric_note = ? WHERE id = ?", (*fab, order_id))
-            materials.add_main_fabric(db, order_id, merch_id, o.ex_factory, {i.code for i in t.items}, {"type": fab[0], "composition": fab[1], "gsm": fab[2]})
 
             for p in plan_from_template(CALENDAR, t, o.ex_factory):
                 it = p.item
@@ -296,9 +253,6 @@ async def seed(db, today: str) -> None:
             (henley, "ex_factory", "2026-12-05", "2026-12-10", "Buyer moved the ship window (email from Company B sourcing, 21 Oct)", merch_id, "2026-10-21 11:42:00"),
         )
 
-    for r in db.execute("SELECT id, po_no FROM orders").fetchall():
-        _stock_up(db, r["id"], r["po_no"], today, merch_id)
-
     # Classify seeded notes exactly the way live notes are classified.
     use_model = (await ai_status())["mode"] == "indictrans2"
     for upd, note in to_classify:
@@ -325,16 +279,6 @@ async def seed(db, today: str) -> None:
             (w["buyer_id"], w["order_id"], "email", f"Production update: {w['po_no']}", w["buyer_message"]),
         )
 
-    # Demo: a pre-production sample waits on Company B, and Company C sent a fit sample back with changes.
-    def order_of(po: str):
-        return db.execute("SELECT id, buyer_id FROM orders WHERE po_no = ?", (po,)).fetchone()
-
-    crew = order_of("B-PO-88213")
-    approvals.request_approval(db, crew["id"], merch_id, "pp_sample", "Pre-production sample, navy crew neck", "Sent by courier on 3 Nov. Please check the neck rib and the print placement.")
-    kids = order_of("C-PO-0488")
-    aid = approvals.request_approval(db, kids["id"], merch_id, "fit_sample", "Fit sample, kids printed tee", "Size 6 and size 10 on the fit model.")
-    approvals.decide(db, kids["buyer_id"], aid, False, "The neck rib is too wide on both sizes. Please narrow it by 5 mm and send again.", today)
-
 
 def main() -> None:
     today = config.today()
@@ -349,7 +293,7 @@ def main() -> None:
     print("\nBuyer links (open on the web app):")
     for r in db.execute("SELECT name, link_token FROM buyers"):
         print(f"  {r['name']:<26} /b/{r['link_token']}")
-    print("\nLogins: priya@companya.in / loom1234 (merchandiser) · 9840000001 / 1111 (supervisor, Unit 1) · hannah@companyb.example / buyer1234 (buyer) · more in README")
+    print("\nLogins: priya@companya.example / loom1234 (merchandiser) · 9840000001 / 1111 (supervisor, Unit 1) · hannah@companyb.example / buyer1234 (buyer) · more in README")
 
 
 if __name__ == "__main__":

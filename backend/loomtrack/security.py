@@ -26,6 +26,12 @@ def new_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+def hash_token(token: str) -> str:
+    """What the database keeps of a session token: its SHA-256. The token is 256 random bits, so a fast hash is enough
+    (there is nothing to guess, so no salt or stretching is needed), and a stolen copy of the database cannot sign anyone in."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 # Supervisors stay signed in on their phone for a season; office sessions are shorter.
 SESSION_DAYS = {"supervisor": 90, "merchandiser": 14, "buyer": 30}
 

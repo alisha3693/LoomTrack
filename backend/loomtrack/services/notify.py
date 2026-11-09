@@ -107,24 +107,19 @@ _EVENTS = [
         "Hello {buyer}, there is a delay on PO {po}: {text} The details are at {link} where you can acknowledge it.",
     ),
     Event(
+        "order_shipped", "buyer", "The merchandiser marked an order as shipped",
+        "PO {po} has shipped",
+        "Your order for PO {po} left the factory on {date}.\n\n{text}",
+    ),
+    Event(
+        "weekly_status", "buyer", "Every week: where each of the buyer's orders stands (the Excel file is attached)",
+        "Weekly order status: {week}",
+        "Here is where your orders stand this week:\n\n{text}\n\nThe Excel file with the details is attached.",
+    ),
+    Event(
         "order_cancelled", "buyer", "The merchandiser cancelled an order",
         "Order {po} was cancelled",
         "Your order for PO {po} has been cancelled.\n\nReason: {text}\n\nYou can see this at {link}.",
-    ),
-    Event(
-        "order_message", "buyer", "The merchandiser wrote in an order's conversation",
-        "Message about {po}",
-        "Your merchandiser wrote about PO {po}:\n\n{text}\n\nYou can reply in LoomTrack.",
-    ),
-    Event(
-        "approval_requested", "buyer", "The merchandiser asked for an approval (sample, lab dip, packaging)",
-        "Approval needed: {title} ({po})",
-        "Your approval is needed for {title} on PO {po}.\n\n{text}\n\nPlease approve it, or ask for changes, in LoomTrack.",
-    ),
-    Event(
-        "approval_resubmitted", "buyer", "The merchandiser sent an approval again after the buyer asked for changes",
-        "Approval needed again: {title} ({po})",
-        "{title} on PO {po} was updated after your comments and needs your approval again.\n\nWhat changed: {text}",
     ),
     # --- to the merchandisers: email only ---
     Event(
@@ -138,19 +133,19 @@ _EVENTS = [
         "{buyer} answered on request {request_no}:\n\n{text}",
     ),
     Event(
-        "order_message_in", "office", "A buyer wrote in an order's conversation",
-        "{buyer} wrote about {po}",
-        "{buyer} wrote about PO {po}:\n\n{text}",
-    ),
-    Event(
-        "approval_decided", "office", "A buyer approved, or asked for changes",
-        "{buyer}: {outcome} on {title} ({po})",
-        "{buyer} {outcome} on {title}, PO {po}.\n\n{text}",
-    ),
-    Event(
         "supervisor_reported", "office", "The supervisor sent a reason for a problem on the floor",
         "Supervisor reported on {po}: {reason}",
         "The supervisor reported a problem on PO {po} ({stage}):\n\n{text}",
+    ),
+    Event(
+        "delay_detected", "office", "LoomTrack found an order running late (a new delay warning to look at)",
+        "Delay detected on {po}: {level}",
+        "LoomTrack expects PO {po} to be ready on {date}, which is later than the agreed ex-factory date.\n\n{text}\n\nOpen the order to review the warning and tell the buyer.",
+    ),
+    Event(
+        "production_complete", "office", "Every stage of an order has reached the full quantity",
+        "Production complete on {po}",
+        "Every production stage of PO {po} has reached the full quantity.\n\nWhen it leaves the factory, open the order and mark it shipped with the ship date.",
     ),
     Event(
         "notice_acknowledged", "office", "A buyer acknowledged a delay notice",

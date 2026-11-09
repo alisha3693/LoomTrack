@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from . import inbox, materials, order_messages
+from . import shipping
 from .attachments import for_buyer
 from .orders import compute_projection, get_milestones
 
@@ -19,14 +19,6 @@ def buyer_by_token(db: sqlite3.Connection, token: str) -> sqlite3.Row | None:
     if not token or len(token) < 20:
         return None
     return db.execute("SELECT id, name, country FROM buyers WHERE link_token = ? AND link_active = 1", (token,)).fetchone()
-
-
-def _with_unread(db: sqlite3.Connection, order_id: int, last: dict | None) -> dict | None:
-    """The newest message of an order, marked unread when the office wrote it and the buyer has not opened it yet."""
-    if last is None:
-        return None
-    unread = last["author"] == "merchandiser" and last["id"] > inbox.seen_by(db, "order", order_id, "buyer")
-    return {"author": last["author"], "at": last["at"], "count": last["count"], "unread": unread}
 
 
 def cancelled_orders(db: sqlite3.Connection, buyer_id: int) -> list[dict]:
@@ -41,7 +33,6 @@ def cancelled_orders(db: sqlite3.Connection, buyer_id: int) -> list[dict]:
 def buyer_orders(db: sqlite3.Connection, buyer_id: int, today: str) -> list[dict]:
     orders = db.execute("SELECT * FROM orders WHERE buyer_id = ? AND state != 'cancelled' ORDER BY ex_factory", (buyer_id,)).fetchall()
     result = []
-    talk = order_messages.last_by_order(db, [o["id"] for o in orders])
     for o in orders:
         p = compute_projection(db, o, today).p
         stage_by_code = {s.code: s for s in p.stages}
@@ -95,12 +86,12 @@ def buyer_orders(db: sqlite3.Connection, buyer_id: int, today: str) -> list[dict
                 "colourHex": o["colour_hex"],
                 "colourPantone": o["colour_pantone"],
                 "fabric": {"type": o["fabric_type"], "composition": o["fabric_composition"], "gsm": o["fabric_gsm"]},
-                "materials": materials.for_buyer(db, o["id"]),
-                "lastMessage": _with_unread(db, o["id"], talk.get(o["id"])),
                 "qty": o["qty_total"],
                 "sizes": [dict(s) for s in sizes],
                 "exFactory": o["ex_factory"],
                 "state": o["state"],
+                "shippedDate": o["shipped_date"],
+                "shippedVerdict": shipping.verdict(o["shipped_date"], o["ex_factory"]) if o["shipped_date"] else None,
                 # Buyers see a delay only once a merchandiser has confirmed it.
                 "notice": (
                     {"message": warning["buyer_message"], "expectedExFactory": warning["projected_ex_factory"], "at": warning["decided_at"], "seenAt": warning["buyer_seen_at"], "acknowledgedAt": warning["buyer_ack_at"]}

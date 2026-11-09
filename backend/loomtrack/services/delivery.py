@@ -42,12 +42,16 @@ class SendError(Exception):
 # --- The two providers -------------------------------------------------------------------------------
 
 
-def send_smtp(cfg: dict, to: str, subject: str, body: str) -> None:
-    """Blocking; run it in a thread. Raises SendError."""
+def send_smtp(cfg: dict, to: str, subject: str, body: str, attachment: tuple[str, bytes, str] | None = None) -> None:
+    """Blocking; run it in a thread. `attachment` is (file name, bytes, MIME type). Raises SendError."""
     msg = EmailMessage()
     msg["From"], msg["To"], msg["Subject"] = cfg["from"], to, subject
     msg["Date"], msg["Message-ID"] = formatdate(localtime=True), make_msgid(domain=cfg["from"].rpartition("@")[2].strip("> ") or None)
     msg.set_content(body)
+    if attachment:
+        name, data, mime = attachment
+        maintype, _, subtype = mime.partition("/")
+        msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=name)
     try:
         if cfg["security"] == "ssl":
             server = smtplib.SMTP_SSL(cfg["host"], cfg["port"], timeout=20, context=ssl.create_default_context())
@@ -122,7 +126,7 @@ async def deliver_pending(
 ) -> int:
     """Send what is due. Returns how many rows were tried. The database is touched only here, never in the sender."""
     rows = db.execute(
-        """SELECT id, channel, recipient, subject, body, template, params, attempts FROM outbox_messages
+        """SELECT id, buyer_id, event, channel, recipient, subject, body, template, params, attempts FROM outbox_messages
            WHERE status = 'queued' AND (not_before IS NULL OR not_before <= datetime('now')) ORDER BY id LIMIT ?""",
         (limit,),
     ).fetchall()
@@ -137,7 +141,8 @@ async def deliver_pending(
                     cfg = config.smtp_settings()
                     if cfg is None:
                         raise SendError("Email is not set up any more", permanent=True)
-                    await asyncio.to_thread(smtp, cfg, r["recipient"], r["subject"], r["body"])
+                    extra = {"attachment": _weekly_file(db, r["buyer_id"])} if r["event"] == "weekly_status" else {}
+                    await asyncio.to_thread(smtp, cfg, r["recipient"], r["subject"], r["body"], **extra)
                 else:
                     cfg = config.whatsapp_settings()
                     if cfg is None:
@@ -161,6 +166,20 @@ async def deliver_pending(
         if own_client and client:
             await client.aclose()
     return len(rows)
+
+
+def _weekly_file(db: sqlite3.Connection, buyer_id: int) -> tuple[str, bytes, str]:
+    """The buyer edition of the weekly Excel, made when the email is sent, so it is as current as the email."""
+    from . import clock
+    from .export import weekly_workbook
+    from ..util import iso_week
+
+    today = clock.today(db)
+    try:
+        data = weekly_workbook(db, buyer_id, today, "buyer")
+    except Exception as e:
+        raise SendError(f"Could not make the Excel file: {type(e).__name__}")
+    return (f"order-status-{iso_week(today)}.xlsx", data, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 def retry(db: sqlite3.Connection, message_id: int) -> bool:

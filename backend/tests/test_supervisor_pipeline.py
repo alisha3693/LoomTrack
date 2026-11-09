@@ -125,3 +125,39 @@ def test_a_stage_that_is_not_due_yet_is_not_shown(env):
     oid = _new_order(env, "SUP-FUTURE", 1, exFactory="2027-03-15", sizes=[{"size": "M", "qty": 500}]).json()["id"]
     release(env["db"], stage_id(env["db"], oid, "CUT"))
     assert _mine(env, oid) == {}  # unlocked, but its start is months away: nothing to do today
+
+
+def _warnings(env, oid):
+    return [(w["state"], w["reason_category"]) for w in env["db"].execute("SELECT state, reason_category FROM warnings WHERE order_id = ? ORDER BY id", (oid,))]
+
+
+def test_a_new_reason_from_the_floor_after_a_notice_was_sent_becomes_a_new_draft_for_the_buyer(env):
+    c = env["client"]
+    oid = _new_order(env, "SUP-REASON-1", 1, exFactory="2026-11-12", sizes=[{"size": "M", "qty": 1000}], overCapacityOk=True).json()["id"]
+    cut = stage_id(env["db"], oid, "CUT")
+    assert post_update(env, "sup1", "reason-1-a", cut, 10, noteText="மெஷின் பழுது").status_code == 201
+    first = env["db"].execute("SELECT id, state, reason_category FROM warnings WHERE order_id = ? AND state = 'pending'", (oid,)).fetchone()
+    assert first["reason_category"] == "MACHINE_BREAKDOWN"
+    assert c.post(f"/api/m/warnings/{first['id']}/confirm", headers=env["merch"], json={"message": "A machine broke down and we are late."}).status_code == 200
+
+    # The same reason again: the buyer already knows, so nothing new for the office to review.
+    assert post_update(env, "sup1", "reason-1-b", cut, 10, noteText="மெஷின் பழுது").status_code == 201
+    assert not env["db"].execute("SELECT 1 FROM warnings WHERE order_id = ? AND state = 'pending'", (oid,)).fetchone()
+
+    # A different reason: a new draft appears in Plan and delay, and the office is emailed about it.
+    emails = lambda: env["db"].execute("SELECT COUNT(*) FROM outbox_messages WHERE order_id = ? AND event = 'delay_detected'", (oid,)).fetchone()[0]
+    before = emails()
+    assert post_update(env, "sup1", "reason-1-c", cut, 10, noteText="கரண்ட் இல்லை").status_code == 201
+    draft = env["db"].execute("SELECT id, reason_category, buyer_message FROM warnings WHERE order_id = ? AND state = 'pending'", (oid,)).fetchone()
+    assert draft["reason_category"] == "POWER_CUT" and "power cut" in draft["buyer_message"].lower()
+    assert emails() == before + 1
+    # More updates change the draft, not the number of drafts, and send no further email.
+    assert post_update(env, "sup1", "reason-1-d", cut, 10, noteText="கரண்ட் இல்லை").status_code == 201
+    assert env["db"].execute("SELECT COUNT(*) FROM warnings WHERE order_id = ? AND state = 'pending'", (oid,)).fetchone()[0] == 1 and emails() == before + 1
+
+    # Dismissed, it does not come back for the same reason; a different reason brings a new one.
+    assert c.post(f"/api/m/warnings/{draft['id']}/dismiss", headers=env["merch"]).status_code == 200
+    assert post_update(env, "sup1", "reason-1-e", cut, 10, noteText="கரண்ட் இல்லை").status_code == 201
+    assert not env["db"].execute("SELECT 1 FROM warnings WHERE order_id = ? AND state = 'pending'", (oid,)).fetchone()
+    assert post_update(env, "sup1", "reason-1-f", cut, 10, noteText="துணி வரவில்லை").status_code == 201
+    assert env["db"].execute("SELECT reason_category FROM warnings WHERE order_id = ? AND state = 'pending'", (oid,)).fetchone()[0] == "FABRIC_DELAY"

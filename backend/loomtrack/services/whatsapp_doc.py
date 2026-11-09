@@ -9,7 +9,6 @@ A test fails when the file on disk is out of date.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from .. import config
 from . import notify
@@ -46,7 +45,7 @@ LoomTrack keeps WhatsApp to what matters to a buyer: **where their order is**. T
 2. **Order confirmed**: it is accepted, with our order number.
 3. **Delay**: production is behind plan; they acknowledge it on the page.
 
-Everything else (the merchandiser and the supervisors working on the order, messages, approvals) stays in the app, with email for the office. WhatsApp is used only for **buyers who agreed to it** (the merchandiser records the number and the buyer's agreement on the buyer's profile; the agreement, who recorded it and when are stored). Every message is one of the **{count} templates** below, all in the **Utility** category: each one is about an order the buyer already has with the company, and none promotes anything.
+Everything else (the merchandiser and the supervisors working on the order) stays in the app, with email for the office. WhatsApp is used only for **buyers who agreed to it** (the merchandiser records the number and the buyer's agreement on the buyer's profile; the agreement, who recorded it and when are stored). Every message is one of the **{count} templates** below, all in the **Utility** category: each one is about an order the buyer already has with the company, and none promotes anything.
 
 A buyer can stop WhatsApp at any time by replying **STOP**; the webhook switches it off at once. Every template carries that line as its footer.
 

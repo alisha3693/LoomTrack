@@ -30,7 +30,7 @@ def test_reset_clears_orders_but_keeps_requests_and_reopens_accepted_ones(env, m
     assert (tmp_path / "backups").exists() and list((tmp_path / "backups").glob("before-reset-*.db"))
 
     db = env["db"]
-    for table in ("orders", "milestones", "outbox_messages", "approvals", "order_materials"):
+    for table in ("orders", "milestones", "outbox_messages"):
         assert db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0, table
     assert db.execute("SELECT COUNT(*) FROM buyers").fetchone()[0] >= 1 and db.execute("SELECT COUNT(*) FROM templates").fetchone()[0] >= 3
     assert _office(env, f"/{waiting}").json()["status"] == "submitted"

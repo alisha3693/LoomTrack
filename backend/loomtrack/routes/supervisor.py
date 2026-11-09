@@ -31,7 +31,6 @@ OVER_QTY_ALLOWANCE = 0.05
 MAX_UPLOAD_BYTES = 6 * 1024 * 1024
 _ID = re.compile(r"^[A-Za-z0-9-]{8,64}$")
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "audio/webm": ".webm", "audio/ogg": ".ogg", "audio/mp4": ".m4a"}
 
 
 def _upstream(db, milestone_id: int, order_id: int) -> dict | None:
@@ -133,17 +132,36 @@ async def my_stages(user: User = Depends(supervisor), c: AppContext = Depends(ct
     return {"today": today, "stages": stages}
 
 
+def sniff_media(data: bytes) -> tuple[str, str, str] | None:
+    """(kind, mime, extension) read from a file's own first bytes, or None. What the phone claims is never trusted:
+    the type that is stored, served and named comes from here."""
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image", "image/jpeg", ".jpg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image", "image/png", ".png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image", "image/webp", ".webp"
+    if data.startswith(b"\x1a\x45\xdf\xa3"):  # the Matroska/WebM container Chrome and Firefox record in
+        return "audio", "audio/webm", ".webm"
+    if data.startswith(b"OggS"):
+        return "audio", "audio/ogg", ".ogg"
+    if data[4:8] == b"ftyp":  # MP4 audio, what Safari on iPhone records
+        return "audio", "audio/mp4", ".m4a"
+    return None
+
+
 async def _save(upload: UploadFile | None, kind: str, dest: Path) -> tuple[str, str] | None:
     if upload is None or not upload.filename:
         return None
-    mime = (upload.content_type or "").split(";")[0]
-    if not mime.startswith(f"{kind}/"):
-        raise HttpError(400, f"Expected a {kind} file, got {mime or 'unknown'}")
     data = await upload.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
         raise HttpError(413, "File too large")
+    found = sniff_media(data)
+    if found is None or found[0] != kind:
+        raise HttpError(400, f"That is not a {'photo' if kind == 'image' else 'voice note'} the app can use")
+    _, mime, ext = found
     dest.mkdir(parents=True, exist_ok=True)
-    path = dest / f"{int(time.time() * 1000)}-{secrets.token_hex(4)}{_EXT.get(mime, '')}"
+    path = dest / f"{int(time.time() * 1000)}-{secrets.token_hex(4)}{ext}"
     path.write_bytes(data)
     return str(path), mime
 

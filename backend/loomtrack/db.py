@@ -55,10 +55,30 @@ CREATE TABLE IF NOT EXISTS users (
   CHECK ((role = 'buyer') = (buyer_id IS NOT NULL))
 );
 
+-- How often buyers open their pages: one counter per buyer, day and way in. Counts only; nothing about what was looked at.
+CREATE TABLE IF NOT EXISTS buyer_visits (
+  buyer_id INTEGER NOT NULL REFERENCES buyers(id),
+  day TEXT NOT NULL,
+  via TEXT NOT NULL CHECK (via IN ('link', 'account')),
+  n INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (buyer_id, day, via)
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
-  token TEXT PRIMARY KEY,
+  token TEXT PRIMARY KEY,                       -- the SHA-256 of the session token, never the token itself (see security.hash_token)
   user_id INTEGER NOT NULL REFERENCES users(id),
   expires_at TEXT NOT NULL
+);
+
+-- Wrong-password tries, kept in the database so a restart does not clear them. One row per sign-in name and one per
+-- network address (scope 'login' or 'ip'); see services/lockout.py for the limits.
+CREATE TABLE IF NOT EXISTS login_attempts (
+  scope TEXT NOT NULL CHECK (scope IN ('login', 'ip')),
+  key TEXT NOT NULL,
+  fails INTEGER NOT NULL DEFAULT 0,
+  last_fail REAL NOT NULL,                      -- unix seconds of the latest wrong try
+  locked_until REAL NOT NULL DEFAULT 0,         -- unix seconds; 0 = not locked
+  PRIMARY KEY (scope, key)
 );
 
 CREATE TABLE IF NOT EXISTS orders (
@@ -296,89 +316,6 @@ CREATE TABLE IF NOT EXISTS attachments (
 CREATE INDEX IF NOT EXISTS ix_attachments_request ON attachments (request_id);
 CREATE INDEX IF NOT EXISTS ix_attachments_order ON attachments (order_id);
 
--- What an order needs before it can be made: fabric, trims, packing. When it is needed comes from
--- the plan step that uses it (needed_for), so it follows the plan if a date moves; needed_by is only
--- for something that belongs to no step. Nothing here changes the delay projection.
-CREATE TABLE IF NOT EXISTS order_materials (
-  id INTEGER PRIMARY KEY,
-  order_id INTEGER NOT NULL REFERENCES orders(id),
-  kind TEXT NOT NULL CHECK (kind IN ('fabric', 'trim', 'packing')),
-  name TEXT NOT NULL,
-  supplier TEXT,
-  supplied_by TEXT NOT NULL DEFAULT 'us' CHECK (supplied_by IN ('us', 'buyer')),
-  qty REAL CHECK (qty IS NULL OR qty > 0),
-  unit TEXT,                                     -- kg, m, pcs, rolls ...
-  status TEXT NOT NULL DEFAULT 'not_ordered' CHECK (status IN ('not_ordered', 'ordered', 'received')),
-  ordered_date TEXT,
-  expected_date TEXT,
-  received_date TEXT,
-  needed_for TEXT REFERENCES plan_steps(code),
-  needed_by TEXT,
-  note TEXT,
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_by INTEGER REFERENCES users(id),
-  CHECK (status != 'received' OR received_date IS NOT NULL),
-  CHECK (needed_for IS NOT NULL OR needed_by IS NOT NULL)
-);
-CREATE INDEX IF NOT EXISTS ix_materials_order ON order_materials (order_id);
-
--- Messages between the buyer and the merchandiser about an order that exists (a request has its own
--- conversation in request_messages). Append-only.
-CREATE TABLE IF NOT EXISTS order_messages (
-  id INTEGER PRIMARY KEY,
-  order_id INTEGER NOT NULL REFERENCES orders(id),
-  author TEXT NOT NULL CHECK (author IN ('buyer', 'merchandiser')),
-  user_id INTEGER REFERENCES users(id),
-  body TEXT NOT NULL CHECK (length(body) BETWEEN 1 AND 2000),
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS ix_order_messages ON order_messages (order_id, id);
-CREATE TRIGGER IF NOT EXISTS order_messages_no_update BEFORE UPDATE ON order_messages
-BEGIN SELECT RAISE(ABORT, 'order_messages is append-only'); END;
-CREATE TRIGGER IF NOT EXISTS order_messages_no_delete BEFORE DELETE ON order_messages
-BEGIN SELECT RAISE(ABORT, 'order_messages is append-only'); END;
-
--- How far each side has read a conversation, so both can tell "seen" from "not seen". last_id is the
--- newest message id of that conversation the reader has opened.
-CREATE TABLE IF NOT EXISTS thread_reads (
-  kind TEXT NOT NULL CHECK (kind IN ('order', 'request')),
-  ref_id INTEGER NOT NULL,
-  reader TEXT NOT NULL CHECK (reader IN ('buyer', 'merchandiser')),
-  last_id INTEGER NOT NULL DEFAULT 0,
-  read_at TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (kind, ref_id, reader)
-);
-
--- Something the buyer has to approve before work goes on: a fit or pre-production sample, a lab dip,
--- packaging. The decision is the buyer's; every step is in approval_events and cannot be edited.
-CREATE TABLE IF NOT EXISTS approvals (
-  id INTEGER PRIMARY KEY,
-  order_id INTEGER NOT NULL REFERENCES orders(id),
-  kind TEXT NOT NULL CHECK (kind IN ('fit_sample', 'pp_sample', 'lab_dip', 'packaging', 'other')),
-  title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 120),
-  note TEXT,
-  milestone_code TEXT REFERENCES plan_steps(code),   -- the plan step this approval completes
-  status TEXT NOT NULL DEFAULT 'requested' CHECK (status IN ('requested', 'approved', 'changes', 'withdrawn')),
-  requested_at TEXT NOT NULL DEFAULT (datetime('now')),
-  decided_at TEXT,
-  buyer_seen_at TEXT
-);
-CREATE INDEX IF NOT EXISTS ix_approvals_order ON approvals (order_id);
-CREATE TABLE IF NOT EXISTS approval_events (
-  id INTEGER PRIMARY KEY,
-  approval_id INTEGER NOT NULL REFERENCES approvals(id),
-  actor TEXT NOT NULL CHECK (actor IN ('buyer', 'merchandiser')),
-  user_id INTEGER REFERENCES users(id),
-  action TEXT NOT NULL CHECK (action IN ('requested', 'resubmitted', 'approved', 'changes', 'withdrawn')),
-  note TEXT CHECK (note IS NULL OR length(note) <= 2000),
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS ix_approval_events ON approval_events (approval_id, id);
-CREATE TRIGGER IF NOT EXISTS approval_events_no_update BEFORE UPDATE ON approval_events
-BEGIN SELECT RAISE(ABORT, 'approval_events is append-only'); END;
-CREATE TRIGGER IF NOT EXISTS approval_events_no_delete BEFORE DELETE ON approval_events
-BEGIN SELECT RAISE(ABORT, 'approval_events is append-only'); END;
-
 -- Every email and WhatsApp message the app sends or would send: one row per recipient. 'logged' = no provider is
 -- set up for the channel, so it is only recorded (the old mock behaviour); 'queued' waits for the sender.
 -- How far each reader has looked down the notifications page (the newest outbox id they have seen).
@@ -413,7 +350,7 @@ CREATE TABLE IF NOT EXISTS outbox_messages (
 """
 
 
-SCHEMA_VERSION = 15  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no/colour, 2 = before templates, 3 = before order requests, 4 = before attachments, 5 = before buyer accounts, 6 = before fabric, materials and unit capacity, 7 = before order messages, 8 = before approvals, read tracking and view-only accounts, 9 = before email/WhatsApp delivery, 10 = before a stage can start after another step, 11 = before an order can be cancelled with a reason, 12 = before the notifications page, 13 = before capacity for every own stage, 14 = before the test date
+SCHEMA_VERSION = 20  # PRAGMA user_version; 19 = before the unused read marks were dropped, 18 = before session tokens were hashed and login tries were kept,0 = before plan_steps, 1 = before order_no/colour, 2 = before templates, 3 = before order requests, 4 = before attachments, 5 = before buyer accounts, 6 = before fabric, materials and unit capacity, 7 = before order messages, 8 = before approvals, read tracking and view-only accounts, 9 = before email/WhatsApp delivery, 10 = before a stage can start after another step, 11 = before an order can be cancelled with a reason, 12 = before the notifications page, 13 = before capacity for every own stage, 14 = before the test date, 15 = before the office phone number, 16 = before shipping and reports, 17 = before the hidden approvals, order messages and materials were removed
 
 
 def _is_v0(db: sqlite3.Connection) -> bool:
@@ -621,8 +558,39 @@ def _add_v11_columns(db: sqlite3.Connection) -> None:
 _V12_COLUMNS = {"orders": {"cancel_reason": "TEXT", "cancelled_at": "TEXT"}}
 
 
+def _drop_retired_tables(db: sqlite3.Connection) -> None:
+    """v17 -> v18: buyer approvals, the conversation about a live order and materials tracking were taken out of the app.
+    Their tables (and the append-only triggers on them) go with them."""
+    for table in ("approval_events", "approvals", "order_messages", "order_materials", "thread_reads"):
+        db.execute(f"DROP TABLE IF EXISTS {table}")  # names are the constants above
+
+
+def _hash_session_tokens(db: sqlite3.Connection) -> None:
+    """v18 -> v19: sessions used to hold the token itself. A plain token is 43 characters and a hash is 64, so the ones
+    still in plain text are found by length and replaced by their hash. Nobody is signed out; running it again does nothing."""
+    from .security import hash_token
+
+    plain = [r["token"] for r in db.execute("SELECT token FROM sessions WHERE length(token) != 64")]
+    for token in plain:
+        db.execute("UPDATE OR REPLACE sessions SET token = ? WHERE token = ?", (hash_token(token), token))
+
+
 def _add_v12_columns(db: sqlite3.Connection) -> None:
     _add_columns(db, _V12_COLUMNS)
+    _add_columns(db, _V16_COLUMNS)
+    _add_columns(db, _V17_COLUMNS)
+    _drop_retired_tables(db)
+
+
+# v16 -> v17: when an order shipped and whether production finished, and the app date a delay warning was raised
+# (the table that counts buyer page views comes from SCHEMA).
+_V17_COLUMNS = {
+    "orders": {"shipped_date": "TEXT", "production_complete_at": "TEXT"},
+    "warnings": {"warned_on": "TEXT", "buyer_ack_note": "TEXT"},
+}
+
+# v15 -> v16: a phone number for office accounts (supervisors sign in with theirs; buyers keep one on the buyer).
+_V16_COLUMNS = {"users": {"phone": "TEXT"}, "warnings": {"reason_category": "TEXT"}}  # the reason a delay notice was written around
 
 
 def _add_v10_columns(db: sqlite3.Connection) -> None:
@@ -686,6 +654,7 @@ def open_db(file: str) -> sqlite3.Connection:
     _add_v10_columns(db)
     _add_v11_columns(db)
     _add_v12_columns(db)
+    _hash_session_tokens(db)
     sync_plan_steps(db)
     sync_builtin_templates(db)
     db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

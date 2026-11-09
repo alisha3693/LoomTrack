@@ -71,25 +71,20 @@ class Fit:
     verdict: str  # 'fits' | 'tight' | 'over' | 'no_window' | 'unknown'
     days: list[str]
     existing: float
-    needed: int
     capacity_total: float
     utilisation: float | None  # 1.0 = every piece of capacity in the window is used
-
-    @property
-    def free(self) -> float:
-        return max(0.0, self.capacity_total - self.existing)
 
 
 def fit(capacity: int | None, load: dict[str, float], days: list[str], qty: int) -> Fit:
     if capacity is None:
-        return Fit("unknown", days, sum(load.get(d, 0.0) for d in days), qty, 0.0, None)
+        return Fit("unknown", days, sum(load.get(d, 0.0) for d in days), 0.0, None)
     existing = sum(load.get(d, 0.0) for d in days)
     if not days:
-        return Fit("no_window", days, existing, qty, 0.0, None)
+        return Fit("no_window", days, existing, 0.0, None)
     total = float(capacity * len(days))
     util = (existing + qty) / total
     verdict = "fits" if util <= COMFORTABLE else "tight" if util <= 1.0 else "over"
-    return Fit(verdict, days, existing, qty, total, util)
+    return Fit(verdict, days, existing, total, util)
 
 
 def new_order_days(cal: Calendar, ex_factory: str, start_offset: int, end_offset: int, today: str) -> list[str]:
@@ -98,20 +93,3 @@ def new_order_days(cal: Calendar, ex_factory: str, start_offset: int, end_offset
     start = cal.snap_back(add_days(ex_factory, -start_offset))
     end = cal.snap_back(add_days(ex_factory, -end_offset))
     return window(cal, start, end, today, overdue_spread=False)
-
-
-def earliest_fit(
-    capacity: int | None, load: dict[str, float], qty: int, start_offset: int, end_offset: int,
-    after: str, cal: Calendar, today: str,
-) -> tuple[str, float] | None:
-    """The first working day after `after` on which an order could ship and the unit would not be over."""
-    if capacity is None:
-        return None
-    for k in range(1, HORIZON_DAYS + 1):
-        ex = add_days(after, k)
-        if not cal.is_working_day(ex):
-            continue
-        f = fit(capacity, load, new_order_days(cal, ex, start_offset, end_offset, today), qty)
-        if f.verdict in ("fits", "tight"):
-            return ex, f.utilisation or 0.0
-    return None

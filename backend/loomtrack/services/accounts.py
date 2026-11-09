@@ -7,7 +7,7 @@ import secrets
 import sqlite3
 
 from ..db import transaction
-from ..security import hash_secret, verify_secret
+from ..security import hash_secret, hash_token, verify_secret
 from ..util import HttpError
 
 MIN_PASSWORD = 8
@@ -66,9 +66,11 @@ def set_access(db: sqlite3.Connection, user_id: int, can_write: bool) -> None:
     db.execute("UPDATE users SET can_write = ? WHERE id = ?", (1 if can_write else 0, user_id))
 
 
-def update_details(db: sqlite3.Connection, user_id: int, name: str | None, email: str | None) -> None:
-    """Change a person's name and/or the email they sign in with. A new email signs them out everywhere."""
-    row = db.execute("SELECT login FROM users WHERE id = ? AND role = 'buyer'", (user_id,)).fetchone()
+def update_details(db: sqlite3.Connection, user_id: int, name: str | None, email: str | None, keep_token: str | None = None,
+                   roles: tuple[str, ...] = ("buyer",)) -> None:
+    """Change a person's name and/or the email they sign in with. A new email signs them out everywhere,
+    except on the device where they made the change themselves (`keep_token`)."""
+    row = db.execute(f"SELECT login FROM users WHERE id = ? AND role IN ({','.join('?' * len(roles))})", (user_id, *roles)).fetchone()
     if row is None:
         raise HttpError(404, "Account not found")
     new_name = name.strip() if name is not None else None
@@ -85,7 +87,7 @@ def update_details(db: sqlite3.Connection, user_id: int, name: str | None, email
             db.execute("UPDATE users SET name = ? WHERE id = ?", (new_name, user_id))
         if new_login is not None and new_login != row["login"].lower():
             db.execute("UPDATE users SET login = ? WHERE id = ?", (new_login, user_id))
-            db.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+            db.execute("DELETE FROM sessions WHERE user_id = ? AND token != ?", (user_id, hash_token(keep_token or "")))
 
 
 def remove_login(db: sqlite3.Connection, user_id: int) -> None:
@@ -106,4 +108,4 @@ def change_password(db: sqlite3.Connection, user_id: int, current: str, new: str
     with transaction(db):
         db.execute("UPDATE users SET secret_hash = ?, must_change_secret = 0 WHERE id = ?", (hash_secret(new), user_id))
         # Other devices signed in with the old password are signed out.
-        db.execute("DELETE FROM sessions WHERE user_id = ? AND token != ?", (user_id, keep_token or ""))
+        db.execute("DELETE FROM sessions WHERE user_id = ? AND token != ?", (user_id, hash_token(keep_token or "")))
