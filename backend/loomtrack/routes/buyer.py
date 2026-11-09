@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import FileResponse
 
 from ..deps import AppContext, ctx, optional_user
-from ..services.buyer_view import buyer_by_token, buyer_orders
+from ..services.buyer_view import buyer_by_token, buyer_orders, cancelled_orders
 from ..services.export import weekly_workbook
 from ..util import HttpError, iso_week
 
@@ -55,7 +55,7 @@ async def writable_buyer(token: str, request: Request, c: AppContext = Depends(c
 async def view(response: Response, buyer=Depends(current_buyer), c: AppContext = Depends(ctx)):
     response.headers.update(NO_STORE)
     today = c.today()
-    return {"buyer": {"name": buyer["name"], "country": buyer["country"]}, "today": today, "orders": buyer_orders(c.db, buyer["id"], today)}
+    return {"buyer": {"name": buyer["name"], "country": buyer["country"]}, "today": today, "orders": buyer_orders(c.db, buyer["id"], today), "cancelledOrders": cancelled_orders(c.db, buyer["id"])}
 
 
 @router.get("/photos/{photo_id}")

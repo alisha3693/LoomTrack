@@ -1,9 +1,14 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
-import { Empty, Toast, useApi } from "../../components/ui";
+import { Empty, Modal, Toast, useApi } from "../../components/ui";
+import { PlanBars, leadTime, type BarStep } from "../../components/PlanBars";
 import type { TemplateList } from "../../lib/types";
+import { clearDraft, listDrafts } from "../../lib/tplDraft";
 import { useReloadMeta } from "./OfficeShell";
+
+const barSteps = (steps: TemplateList["templates"][number]["steps"]): BarStep[] =>
+  steps.map((s) => ({ key: s.code, name: s.nameEn, kind: s.kind, start: s.startOffset, end: s.endOffset }));
 
 export default function Templates() {
   const nav = useNavigate();
@@ -11,6 +16,8 @@ export default function Templates() {
   const { data, error, reload } = useApi<TemplateList>(`/api/m/templates?retired=${retired}`);
   const reloadMeta = useReloadMeta();
   const [toast, setToast] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<TemplateList["templates"][number] | null>(null);
+  const [drafts, setDrafts] = useState(listDrafts);
 
   async function setActive(id: number, active: boolean) {
     try {
@@ -20,6 +27,19 @@ export default function Templates() {
       reloadMeta();
     } catch (e) {
       setToast((e as Error).message);
+    }
+  }
+
+  async function remove(id: number) {
+    try {
+      await api(`/api/m/templates/${id}`, { method: "DELETE" });
+      setToast("Template deleted");
+      setDeleting(null);
+      void reload();
+      reloadMeta();
+    } catch (e) {
+      setToast((e as Error).message);
+      setDeleting(null);
     }
   }
 
@@ -39,6 +59,24 @@ export default function Templates() {
       </div>
 
       {error && <div className="banner banner-error">{error}</div>}
+      {drafts.length > 0 && (
+        <section className="card card-pad stack">
+          <h2>Drafts</h2>
+          <p className="faint small">Unsaved work from the template editor, kept in this browser.</p>
+          {drafts.map((d) => (
+            <div key={d.scope} className="row" style={{ justifyContent: "space-between" }}>
+              <div>
+                <b style={{ fontWeight: 500 }}>{d.name.trim() || "Untitled template"}</b>{" "}
+                <span className="faint small">{d.scope.startsWith("edit") ? "changes to a saved template" : "new template"} · saved {new Date(d.savedAt).toLocaleString()}</span>
+              </div>
+              <div className="row">
+                <Link className="btn btn-sm btn-primary" to={d.path}>Continue</Link>
+                <button className="btn btn-ghost btn-sm" onClick={() => { clearDraft(d.scope); setDrafts(listDrafts()); }}>Discard</button>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
       {data && data.templates.length === 0 && <Empty>No templates yet.</Empty>}
       <div className="stack">
         {data?.templates.map((t) => (
@@ -52,21 +90,35 @@ export default function Templates() {
               <div className="row">
                 <span className="faint small">{t.usedBy === 0 ? "Not used yet" : `${t.usedBy} order${t.usedBy === 1 ? "" : "s"}`}</span>
                 <Link className="btn btn-sm" to={`/m/templates/new?copy=${t.id}`}>Copy</Link>
-                {!t.builtin && t.active && <Link className="btn btn-sm" to={`/m/templates/${t.id}`}>Edit</Link>}
+                {t.active && <Link className="btn btn-sm" to={`/m/templates/${t.id}`}>Edit</Link>}
                 {!t.builtin && (t.active
                   ? <button className="btn btn-ghost btn-sm" onClick={() => setActive(t.id, false)}>Retire</button>
                   : <button className="btn btn-sm" onClick={() => setActive(t.id, true)}>Restore</button>)}
+                {!t.builtin && <button className="btn btn-ghost btn-sm" onClick={() => setDeleting(t)}>Delete</button>}
               </div>
             </div>
-            <div className="muted small">
-              {t.steps.filter((s) => s.kind === "stage").map((s) => s.nameEn).join(" → ")}
-            </div>
             <div className="faint small">
-              {t.steps.length} steps, {t.steps.filter((s) => s.kind === "stage").length} production stages
+              Lead time {leadTime(barSteps(t.steps))} days before ex-factory · {t.steps.filter((s) => s.kind === "milestone").length} milestones · {t.steps.filter((s) => s.kind === "stage").length} production stages
             </div>
+            <PlanBars steps={barSteps(t.steps)} compact />
           </section>
         ))}
       </div>
+      {deleting && (
+        <Modal title={`Delete “${deleting.name}”?`} onClose={() => setDeleting(null)}>
+          <div className="stack">
+            <p className="muted" style={{ margin: 0 }}>
+              {deleting.usedBy > 0
+                ? `${deleting.usedBy} order${deleting.usedBy === 1 ? " was" : "s were"} made from this template, so it cannot be deleted. Retire it instead and it will no longer be offered.`
+                : "This removes the template for good. Orders are not affected."}
+            </p>
+            <div className="row" style={{ justifyContent: "flex-end" }}>
+              <button className="btn btn-ghost" onClick={() => setDeleting(null)}>Keep it</button>
+              {deleting.usedBy === 0 && <button className="btn btn-primary" onClick={() => remove(deleting.id)}>Delete template</button>}
+            </div>
+          </div>
+        </Modal>
+      )}
       <Toast message={toast} onDone={() => setToast(null)} />
     </main>
   );

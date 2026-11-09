@@ -70,9 +70,10 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` not started. Updated as wor
 - [x] Warning lifecycle: generated → merchandiser confirms / dismisses → buyer sees confirmed only
 
 ### AI reason category  *(AI requirement)*
-- [x] Local open-source classifier via Ollama (Llama 3 8B): Tamil/English → fixed English category + translation
-- [x] Keyword fallback when Ollama is down or AI is switched off
-- [ ] Eval script: labelled Tamil notes → accuracy per model (compare llama3, qwen2.5:7b, gemma2:9b)
+- [x] Tamil to English and English to Tamil with IndicTrans2 on this machine (GPU or CPU); the category comes from keyword rules over the note and its translation. Ollama is no longer used
+- [x] Keyword fallback when the models are not downloaded or fail, or AI is switched off
+- [ ] Download the models with a Hugging Face token (`python -m loomtrack.ai.setup_models`) and check the translations on real supervisor notes
+- [ ] Eval script: labelled Tamil notes → translation and category accuracy
 - [x] Order detail shows original note beside translation; merchandiser can change category
 
 ### Buyer read-only link  *(Must have #5)*
@@ -103,7 +104,7 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` not started. Updated as wor
 
 ## Phase 3 — Hardening (pre-pilot)
 - [ ] Mark an order shipped and record the actual ship date (without it the 8% → 5% late-shipment goal can't be measured)
-- [ ] `/api/health` endpoint (database and Ollama reachable)
+- [ ] `/api/health` endpoint (database reachable, translation models loaded)
 - [ ] Hash session tokens in the database (stored in plain text today)
 - [ ] Move the app from the localStorage Bearer token to the `HttpOnly` cookie only (the cookie exists since login sets it; the app still sends the header)
 - [ ] Upload checks: verify file signatures, send `X-Content-Type-Options: nosniff`, add a Content-Security-Policy

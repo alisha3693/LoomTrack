@@ -15,20 +15,11 @@ from .. import config
 from . import notify
 
 TARGET = config.REPO_ROOT / "docs" / "WHATSAPP_TEMPLATES.md"
-SITE = "https://YOUR-LOOMTRACK-DOMAIN"  # replaced when submitting; the real address, with https
 
 USE_CASE = {
-    "request_received": "A buyer sent an order request through LoomTrack; this confirms we have it.",
-    "request_question": "The merchandiser needs one more detail before accepting an order request.",
-    "request_counter": "The merchandiser proposes a different delivery date for an order request.",
-    "request_declined": "An order request cannot be accepted; the reason is in the app.",
-    "request_accepted": "An order request became a confirmed order; this gives the order number.",
-    "change_accepted": "A change the buyer asked for on an existing order (date or quantity) was accepted.",
-    "change_recorded": "The merchandiser recorded a change the buyer asked for by phone or email.",
-    "delay_notice": "Production is behind plan on an order; the merchandiser confirmed a delay notice for the buyer.",
-    "order_message": "The merchandiser wrote a message in the order's conversation.",
-    "approval_requested": "A sample, lab dip or packaging needs the buyer's approval before production continues.",
-    "approval_resubmitted": "An item the buyer asked changes on was corrected and needs approval again.",
+    "request_received": "A buyer sent a complete order through LoomTrack; this confirms we have it and gives the page where they can follow it.",
+    "request_accepted": "The merchandiser confirmed the order; this gives our order number and the link to track its progress.",
+    "delay_notice": "Production is behind plan on an order; the merchandiser confirmed a delay notice, and the buyer acknowledges it on the order's page.",
 }
 
 MEANING = {
@@ -40,6 +31,7 @@ MEANING = {
     "title": "what needs approving",
     "summary": "a one-line summary of the change",
     "text": "a short note written by the merchandiser (one line, up to 120 characters)",
+    "link": "the buyer's own tracking page for this order (an https address)",
 }
 
 INTRO = """# WhatsApp templates for Meta review
@@ -48,7 +40,13 @@ Everything needed to register LoomTrack's WhatsApp messages with Meta, and to tu
 
 ## What is sent, and to whom
 
-LoomTrack tells a buyer's people about their orders: a request was answered, a delay was confirmed, a sample needs approval. WhatsApp is used only for **buyers who agreed to it** (the merchandiser records the number and the buyer's agreement on the buyer's profile; the agreement, who recorded it and when are stored). Every message is one of the **{count} templates** below, all in the **Utility** category: each one is about an order the buyer already has with the company, and none promotes anything. The merchandisers themselves are told by email only.
+LoomTrack keeps WhatsApp to what matters to a buyer: **where their order is**. The buyer sends a complete order, the merchandiser confirms it, the supervisors on the floor report progress to the merchandiser in the app, and the buyer can follow it on their own tracking page. WhatsApp tells the buyer three things, each with the link to that page:
+
+1. **Order received**: we have the order they sent.
+2. **Order confirmed**: it is accepted, with our order number.
+3. **Delay**: production is behind plan; they acknowledge it on the page.
+
+Everything else (the merchandiser and the supervisors working on the order, messages, approvals) stays in the app, with email for the office. WhatsApp is used only for **buyers who agreed to it** (the merchandiser records the number and the buyer's agreement on the buyer's profile; the agreement, who recorded it and when are stored). Every message is one of the **{count} templates** below, all in the **Utility** category: each one is about an order the buyer already has with the company, and none promotes anything.
 
 A buyer can stop WhatsApp at any time by replying **STOP**; the webhook switches it off at once. Every template carries that line as its footer.
 
@@ -60,7 +58,13 @@ A buyer can stop WhatsApp at any time by replying **STOP**; the webhook switches
 4. Note three values for `backend/.env`: the **Phone number ID** and the **WhatsApp Business Account ID** (WhatsApp, API Setup), and a **permanent access token** (Business settings, System users, add a user, give it the app and the `whatsapp_business_messaging` and `whatsapp_business_management` permissions, generate a token with no expiry). The temporary token on the API Setup page lasts 24 hours.
 5. Submit the templates below, either one by one in **WhatsApp Manager, Message templates, Create template**, or with the API call at the end of each section. Approval of a Utility template usually takes minutes to a day.
 
-In the form: *Category* **Utility**, *Language* **English**, *Name* as given, *Header* none, then paste the body, footer and button. For every variable Meta asks for a sample value; use the ones in the tables.
+In the form: *Category* **Utility**, *Language* **English**, *Name* as given, *Header* none, then paste the body and footer. Leave *Buttons* empty. For every variable Meta asks for a sample value; use the ones in the tables.
+
+## The tracking link
+
+There is **no button**: the link is written in the message text, as a variable (the last one in each template). That way the templates do not change when the address does: today it can be a free tunnel address for the demo, later the company's own domain, and the same approved templates keep working.
+
+The app builds the link from `LOOMTRACK_PUBLIC_URL` in `backend/.env` and the buyer's own tracking code: `https://<address>/b/<code>/orders/<order>` (or `/orders` for an order not confirmed yet). The page opens without a password, so treat the link like the buyer's key. Set `LOOMTRACK_PUBLIC_URL` to an https address that opens from outside before the first real message goes; a `localhost` link is useless on a buyer's phone.
 
 ## Cost, said plainly
 
@@ -68,7 +72,7 @@ The Cloud API itself is free to use and so is the test number. Meta charges **pe
 
 ## If a template is rejected
 
-Meta's usual reasons: a variable at the very start or end of the body, a variable that stands for a whole sentence, wording that reads as promotion, or a missing sample. The templates avoid all four; the test suite checks where the variables sit, the wording and the samples. If a template with long variable text (`delay_notice`, `order_message`, `request_question`) is rejected, put more fixed text around the variable and shorten it; a changed body must be submitted again under a new name (add `_v2`), and the name in `notify.py` changed to match.
+Meta's usual reasons: a variable at the very start or end of the body (so each link is followed by a few fixed words), a variable that stands for a whole sentence, wording that reads as promotion, or a missing sample. The templates avoid all four; the test suite checks where the variables sit, the wording and the samples. If `delay_notice`, which carries the merchandiser's note, is rejected, put more fixed text around the variable and shorten it; a changed body must be submitted again under a new name (add `_v2`), and the name in `notify.py` changed to match.
 
 ## The templates
 """
@@ -128,7 +132,6 @@ def _api_payload(ev: notify.Event) -> str:
     if ev.wa_names:
         components[0]["example"] = {"body_text": [[notify.SAMPLES[n] for n in ev.wa_names]]}
     components.append({"type": "FOOTER", "text": notify.WA_FOOTER})
-    components.append({"type": "BUTTONS", "buttons": [{"type": "URL", "text": notify.WA_BUTTON, "url": SITE}]})
     return json.dumps({"name": ev.template, "language": "en", "category": "UTILITY", "components": components}, indent=2, ensure_ascii=False)
 
 
@@ -146,7 +149,7 @@ def _section(n: int, ev: notify.Event) -> str:
 | Language | English (`en`) |
 | Header | none |
 | Footer | {notify.WA_FOOTER} |
-| Button | URL, text "{notify.WA_BUTTON}", address `{SITE}` (fixed, no variable) |
+| Buttons | none |
 
 **Body**
 
@@ -165,7 +168,6 @@ def _section(n: int, ev: notify.Event) -> str:
 > {_example_message(ev)}
 >
 > _{notify.WA_FOOTER}_
-> [ {notify.WA_BUTTON} ]
 
 **Create it through the API** (`POST https://graph.facebook.com/v21.0/<WABA_ID>/message_templates`, header `Authorization: Bearer <token>`)
 

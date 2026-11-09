@@ -11,6 +11,7 @@ import smtplib
 import httpx
 import pytest
 
+from loomtrack import config
 from loomtrack.services import delivery, notify
 from test_api import _new_login, _new_order, env, fake_classify  # noqa: F401
 
@@ -109,17 +110,25 @@ def test_a_whatsapp_number_is_stored_only_with_the_buyers_agreement_on_record(en
 
 def test_whatsapp_goes_only_to_a_buyer_who_agreed_and_only_as_the_approved_template(env, providers):
     oid = _new_order(env, "NT-6", 1).json()["id"]
-    _say(env, oid, "Packing starts\ntomorrow.   We will   send photos.")
+
+    def tell(text):
+        with env["db"]:
+            notify.send(env["db"], "delay_notice", 1, oid, po="NT-6", text=text)
+
+    tell("Packing starts\ntomorrow.   We will   send photos.")
     assert _rows(env, order_id=oid, channel="whatsapp") == []                                    # not agreed yet
     _enable_whatsapp(env)
     try:
-        _say(env, oid, "Packing starts\ntomorrow.   We will   send photos.")
+        tell("Packing starts\ntomorrow.   We will   send photos.")
         (m,) = _rows(env, order_id=oid, channel="whatsapp")
-        assert (m["recipient"], m["template"], m["status"]) == ("+919876543210", "loomtrack_order_message", "queued")
-        assert json.loads(m["params"]) == ["Buyer B", "NT-6", "Packing starts tomorrow. We will send photos."]   # one line, single spaces
-        assert m["body"] == "Hello Buyer B, your merchandiser sent a message about PO NT-6: Packing starts tomorrow. We will send photos. You can reply in LoomTrack."
-        assert env["client"].post(f"/api/m/orders/{oid}/messages", headers=env["merch"], json={"message": "x" * 400}).status_code == 201
-        assert all(len(v) <= notify.WA_VALUE_LIMIT for v in json.loads(_rows(env, order_id=oid, channel="whatsapp")[-1]["params"]))
+        assert (m["recipient"], m["template"], m["status"]) == ("+919876543210", "loomtrack_delay_notice", "queued")
+        link = f"{config.public_url()}/b/{env['tokenB']}/orders/{oid}"                          # the buyer's own page for this order
+        assert json.loads(m["params"]) == ["Buyer B", "NT-6", "Packing starts tomorrow. We will send photos.", link]   # one line, single spaces
+        assert m["body"] == f"Hello Buyer B, there is a delay on PO NT-6: Packing starts tomorrow. We will send photos. The details are at {link} where you can acknowledge it."
+        tell("x" * 400)
+        assert all(len(v) <= notify.WA_VALUE_LIMIT for v in json.loads(_rows(env, order_id=oid, channel="whatsapp")[-1]["params"])[:-1])
+        _say(env, oid)                                                                            # the order's conversation: email only now
+        assert {m["channel"] for m in _rows(env, order_id=oid, event="order_message")} == {"email"}
     finally:
         _enable_whatsapp(env, number="", optin=False)
 
@@ -161,12 +170,13 @@ def test_the_sender_sends_each_queued_message_once_and_keeps_the_provider_id(env
     _clear(env)
     oid = _new_order(env, "NT-7", 1).json()["id"]
     _enable_whatsapp(env)
-    _say(env, oid)
+    with env["db"]:
+        notify.send(env["db"], "delay_notice", 1, oid, po="NT-7", text="Knitting is two days behind.")
     n, sent = _deliver(env)
     assert n >= 2 and {s[0] for s in sent} == {"email", "whatsapp"}
     wa = next(s for s in sent if s[0] == "whatsapp")
-    assert wa[1] == "+919876543210" and wa[2] == "loomtrack_order_message"
-    done = _rows(env, order_id=oid, event="order_message")
+    assert wa[1] == "+919876543210" and wa[2] == "loomtrack_delay_notice"
+    done = _rows(env, order_id=oid, event="delay_notice")
     assert {m["status"] for m in done} == {"sent"} and all(m["sent_at"] for m in done)
     assert next(m for m in done if m["channel"] == "whatsapp")["provider_id"].startswith("wamid.")
     assert _deliver(env)[0] == 0                                                              # nothing is sent twice
@@ -412,8 +422,8 @@ def test_every_event_renders_for_both_people_without_a_leftover_placeholder():
             assert "{" not in text, ev.key
 
 
-def test_footer_and_button_fit_metas_limits():
-    assert len(notify.WA_FOOTER) <= 60 and len(notify.WA_BUTTON) <= 25
+def test_footer_fits_metas_limit():
+    assert len(notify.WA_FOOTER) <= 60
 
 
 def test_the_document_for_meta_is_the_one_the_app_sends():
@@ -423,3 +433,48 @@ def test_the_document_for_meta_is_the_one_the_app_sends():
     text = whatsapp_doc.build()
     for ev in notify.TEMPLATES:
         assert ev.wa_numbered in text and ev.template in text
+
+
+# --- cancelling an order ---------------------------------------------------------------------------------
+
+
+def test_cancelling_an_order_tells_the_buyer_the_reason_and_shows_it_on_their_page(env, no_providers):
+    oid = _new_order(env, "NT-CAN", 1).json()["id"]
+    _new_login(env, 1, "hannah@buyerc.example")
+    c, tok = env["client"], env["tokenB"]
+    assert c.post(f"/api/m/orders/{oid}/cancel", headers=env["merch"], json={"reason": "  "}).status_code == 400
+    r = c.post(f"/api/m/orders/{oid}/cancel", headers=env["merch"], json={"reason": "The fabric mill cannot supply in time."})
+    assert r.status_code == 200, r.text
+    sent = [m for m in _rows(env, order_id=oid) if m["event"] == "order_cancelled"]
+    assert sent and "NT-CAN" in sent[0]["subject"] and "The fabric mill cannot supply in time." in sent[0]["body"]
+    assert not any(m["channel"] == "whatsapp" for m in sent)  # a cancellation is email only
+    page = c.get(f"/api/b/{tok}").json()
+    assert all(o["id"] != oid for o in page["orders"])
+    assert [(o["poNo"], o["reason"]) for o in page["cancelledOrders"] if o["id"] == oid] == [("NT-CAN", "The fabric mill cannot supply in time.")]
+    assert c.post(f"/api/m/orders/{oid}/cancel", headers=env["merch"], json={"reason": "again"}).status_code == 409
+
+
+def test_only_a_merchandiser_can_cancel(env):
+    oid = _new_order(env, "NT-CAN2", 1).json()["id"]
+    assert env["client"].post(f"/api/m/orders/{oid}/cancel", json={"reason": "no reason"}).status_code in (401, 403)
+
+
+# --- the notifications page ------------------------------------------------------------------------------
+
+
+def test_the_notifications_page_lists_each_event_once_and_remembers_what_was_seen(env, no_providers):
+    oid = _new_order(env, "NT-FEED", 1).json()["id"]
+    _new_login(env, 1, "a@feed.example")
+    _new_login(env, 1, "b@feed.example")  # two recipients must still be one entry
+    c, tok = env["client"], env["tokenB"]
+    c.post(f"/api/m/orders/{oid}/cancel", headers=env["merch"], json={"reason": "Mill delay."})
+    feed = c.get(f"/api/b/{tok}/feed").json()
+    cancelled = [i for i in feed["items"] if i["event"] == "order_cancelled" and i["poNo"] == "NT-FEED"]
+    assert len(cancelled) == 1 and cancelled[0]["text"].startswith("Your order for PO NT-FEED") and "Hello" not in cancelled[0]["text"]
+    assert c.get(f"/api/b/{tok}/badges").json()["notifications"] >= 1
+    assert c.post(f"/api/b/{tok}/feed/read").status_code == 200
+    assert c.get(f"/api/b/{tok}/badges").json()["notifications"] == 0
+    _say(env, oid)  # conversation notices are not part of the page
+    assert all(i["event"] not in ("order_message", "order_message_in") for i in c.get(f"/api/b/{tok}/feed").json()["items"])
+    office = c.get("/api/m/feed", headers=env["merch"]).json()
+    assert office["seenUpTo"] == 0 and all(i["event"] not in ("order_message", "order_message_in") for i in office["items"])

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 
 from ..deps import AppContext, User, ctx, merchandiser
-from ..services import activity, approvals, inbox, notices, order_messages
+from ..services import activity, approvals, feed, inbox, notices, order_messages
 from ..services import requests as request_svc
 from ..services.attachments import _item
 from ..services.approvals import KIND_LABEL
@@ -34,7 +34,30 @@ async def buyer_badges(response: Response, buyer: sqlite3.Row = Depends(current_
     waiting = c.db.execute(
         "SELECT COUNT(*) FROM order_requests WHERE buyer_id = ? AND status IN ('query','countered')", (buyer["id"],)
     ).fetchone()[0]
-    return {"requests": waiting, "messages": inbox.unread_count(c.db, "buyer", buyer["id"]), "approvals": approvals.to_decide(c.db, buyer["id"])}
+    return {"requests": waiting, "messages": inbox.unread_count(c.db, "buyer", buyer["id"]), "notifications": feed.unread_count(c.db, "buyer", buyer["id"], "buyer", buyer["id"]), "approvals": approvals.to_decide(c.db, buyer["id"])}
+
+
+@buyer_router.get("/feed")
+async def buyer_feed(response: Response, buyer: sqlite3.Row = Depends(current_buyer), c: AppContext = Depends(ctx)):
+    response.headers.update(NO_STORE)
+    return {"items": feed.items(c.db, "buyer", buyer["id"]), "seenUpTo": feed.seen_up_to(c.db, "buyer", buyer["id"])}
+
+
+@buyer_router.post("/feed/read")
+async def buyer_feed_read(buyer: sqlite3.Row = Depends(current_buyer), c: AppContext = Depends(ctx)):
+    feed.mark_seen(c.db, "buyer", buyer["id"], "buyer", buyer["id"])
+    return {"ok": True}
+
+
+@office_router.get("/feed")
+async def office_feed(user: User = Depends(merchandiser), c: AppContext = Depends(ctx)):
+    return {"items": feed.items(c.db, "office"), "seenUpTo": feed.seen_up_to(c.db, "merchandiser", user.id)}
+
+
+@office_router.post("/feed/read")
+async def office_feed_read(user: User = Depends(merchandiser), c: AppContext = Depends(ctx)):
+    feed.mark_seen(c.db, "merchandiser", user.id, "office")
+    return {"ok": True}
 
 
 @buyer_router.post("/orders/{order_id}/messages/read")

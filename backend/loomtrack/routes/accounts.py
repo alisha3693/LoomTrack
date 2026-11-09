@@ -28,12 +28,18 @@ async def reset(user_id: int, c: AppContext = Depends(ctx)):
 
 
 class AccessIn(BaseModel):
-    canWrite: bool
+    canWrite: bool | None = None
+    name: str | None = Field(default=None, max_length=80)
+    email: str | None = Field(default=None, max_length=120)
 
 
 @router.patch("/buyer-logins/{user_id}")
 async def access(user_id: int, body: AccessIn, c: AppContext = Depends(ctx)):
-    accounts.set_access(c.db, user_id, body.canWrite)
+    """Change access, name or the email a person signs in with. Any of the three may be sent."""
+    if body.canWrite is not None:
+        accounts.set_access(c.db, user_id, body.canWrite)
+    if body.name is not None or body.email is not None:
+        accounts.update_details(c.db, user_id, body.name, body.email)
     return {"ok": True}
 
 

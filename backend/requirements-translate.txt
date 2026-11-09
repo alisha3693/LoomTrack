@@ -1,0 +1,10 @@
+# Tamil <-> English translation on this machine (IndicTrans2). Optional: without it the app uses keyword matching.
+# For the GPU, install PyTorch's CUDA build first, for example:
+#   pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cu126
+# then:  pip install -r requirements-translate.txt   and   python -m loomtrack.ai.setup_models
+torch>=2.6
+transformers==4.57.6
+sentencepiece>=0.2
+sacremoses>=0.1
+indic-nlp-library==0.92
+huggingface_hub>=0.30

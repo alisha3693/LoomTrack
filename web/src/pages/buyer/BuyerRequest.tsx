@@ -23,6 +23,7 @@ function Detail({ token, id }: { token: string; id: string }) {
   const [err, setErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [sure, setSure] = useState(false);
   const composer = useRef<HTMLTextAreaElement>(null);
   const uploadErrors: string[] = (useLocation().state as { uploadErrors?: string[] } | null)?.uploadErrors ?? [];
 
@@ -58,8 +59,22 @@ function Detail({ token, id }: { token: string; id: string }) {
             <p className="sub">Request {r.requestNo}{r.orderNo ? ` · our order number ${r.orderNo}` : ""} · last activity {ago(r.updatedAt)}</p>
           </div>
           {r.orderId && <Link className="btn btn-primary" to={`/b/${token}/orders/${r.orderId}`}>Open your order</Link>}
+          {r.canWithdraw && !sure && <button className="btn" onClick={() => setSure(true)}>Cancel request</button>}
         </div>
       </div>
+
+      {/* Cancelling is one clear step with a way back, and it is found at the top, not inside the reply box. */}
+      {r.canWithdraw && sure && (
+        <section className="banner banner-warn stack" role="alertdialog" aria-label="Cancel this request?" style={{ gap: 10 }}>
+          <b>Cancel request {r.requestNo}?</b>
+          <span>Your merchandiser will see that you cancelled it, and no order will be made. To ask again later, send a new request.</span>
+          <div className="row">
+            <button className="btn btn-primary" disabled={busy} onClick={async () => { await act("withdraw", undefined, "Request cancelled"); setSure(false); }}>Yes, cancel request</button>
+            <button className="btn" disabled={busy} onClick={() => setSure(false)}>Keep it</button>
+          </div>
+          {err && <span role="alert">{err}</span>}
+        </section>
+      )}
 
       {uploadErrors.length > 0 && (
         <div className="banner banner-error">Your request was sent, but some files could not be added: {uploadErrors.join("; ")}. You can add them again below.</div>
@@ -108,6 +123,16 @@ function Detail({ token, id }: { token: string; id: string }) {
           </div>
         </section>
       )}
+      {r.status === "withdrawn" && (
+        <section className="turn" aria-label="Cancelled">
+          <span className="badge-turn" aria-hidden="true">×</span>
+          <div className="stack">
+            <h2>You cancelled this request</h2>
+            <p className="muted">No order was made. To ask again, send a new request.</p>
+            <div className="row"><Link className="btn" to={`/b/${token}/requests/new`}>Send a new request</Link></div>
+          </div>
+        </section>
+      )}
 
       <section className="card card-pad"><RequestSummary r={r} /></section>
 
@@ -121,7 +146,7 @@ function Detail({ token, id }: { token: string; id: string }) {
             </label>
             {err && <div className="banner banner-error">{err}</div>}
             <div className="row" style={{ justifyContent: "space-between" }}>
-              {r.canWithdraw ? <button className="btn btn-ghost" disabled={busy} onClick={() => window.confirm("Withdraw this request?") && void act("withdraw", undefined, "Request withdrawn")}>Withdraw request</button> : <span />}
+              <span />
               <button className="btn btn-primary" disabled={busy || !message.trim()} onClick={() => act("reply", { message: message.trim() }, "Message sent")}>Send</button>
             </div>
           </div>

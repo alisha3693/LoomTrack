@@ -28,14 +28,20 @@ _load_env_file(BACKEND_ROOT / ".env")
 DB_FILE = os.environ.get("LOOMTRACK_DB", str(BACKEND_ROOT / "data" / "loomtrack.db"))
 UPLOAD_DIR = Path(os.environ.get("LOOMTRACK_UPLOADS", str(BACKEND_ROOT / "data" / "uploads")))
 WEB_DIST = REPO_ROOT / "web" / "dist"
-# Local, free, open-source model served by Ollama (https://ollama.com).
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3")
-
-
 def ai_enabled() -> bool:
-    """AI is on unless switched off; if Ollama is down the keyword fallback takes over."""
+    """Translation is on unless switched off; until the models are downloaded the keyword fallback is used."""
     return os.environ.get("LOOMTRACK_AI", "on") != "off"
+
+
+def translate_device() -> str:
+    """'auto' (the GPU when PyTorch can use one, else the CPU), 'cuda' or 'cpu'."""
+    v = os.environ.get("LOOMTRACK_TRANSLATE_DEVICE", "auto").lower()
+    return v if v in ("auto", "cuda", "cpu") else "auto"
+
+
+def hf_token() -> str | None:
+    """Hugging Face read token, only needed to download the translation models."""
+    return os.environ.get("HF_TOKEN") or None
 
 
 # Public holidays observed by the units (Tamil Nadu, 2026 season). Editable list.
@@ -59,6 +65,11 @@ def today() -> str:
 # --- Outside the app: email (SMTP) and WhatsApp (Meta Cloud API) -------------------------------------
 # Read on every call so a change to the environment, or a test, takes effect at once. Nothing here is
 # stored in the database, and no setting is ever sent to the browser.
+
+
+def allow_reset() -> bool:
+    """The "Reset test data" button exists only where this is switched on (a test machine, never the live site)."""
+    return os.environ.get("LOOMTRACK_ALLOW_RESET", "").strip().lower() in ("1", "true", "yes")
 
 
 def public_url() -> str:

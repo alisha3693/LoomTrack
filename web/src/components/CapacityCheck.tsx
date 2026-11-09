@@ -11,6 +11,14 @@ const LABEL: Record<Verdict, { text: string; tone: "green" | "amber" | "red" | "
   unknown: { text: "Capacity not set", tone: "" },
 };
 
+export interface PlanCheck {
+  lateSteps: { name: string; due: string; workingDaysLate: number }[];
+  worstDaysLate: number;
+  lastStepDue: string | null;
+  earliestCleanExFactory: string | null;
+}
+type Checked = { stitching: { name: string } | null; stages: { process: string; name: string }[]; units: UnitFit[]; plan?: PlanCheck };
+
 /** Does this verdict need the merchandiser to say they want the order anyway? */
 export const blocks = (v: Verdict | undefined) => v === "over" || v === "no_window";
 
@@ -19,7 +27,7 @@ export const blocks = (v: Verdict | undefined) => v === "over" || v === "no_wind
  * Shows the maths: what is already booked in those days, what this order adds, what the unit can do.
  */
 export default function CapacityCheck({
-  qty, exFactory, templateKey, unitId, onPickUnit, onSelected, onUseDate,
+  qty, exFactory, templateKey, unitId, onPickUnit, onSelected, onUseDate, onPlan,
 }: {
   qty: number;
   exFactory: string;
@@ -28,8 +36,9 @@ export default function CapacityCheck({
   onPickUnit?: (id: string) => void;
   onSelected?: (unit: UnitFit | null) => void;
   onUseDate?: (date: string) => void;
+  onPlan?: (plan: PlanCheck | null) => void;
 }) {
-  const [data, setData] = useState<{ stitching: { name: string } | null; units: UnitFit[] } | null>(null);
+  const [data, setData] = useState<Checked | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -37,7 +46,7 @@ export default function CapacityCheck({
     if (!(qty > 0) || !exFactory || !templateKey) return setData(null);
     let live = true;
     const t = setTimeout(() => {
-      api<{ stitching: { name: string } | null; units: UnitFit[] }>("/api/m/capacity/check", { body: { qty, exFactory, templateKey } })
+      api<Checked>("/api/m/capacity/check", { body: { qty, exFactory, templateKey } })
         .then((r) => live && setData(r))
         .catch((e) => live && (setData(null), setError((e as Error).message)));
     }, 250);
@@ -52,14 +61,38 @@ export default function CapacityCheck({
     onSelected?.(chosen);
   }, [chosen?.unitId, chosen?.verdict]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const plan = data?.plan ?? null;
+  useEffect(() => {
+    onPlan?.(plan);
+  }, [plan?.lateSteps.length, plan?.worstDaysLate]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (error) return <div className="banner banner-error">{error}</div>;
   if (!data) return null;
-  if (!data.stitching) return <p className="faint small" style={{ margin: 0 }}>This plan has no stitching step, so capacity is not checked.</p>;
+  const late = plan && plan.lateSteps.length > 0 ? (
+    <div className="banner banner-warn stack" role="alert" style={{ gap: 6 }}>
+      <b>The plan would already be behind when the order is made</b>
+      <span>
+        On {fmtDate(exFactory, true)} this plan has {plan.lateSteps.length} step{plan.lateSteps.length === 1 ? "" : "s"} due before today, up to {plan.worstDaysLate} working days ago.
+        The order would show a behind-plan warning straight away.
+      </span>
+      <ul style={{ margin: 0, paddingLeft: 18 }}>
+        {plan.lateSteps.map((l) => <li key={l.name}>{l.name}: was due {fmtDate(l.due, true)} ({l.workingDaysLate} working days ago)</li>)}
+      </ul>
+      {plan.earliestCleanExFactory && (
+        <span className="row" style={{ gap: 8 }}>
+          With no step already late, the earliest ex-factory is <b>{fmtDate(plan.earliestCleanExFactory, true)}</b>.
+          {onUseDate && <button type="button" className="btn btn-sm" onClick={() => onUseDate(plan.earliestCleanExFactory!)}>Propose this date</button>}
+        </span>
+      )}
+    </div>
+  ) : null;
+  if (data.stages.length === 0) return <>{late}<p className="faint small" style={{ margin: 0 }}>This plan has no production stage of ours, so capacity is not checked.</p></>;
 
   return (
     <section className="stack" style={{ gap: 10 }} aria-label="Capacity check">
+      {late}
       <div>
-        <b style={{ fontWeight: 500 }}>Capacity check</b> <span className="faint small">on {data.stitching.name.toLowerCase()}, for {num(qty)} pcs shipping {fmtDate(exFactory, true)}</span>
+        <b style={{ fontWeight: 500 }}>Capacity check</b> <span className="faint small">on {data.stages.map((x) => x.name.toLowerCase()).join(", ")}, for {num(qty)} pcs shipping {fmtDate(exFactory, true)}</span>
       </div>
       <div className="stack" style={{ gap: 6 }}>
         {data.units.map((u) => {
@@ -96,8 +129,21 @@ export default function CapacityCheck({
           <div className="muted">{chosen.summary}</div>
           {chosen.windowStart && chosen.windowEnd && (
             <div className="faint">
-              Needs about {num(chosen.requiredPerDay)} a day; {chosen.name} can stitch {num(chosen.capacity)} a day.
+              {chosen.limitingStage}: needs about {num(chosen.requiredPerDay)} a day; {chosen.name} can {chosen.verb} {num(chosen.capacity)} a day.
             </div>
+          )}
+          {chosen.stages.length > 1 && (
+            <ul className="reasons" style={{ margin: 0 }} aria-label="Every stage checked">
+              {chosen.stages.map((st) => {
+                const t = LABEL[st.verdict];
+                return (
+                  <li key={st.process}>
+                    {st.stage}: <span className={t.tone ? `t-${t.tone}` : "faint"}>{st.verdict === "unknown" ? "capacity not set, not checked" : `${t.text} · ${Math.round((st.utilisation ?? 0) * 100)}%`}</span>
+                    {st.capacity ? <span className="faint"> ({num(st.capacity)} a day)</span> : null}
+                  </li>
+                );
+              })}
+            </ul>
           )}
           {chosen.overlapping.length > 0 && (
             <div className="faint">
@@ -114,7 +160,7 @@ export default function CapacityCheck({
               </div>
             ) : (
               <div className="t-red">
-                No ship date in the next four months fits. The plan allows {chosen.workingDays} working days of stitching, in which {chosen.name} can make at most {num(chosen.possible)} pieces. Split the order, use a plan with a longer stitching step, or choose a unit with more capacity.
+                No ship date in the next four months fits. The plan allows {chosen.workingDays} working days for {chosen.limitingStage.toLowerCase()}, in which {chosen.name} can make at most {num(chosen.possible)} pieces. Split the order, use a plan with a longer stitching step, or choose a unit with more capacity.
               </div>
             )
           )}

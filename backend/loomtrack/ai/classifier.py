@@ -1,22 +1,18 @@
-"""Supervisor issue note → English reason category + translation.
+"""Supervisor issue note -> English translation and a reason category.
 
-Runs on a local open-source model through Ollama (free, no data leaves the
-machine). When Ollama isn't reachable, a keyword classifier gives a first
-guess instead. Either way the original note is kept beside the result and a
-merchandiser can override the category.
+The Tamil note is translated to English by IndicTrans2 on this machine (ai/translate.py). The category is then
+picked by the keyword rules below, from the note and its translation together. Until the translation models are
+downloaded (or when they fail) the keyword rules alone give a first guess. Either way the original note is kept
+beside the result and a merchandiser can override the category.
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Literal
 
-import httpx
-from pydantic import BaseModel, Field
-
 from .. import config
-from ..domain.reasons import REASON_CODES
+from . import translate
 
 
 @dataclass
@@ -24,91 +20,25 @@ class Classification:
     category: str
     translation: str | None
     confidence: float
-    source: Literal["ollama", "keywords"]
+    source: Literal["indictrans2", "keywords"]
     model: str | None = None
 
 
-ReasonCode = Literal[tuple(REASON_CODES)]  # type: ignore[valid-type]
-
-
-class _Result(BaseModel):
-    translation_en: str
-    category: ReasonCode  # type: ignore[valid-type]
-    confidence: float = Field(ge=0, le=1)
-
-
-# Ollama constrains the model's output to this schema.
-_OUTPUT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "translation_en": {"type": "string"},
-        "category": {"type": "string", "enum": REASON_CODES},
-        "confidence": {"type": "number"},
-    },
-    "required": ["translation_en", "category", "confidence"],
-}
-
-# Definitions with floor vocabulary matter a lot for a small local model:
-# without them Llama 3 8B got 4/6 sample notes right, with them 6/6.
-_DEFINITIONS = """FABRIC_DELAY: fabric / cloth / dyeing not arrived or late
-TRIMS_DELAY: trims or packing material late: buttons, zips, labels, tags, thread, elastic, cartons, polybags
-MACHINE_BREAKDOWN: sewing or other machine broken, needle or motor problem, waiting for mechanic
-LABOUR_SHORTAGE: workers absent, on leave, not enough operators
-POWER_CUT: no electricity, current cut, EB cut, generator or diesel problem
-QUALITY_REWORK: defects, shade variation, stains, alteration, rework, rejection
-SUBCONTRACTOR_DELAY: outside print or wash unit slow for reasons other than the ones above
-APPROVAL_PENDING: waiting for buyer approval or comments
-ORDER_CHANGE: buyer changed style, quantity or sizes
-NO_ISSUE: no problem reported
-OTHER: a problem that fits none of the above"""
-
-SYSTEM = f"""You read short notes from garment-factory floor supervisors in Tiruppur, India. Notes are Tamil, English or Tanglish and may contain speech-to-text errors.
-1. translation_en: translate the note faithfully into plain English. Do not add facts.
-2. category: the single root cause of the problem, using these definitions:
-{_DEFINITIONS}
-Pick the root cause, not where it happened: a power cut at the print unit is POWER_CUT.
-Factory words: நூல் (nool) = sewing thread, never "book"; லைன் = production line; பீஸ் = pieces; ஷேட் = fabric shade / colour; கார்ட்டன் = carton; ஆபரேட்டர் = machine operator.
-3. confidence: 0 to 1."""
-
-
 async def classify_note(note: str) -> Classification:
-    """Classify with the local model; raises if it is unreachable (callers fall back to keywords)."""
+    """Translate with the local model and classify. Raises if the model fails (callers fall back to keywords)."""
     text = note.strip()
     if not text:
         return Classification("NO_ISSUE", None, 1.0, "keywords")
-    if not config.ai_enabled():
+    if not config.ai_enabled() or not translate.has_tamil(text) or not translate.available():
         return classify_by_keywords(text)
-
-    body = {
-        "model": config.OLLAMA_MODEL,
-        "stream": False,
-        "format": _OUTPUT_SCHEMA,
-        "options": {"temperature": 0},
-        "keep_alive": "30m",
-        "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": text}],
-    }
-    # A cold model load can take ~20 s on a laptop GPU; later calls take ~4 s.
-    async with httpx.AsyncClient(base_url=config.OLLAMA_URL, timeout=120) as client:
-        res = await client.post("/api/chat", json=body)
-        res.raise_for_status()
-    parsed = _Result.model_validate(json.loads(res.json()["message"]["content"]))
-    return Classification(parsed.category, parsed.translation_en.strip(), parsed.confidence, "ollama", config.OLLAMA_MODEL)
+    english = await translate.to_english(text)
+    guess = classify_by_keywords(f"{text} {english or ''}")
+    return Classification(guess.category, english, guess.confidence, "indictrans2", translate.MODEL_LABEL)
 
 
 async def ai_status() -> dict:
-    """Is the local model available? Shown in the office UI so nobody wonders why translations are missing."""
-    if not config.ai_enabled():
-        return {"mode": "keywords", "reason": "AI turned off (LOOMTRACK_AI=off)"}
-    try:
-        async with httpx.AsyncClient(base_url=config.OLLAMA_URL, timeout=3) as client:
-            tags = (await client.get("/api/tags")).json()
-        names = [m["name"] for m in tags.get("models", [])]
-        wanted = config.OLLAMA_MODEL if ":" in config.OLLAMA_MODEL else f"{config.OLLAMA_MODEL}:latest"
-        if wanted not in names:
-            return {"mode": "keywords", "reason": f"Model {config.OLLAMA_MODEL} not pulled (ollama pull {config.OLLAMA_MODEL})"}
-        return {"mode": "ollama", "model": config.OLLAMA_MODEL}
-    except httpx.HTTPError:
-        return {"mode": "keywords", "reason": f"Ollama not reachable at {config.OLLAMA_URL}"}
+    """{'mode': 'indictrans2' | 'keywords', ...}: what the office sees in the menu."""
+    return translate.status()
 
 
 # --- Keyword fallback ---------------------------------------------------------

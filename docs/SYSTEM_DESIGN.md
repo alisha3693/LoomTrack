@@ -86,14 +86,14 @@ The only network call leaving the box is the browser loading fonts from Google F
 │                 export      Excel workbooks                                                      │
 │       │                                                                                          │
 │  domain/        calendar · runrate · tna · reasons      (pure functions, no I/O, unit-tested)    │
-│  ai/            classifier  Ollama call, keyword fallback                                        │
+│  ai/            translate (IndicTrans2) · classifier (keyword rules)                             │
 │                                                                                                  │
 │  deps.py (who is signed in) · security.py (hashing, tokens, signed URLs) · db.py (schema)        │
 └───────────────┬──────────────────────────────────────────────────────┬───────────────────────────┘
-                │                                                      │ HTTP, localhost
+                │                                                      │ in this process
         ┌───────▼────────┐                                     ┌───────▼────────┐
-        │ SQLite (WAL)   │  + uploads/ folder (photos, voice)  │ Ollama         │
-        │ one file       │                                     │ Llama 3 8B     │
+        │ SQLite (WAL)   │  + uploads/ folder (photos, voice)  │ IndicTrans2    │
+        │ one file       │                                     │ in-process     │
         └────────────────┘                                     └────────────────┘
 ```
 
@@ -240,7 +240,7 @@ Personal data held is small: staff names, phone numbers (as logins), PIN/passwor
 | Network drops mid-upload | Same | Server may or may not have stored it; retry is safe (idempotent ID) |
 | Server rejects an update (e.g. over quantity) | Red message with the reason and a Discard button | Not retried forever |
 | Server restarts | Brief errors, then normal | State is all in SQLite; signed media URLs become invalid until reloaded (key regenerates unless `LOOMTRACK_SIGNING_KEY` is set) |
-| Ollama down, slow or cold | Top bar shows "AI off · keywords"; translation missing | Keyword guess used; error stored; app fully usable. Cold start ~20 s (**measured**) |
+| Translation models missing or failing | Account menu shows "Keywords only" with the reason; no translation on notes | Keyword guess used; error stored; app fully usable |
 | AI returns a wrong category | Original note beside translation; dropdown to fix | Human decision stored and never overwritten by a later AI run |
 | Two updates for the same stage | Both stored and summed | Cap check prevents runaway totals |
 | Phone clock wrong | Update dated by the server's "today" shown on the phone from the last sync | Server rejects future or too-old dates |
@@ -273,7 +273,7 @@ Personal data held is small: staff names, phone numbers (as logins), PIN/passwor
 ### Demo (now): one laptop
 ```
 npm start  →  builds the web app, one uvicorn process serves API + web on :4000
-Ollama running locally (tray app)
+Translation models downloaded once (setup_models), loaded into the app on first use
 Phones on the same Wi-Fi: http://<laptop-ip>:4000   (camera/mic need HTTPS: use a free Cloudflare Tunnel)
 ```
 
@@ -286,8 +286,8 @@ Internet ── HTTPS ──► Caddy (free, automatic certificates)
                          │
          ┌───────────────┼──────────────────┐
          ▼               ▼                  ▼
-   SQLite file     uploads/ folder     Ollama (same box, GPU preferred;
-   (/var/lib/…)    (/var/lib/…)         or a second box on the LAN via OLLAMA_URL)
+   SQLite file     uploads/ folder     IndicTrans2 (in the same process;
+   (/var/lib/…)    (/var/lib/…)         GPU if present, otherwise CPU)
          │               │
          └── nightly backup: sqlite3 ".backup" + copy uploads → second disk / free object storage
 ```
@@ -302,7 +302,8 @@ The Windows equivalent is NSSM or Task Scheduler for the service and Caddy for H
 | `LOOMTRACK_UPLOADS` | `backend/data/uploads` | Photos and voice |
 | `LOOMTRACK_TODAY` | real date (IST) | Pins "today". The npm scripts pin it to 2026-11-05 for the demo; **unset it to go live** |
 | `LOOMTRACK_AI` | `on` | `off` forces the keyword classifier |
-| `OLLAMA_URL` / `OLLAMA_MODEL` | `http://localhost:11434` / `llama3` | Local AI endpoint and model |
+| `HF_TOKEN` | none | Free Hugging Face token, only to download the translation models |
+| `LOOMTRACK_TRANSLATE_DEVICE` | `auto` | `auto` (GPU if available), `cuda` or `cpu` |
 | `LOOMTRACK_SIGNING_KEY` | random per start | Set a fixed value so media links survive restarts |
 
 ### Operations checklist (not yet done)
@@ -313,7 +314,7 @@ Backups with a restore test · HTTPS · process supervisor · log rotation · se
 ## 13. Observability
 
 **Today:** uvicorn access logs; stored AI errors (`issue_reasons.ai_error`); `/api/docs`; the top-bar AI status.
-**Needed for a pilot:** structured request logs with durations; an error log someone reads; a `/api/health` endpoint (DB reachable, Ollama reachable) for an uptime monitor; counts of updates received per unit per day, which also shows which supervisors have stopped reporting.
+**Needed for a pilot:** structured request logs with durations; an error log someone reads; a `/api/health` endpoint (DB reachable, translation models loaded) for an uptime monitor; counts of updates received per unit per day, which also shows which supervisors have stopped reporting.
 
 ---
 
@@ -350,7 +351,7 @@ The brief's success criteria, and honest status of how LoomTrack would measure e
 | More than ~5 office users writing at once, or managed backups wanted | PostgreSQL (free, open source). SQL is plain and isolated in routes and services |
 | Photos exceed local disk | S3-compatible storage (e.g. self-hosted MinIO); the upload path is one function |
 | Board slow beyond ~300 active orders | Compute-on-write only + nightly refresh (§11) |
-| AI needs more accuracy | Evaluate other Ollama models (`qwen2.5:7b`, `gemma2:9b`) on a labelled Tamil set; later fine-tune or add few-shot examples from corrected notes (the human overrides are already stored: free training data) |
+| Translation needs more accuracy | Measure IndicTrans2 on a labelled set of real Tamil notes; try its 1B models; later fine-tune on corrected notes (the human overrides are already stored: free training data) |
 | Voice quality | faster-whisper (MIT) for server-side Tamil transcription; keep original audio |
 | Real buyer emails / WhatsApp | Replace the outbox write with an SMTP sender (free) behind the same confirm step |
 | Multiple factories or tenants | Add a company ID to every table; today it is single-tenant by design |

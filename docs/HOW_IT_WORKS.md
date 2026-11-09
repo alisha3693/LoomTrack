@@ -19,7 +19,7 @@ A walkthrough of what happens from a supervisor's tap to a buyer's screen. For *
                        |
               SQLite file + uploads folder (photos, voice)
                        |
-              Ollama on the same machine (Llama 3 8B), optional
+              IndicTrans2 on the same machine (GPU or CPU), optional
 ```
 
 Three kinds of user hit three separate sets of endpoints, and each set is guarded differently:
@@ -35,7 +35,7 @@ Three kinds of user hit three separate sets of endpoints, and each set is guarde
 1. **On the phone** the supervisor enters pieces, optionally a photo and a note (typed, or spoken). The photo is shrunk to ≤1280 px first.
 2. **The update is saved to the phone's own storage (IndexedDB) before anything is sent.** It gets an ID generated on the phone. This is the offline queue.
 3. **The app tries to send it** to `POST /api/s/updates`. If there's no network, it stays queued and retries when the phone reconnects, when the app comes to the foreground, and every 30 seconds.
-4. **The server checks it:** the stage must belong to this supervisor's unit, the order must be active, the date can't be in the future or older than 7 days, and the running total can't exceed the order quantity by more than 5%.
+4. **The server checks it:** the stage must belong to this supervisor's unit, the order must be active, the date can't be in the future or older than 7 days, the running total can't exceed the order quantity by more than 5%, and a stage can't pass what the stage before it (in our own units) has finished: stitching can't go past what has been cut. The supervisor's list shows each stage's **daily target** (pieces left over the working days left) and how many pieces the stage before has handed over.
 5. **If the ID has been seen before, the server says "already have it" and does nothing.** That's what stops a retry from double-counting pieces.
 6. **It's stored:** one row in `daily_updates`, one in `photos` if there's a photo, and one empty row in `issue_reasons` if there's a note or voice.
 7. **The order is re-projected right away** (next section), so the board is current.
@@ -51,7 +51,7 @@ Three kinds of user hit three separate sets of endpoints, and each set is guarde
 
 ### Changes to an order that already exists
 
-- From an active order on their page, the buyer can **Ask for a change**: a new ex-factory date, new quantities by size, or both, with a reason. It travels the same conversation as a new request (question, counter-proposed date, agree, accept, decline, withdraw).
+- From an active order on their page, the buyer can **Ask for a change**: a new ex-factory date, new quantities by size, or both, with a reason. It travels the same conversation as a new request (question, counter-proposed date, agree, accept, decline, cancel by the buyer).
 - While it is open the merchandiser sees **what the order says now beside what is asked for**. **Apply the change** updates the order in one step: the new ex-factory date goes into the order's date history (naming the request and the reason), the quantities are replaced, and the order is re-projected. The quantity cannot go below what the furthest stage has already made.
 - If the buyer asks by email or phone, the merchandiser uses **Record a change** on the order: the same trail, applied at once, and the buyer sees it under their requests.
 - One open change per order at a time. The planned dates of individual steps are **not** moved automatically; the merchandiser reviews them (each edit needs a reason and is logged).
@@ -82,6 +82,7 @@ A buyer reaches only their own requests: another buyer's request is "not found".
 
 ## Approvals (`services/approvals.py`)
 
+- **Plan templates** follow a buyer's usual knit time-and-action calendar, always in due order: fit sample, lab dip / colour, PP sample, fabric in-house, fabric inspection and shrinkage test, trims in-house, then cutting (printing), stitching, inline inspection, (washing), finishing, packing, final inspection and ex-factory. The merchandiser writes only the English name of a new step. The Tamil name supervisors see is made once, when the step is saved, from a glossary of floor words and then the local translation model (the English name stays if neither can). They are drawn as a chart (bars for production stages, diamonds for milestones) on the templates page and in the editor, and a stage that ends before it starts is refused. A new stage's **process** (cutting, stitching, printing, washing, ...) is chosen from a list: it decides which unit does the stage and which stage the capacity check measures, so the editor refuses a near-miss spelling of a known process. In the editor every production stage has a typed **Starts** and **Due** (days before ex-factory) and they are completely free: stages may overlap, or leave gaps, however the factory really works. The only rule is that a stage starts before it is due. The built-in plans are set up so cutting, (printing), stitching, (washing), finishing and packing each start the day after the one before it ends (lead time about 68 to 81 days from fit sample to ex-factory).
 - The office asks the buyer to approve something on an order: a **fit sample**, a **pre-production sample**, a **lab dip / colour**, **packaging** or something else, with a name and a note. The buyer is emailed (and sent a WhatsApp message if they agreed) and gets a card under **Needs your attention**.
 - The buyer **approves** or **asks for changes** (a reason is required). Changes land under **Needs you** for the office, who answers and **sends it again** (what changed is required) or **withdraws** it. Every step is kept in `approval_events` and cannot be edited.
 - Approving a fit or pre-production sample marks that plan step done (Fit sample approval, PP sample approval) and writes it into the date history, so the plan follows what actually happened.
@@ -108,11 +109,11 @@ A buyer account is created with **Full access** or **View only** (and the office
 
 ## Capacity check (`services/capacity.py`, `domain/capacity.py`)
 
-- Each of our units has a **daily stitching capacity** (pieces a day), set on the Units page. Stitching is the step measured, because it decides how many pieces a unit can turn out.
+- Each of our units has a **daily capacity for each stage we do ourselves** (cutting, stitching, finishing, packing: pieces a day), set on the Units page. Milestones and job work (printing, washing) are not counted. Stitching is stored on the unit, the other stages in `unit_capacity`. A stage with no capacity set is listed as "not set" and never blocks.
 - **What is booked**: every active order with stitching at that unit, spread evenly over the working days it has left (Monday to Saturday, minus holidays), using the pieces still to be made. A stitching window that has already passed is spread over the next five working days.
-- **The new order** is spread over the stitching window its plan template gives it for that ship date. Utilisation = (already booked + this order) / (capacity x working days in the window). Up to 85% is *room to spare*, up to 100% *tight*, above that *over capacity*; a window that has already passed is *no time*. A unit with no capacity set is not checked.
+- **The new order** is spread over the window its plan template gives each stage for that ship date; a unit is as full as its tightest stage. Utilisation = (already booked + this order) / (capacity x working days in the window). Up to 85% is *room to spare*, up to 100% *tight*, above that *over capacity*; a window that has already passed is *no time*. A unit with no capacity set is not checked.
 - **When it is asked**: in the Accept dialog for a buyer's request and on the New order form, side by side for every unit. Picking a unit that would be over (or has no time) needs a tick on "I want it anyway"; the server refuses without it (`overCapacityOk`). It also offers the first ship date the unit could take (searched four months ahead), with a button that opens the counter-proposal with that date, or says no date helps when the window is simply too short for the quantity.
-- Not covered: cutting, finishing and packing capacity; a quantity increase on an existing order; the run-rate engine still treats each order on its own.
+- Not covered: a quantity increase on an existing order; the run-rate engine still treats each order on its own.
 
 ## Re-projecting an order (`services/orders.py`)
 
@@ -131,6 +132,15 @@ Every time numbers change, and every time the board loads, the server recomputes
 | Buyer was already told, and it's no worse | Nothing new (the buyer isn't spammed) |
 | Order recovers to green | Pending warning → *superseded*; confirmed warning → *resolved* |
 
+## Cancelling an order (`cancel_order` in `services/orders.py`)
+When an order cannot go ahead (a delay that cannot be recovered, say), the merchandiser uses **Cancel order** on the order page and writes one reason. It is a single step with no discussion: the order's state becomes `cancelled`, its open delay notices are closed, and the buyer gets an email with the reason. WhatsApp is not used (the three approved templates are kept for request received, request accepted and delay notice). The buyer's page lists the order under *Cancelled* with the reason, and the link in the email opens it. A cancelled order cannot be reopened.
+
+## The notifications page (`services/feed.py`)
+Both sides have a **Notifications** page that lists what the app has told them, newest first and grouped by day. Nothing new is stored for it: every email is already recorded in `outbox_messages`, and the page shows one entry per event (not per recipient). Buyers see what their merchandiser sent them; the office sees what buyers did (new requests, answers, approvals, acknowledged delay notices). The sidebar badge counts entries newer than the last visit, kept in `feed_reads`. The old setup page for email and WhatsApp is now called *Email and WhatsApp* under Set up. Buyers no longer have a Messages page or an order Conversation tab.
+
+## Reset test data (`services/reset.py`)
+On a test machine only: with `LOOMTRACK_ALLOW_RESET=1` in `backend/.env`, *Reset test data* appears under Set up. After typing RESET it saves a copy of the database to `data/backups/`, then removes all orders and everything under them, change requests, uploaded order files and the sent-message record. Buyers, sign-ins, units, plan templates and the buyers' requests stay; a request that had become an order goes back to *submitted* so it can be accepted again. Without the setting the page and its endpoints do not exist.
+
 ## Warnings and the confirm-before-buyer rule
 
 ```
@@ -143,10 +153,10 @@ A warning is invisible to buyers until a merchandiser confirms it. Confirming al
 
 ## The AI step (`ai/classifier.py`)
 
-- The note goes to the local Llama 3 model through Ollama, with a fixed list of 11 reason categories, plain-language definitions of each, and a short Tamil factory glossary. Ollama forces the answer into a JSON shape: English translation + one category + confidence.
+- The Tamil note is translated to English by IndicTrans2 (two small open models, one for each direction, MIT licence) running on this machine: on the GPU when there is one, on the CPU otherwise. The category is then chosen by the keyword rules from the note and its translation together, from a fixed list of 11 reason categories. So the category is only ever a guess, and the confidence number never goes above 0.6.
 - **Both the AI's answer and the human's answer are stored, in separate columns** (`ai_category` and `final_category`). When a merchandiser changes the category, the AI's original guess stays visible ("AI said …").
 - A later AI run never overwrites a category a person set by hand.
-- If Ollama is down, slow or returns junk, a keyword matcher gives a first guess instead. The record says which one produced it (`ai_source`) and keeps any error. The account menu (bottom of the sidebar) shows **AI on** or **Keywords only**.
+- If the models are not downloaded, or fail, the keyword rules alone give the first guess and the note has no translation. The record says which one produced it (`ai_source`) and keeps any error. The account menu (bottom of the sidebar) shows **Translation on** or **Keywords only**, and why. The same models write a suggested Tamil name for new plan steps (after a glossary of floor words) and can translate English text for supervisors.
 
 ## What buyers can see (`services/buyer_view.py`)
 
@@ -178,7 +188,7 @@ Changing ex-factory, or any planned date, requires a reason and writes a row to 
 | Messages, approvals, documents (buyer) | `/b/:token/messages`, `/approvals`, `/documents` | `GET /api/b/:token/inbox`, `/badges`, `/approvals`, `/documents`, `POST .../approvals/:id/approve`, `/changes`, `GET .../orders/:id/activity`, `POST .../orders/:id/notice/seen`, `/notice/acknowledge` |
 | Requests | `/m/requests`, `/m/requests/:id` | `GET /api/m/requests?filter=`, `POST /api/m/requests/:id/query`, `/counter`, `/accept`, `/decline` |
 | Buyer: new request | `/b/:token/requests/new` | `POST /api/b/:token/requests` |
-| Buyer: one request | `/b/:token/requests/:id` | `GET /api/b/:token/requests/:id`, `POST .../reply`, `.../agree`, `.../withdraw` |
+| Buyer: one request | `/b/:token/requests/:id` | `GET /api/b/:token/requests/:id`, `POST .../reply`, `.../agree`, `.../withdraw` (shown as "Cancel request") |
 | Files | on request, order and stage pages | `POST /api/b/:token/requests/:id/attachments`, `POST /api/m/requests/:id/attachments`, `POST /api/m/orders/:id/attachments`, `PATCH`/`DELETE /api/m/attachments/:id`, `GET /api/s/orders/:id/attachments`, `GET /api/b/:token/attachments/:id` |
 | Buyer: ask for a change | `/b/:token/orders/:id/change` | `POST /api/b/:token/orders/:id/amendments` |
 | Record a change (office) | button on the order page | `POST /api/m/orders/:id/amend` |
@@ -228,7 +238,7 @@ backend/loomtrack/
   domain/              no database, no web: calendar, runrate, tna templates, reason list
   services/            orders (projection + warnings), templates (load/validate/save), requests (order requests), attachments (files), buyer_view, export (Excel)
   routes/              auth, merchandiser, templates, requests (both sides), attachments, supervisor, buyer
-  ai/classifier.py     Ollama call + keyword fallback
+  ai/translate.py      IndicTrans2 Tamil<->English, ai/classifier.py keyword rules
   seed.py / explain.py demo data / prints the run-rate maths for every order
 backend/tests/         136 tests
 web/src/

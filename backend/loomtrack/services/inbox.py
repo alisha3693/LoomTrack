@@ -15,7 +15,7 @@ OPEN_REQUEST = ("submitted", "query", "countered")
 _TABLE = {"order": ("order_messages", "order_id"), "request": ("request_messages", "request_id")}
 _EVENT_TEXT = {
     "submitted": "Request submitted", "agreed": "Agreed to the proposed date", "accepted": "Request accepted",
-    "declined": "Request declined", "withdrawn": "Request withdrawn",
+    "declined": "Request declined", "withdrawn": "Request cancelled",
 }
 
 

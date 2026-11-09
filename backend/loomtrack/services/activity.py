@@ -14,7 +14,7 @@ LIMIT = 80
 _FIELD = {"ex_factory": "Ex-factory date", "planned_date": "Due date", "planned_start": "Start date", "actual_date": "Done date"}
 _REQUEST = {
     "submitted": "Request submitted", "message": "Message on the request", "query": "Question about the request", "counter": "A different date was proposed",
-    "agreed": "The proposed date was agreed", "accepted": "Request accepted into an order", "declined": "Request declined", "withdrawn": "Request withdrawn",
+    "agreed": "The proposed date was agreed", "accepted": "Request accepted into an order", "declined": "Request declined", "withdrawn": "Request cancelled",
 }
 
 

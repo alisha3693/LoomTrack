@@ -68,7 +68,6 @@ function List({ token, data }: { token: string; data: BuyerData }) {
                     <td style={{ minWidth: 150 }}><div className="row small" style={{ justifyContent: "space-between" }}><span className="num">{o.overallPct}%</span></div><Progress pct={o.overallPct} tone={o.overallPct >= 100 ? "green" : ""} /></td>
                     <td>
                       <span className={`pill ${chip.tone ? `pill-${chip.tone}` : ""}`}>{chip.text}</span>
-                      {o.lastMessage?.unread && <div className="flag t-amber">New reply</div>}
                       {o.notice && !o.notice.acknowledgedAt && <div className="flag t-red">Acknowledge the notice</div>}
                     </td>
                   </tr>
@@ -77,6 +76,17 @@ function List({ token, data }: { token: string; data: BuyerData }) {
             </tbody>
           </table>
         </div>
+      )}
+      {data.cancelledOrders.length > 0 && (
+        <section className="card card-pad stack" aria-label="Cancelled orders">
+          <h2>Cancelled</h2>
+          {data.cancelledOrders.map((o) => (
+            <div key={o.id}>
+              <Link to={`/b/${token}/orders/${o.id}`} className="po">{o.poNo}</Link> <span className="faint small">{o.style} · {num(o.qty)} pcs</span>
+              {o.reason && <div className="muted small">{o.reason}</div>}
+            </div>
+          ))}
+        </section>
       )}
     </div>
   );

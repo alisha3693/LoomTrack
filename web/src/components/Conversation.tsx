@@ -18,7 +18,7 @@ interface Message {
 
 const EVENT_TEXT: Record<string, string> = {
   submitted: "Request submitted", message: "Wrote on the request", query: "Asked a question", counter: "Proposed another date",
-  agreed: "Agreed to the proposed date", accepted: "Request accepted", declined: "Request declined", withdrawn: "Request withdrawn",
+  agreed: "Agreed to the proposed date", accepted: "Request accepted", declined: "Request declined", withdrawn: "Request cancelled",
 };
 
 /**

@@ -19,7 +19,7 @@ const NEXT: Record<RequestStatus, string> = {
   countered: "The buyer has to agree to your date",
   accepted: "Became an order",
   declined: "Declined",
-  withdrawn: "The buyer withdrew it",
+  withdrawn: "The buyer cancelled it",
 };
 
 export default function Requests() {

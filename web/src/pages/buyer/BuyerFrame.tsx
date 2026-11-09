@@ -7,7 +7,7 @@ import { useAuth } from "../../lib/auth";
 import { useBadgeRefresh } from "../../lib/badges";
 import type { BuyerData } from "../../lib/buyer";
 
-export interface Badges { requests: number; messages: number; approvals: number }
+export interface Badges { requests: number; notifications: number; approvals: number }
 
 /**
  * The buyer's pages: a sidebar with real navigation, the way to start a new request, and the
@@ -35,16 +35,21 @@ export default function BuyerFrame({
   if (!data) return <div className="login-wrap faint">Loading…</div>;
 
   const base = `/b/${token}`;
-  const groups: NavGroup[] = [{
-    items: [
-      { to: base, label: "Overview", icon: "overview", end: true },
-      { to: `${base}/orders`, label: "Orders", icon: "orders" },
-      { to: `${base}/requests`, label: "Requests", icon: "requests", badge: badges?.requests },
-      { to: `${base}/messages`, label: "Messages", icon: "messages", badge: badges?.messages },
-      { to: `${base}/approvals`, label: "Approvals", icon: "approvals", badge: badges?.approvals },
-      { to: `${base}/documents`, label: "Documents", icon: "documents" },
-    ],
-  }];
+  const groups: NavGroup[] = [
+    {
+      items: [
+        { to: base, label: "Overview", icon: "overview", end: true },
+        { to: `${base}/orders`, label: "Orders", icon: "orders" },
+        { to: `${base}/requests`, label: "Requests", icon: "requests", badge: badges?.requests },
+      ],
+    },
+    {
+      label: "Updates",
+      items: [
+        { to: `${base}/notifications`, label: "Notifications", icon: "bell", badge: badges?.notifications },
+      ],
+    },
+  ];
   const isAccount = user?.role === "buyer";
 
   return (

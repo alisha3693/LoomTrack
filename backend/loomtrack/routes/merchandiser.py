@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field
 
+from .. import config
 from ..ai.classifier import ai_status
 from ..config import CALENDAR
 from ..db import transaction
@@ -14,12 +16,12 @@ from ..deps import AppContext, User, ctx, merchandiser
 from ..domain.reasons import REASON_CATEGORIES, REASON_CODES
 from ..domain.tna import plan_from_template
 from ..security import new_token, sign_path
-from ..services import accounts, activity, approvals, capacity, inbox, materials, notices, notify, order_messages, search as search_service
+from ..services import clock, accounts, activity, approvals, capacity, feed, inbox, reset, materials, notices, notify, order_messages, search as search_service
 from ..services.export import weekly_workbook
 from ..services.attachments import for_office
 from ..services.requests import open_count
 from ..services.templates import load_template, plan_json
-from ..services.orders import (compute_projection, get_milestones, get_order, insert_order, refresh_all_active, refresh_order,
+from ..services.orders import (cancel_order, compute_projection, get_milestones, get_order, insert_order, refresh_all_active, refresh_order,
                                set_ex_factory, validate_new_order)
 from ..util import HttpError, iso_week
 
@@ -39,7 +41,7 @@ async def search(q: str = "", c: AppContext = Depends(ctx)):
 
 
 @router.get("/meta")
-async def meta(c: AppContext = Depends(ctx)):
+async def meta(user: User = Depends(merchandiser), c: AppContext = Depends(ctx)):
     db = c.db
     return {
         "buyers": rows(db.execute("SELECT id, name, country FROM buyers ORDER BY name")),
@@ -49,6 +51,9 @@ async def meta(c: AppContext = Depends(ctx)):
         "today": c.today(),
         "openRequests": open_count(db),
         "unreadMessages": inbox.unread_count(db, "merchandiser"),
+        "canReset": config.allow_reset(),
+        "testDate": clock.test_date(db),
+        "unreadNotifications": feed.unread_count(db, "merchandiser", user.id, "office"),
         "approvalsToAnswer": approvals.to_answer(db),
         "ai": await ai_status(),
     }
@@ -188,7 +193,8 @@ async def order_detail(order_id: int, c: AppContext = Depends(ctx)):
         raise HttpError(404, "Order not found")
 
     units = {r["id"]: r["name"] for r in db.execute("SELECT id, name FROM units")}
-    milestones = [{**dict(m), "unit_name": units.get(m["unit_id"])} for m in get_milestones(db, order_id)]
+    unit_kinds = {r["id"]: r["kind"] for r in db.execute("SELECT id, kind FROM units")}
+    milestones = [{**dict(m), "unit_name": units.get(m["unit_id"]), "unit_kind": unit_kinds.get(m["unit_id"])} for m in get_milestones(db, order_id)]
 
     updates = []
     for u in db.execute(
@@ -259,6 +265,36 @@ async def change_ex_factory(order_id: int, body: ExFactoryIn, user: User = Depen
         with transaction(db):
             set_ex_factory(db, order_id, body.date, body.reason.strip(), user.id)
         refresh_order(db, order_id, c.today())
+    return {"ok": True}
+
+
+class ResetIn(BaseModel):
+    confirm: str
+
+
+@router.get("/reset")
+async def reset_preview(c: AppContext = Depends(ctx)):
+    if not config.allow_reset():
+        raise HttpError(404, "Not found")
+    return reset.preview(c.db)
+
+
+@router.post("/reset")
+async def reset_test_data(body: ResetIn, c: AppContext = Depends(ctx)):
+    if not config.allow_reset():
+        raise HttpError(404, "Not found")
+    if body.confirm.strip() != "RESET":
+        raise HttpError(400, "Type RESET to confirm")
+    return reset.clear(c.db, Path(config.DB_FILE).parent / "backups", c.upload_dir)
+
+
+class CancelIn(BaseModel):
+    reason: str = Field(min_length=3, max_length=300)
+
+
+@router.post("/orders/{order_id}/cancel")
+async def cancel(order_id: int, body: CancelIn, user: User = Depends(merchandiser), c: AppContext = Depends(ctx)):
+    cancel_order(c.db, order_id, body.reason)
     return {"ok": True}
 
 

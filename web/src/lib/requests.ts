@@ -77,7 +77,7 @@ export function statusLabel(status: RequestStatus, audience: "office" | "buyer")
     countered: ["Waiting for the buyer", ""],
     accepted: ["Accepted", "green"],
     declined: ["Declined", "red"],
-    withdrawn: ["Withdrawn", ""],
+    withdrawn: ["Cancelled by the buyer", ""],
   };
   const buyer: Record<RequestStatus, [string, Tone]> = {
     submitted: ["With the merchandiser", ""],
@@ -85,7 +85,7 @@ export function statusLabel(status: RequestStatus, audience: "office" | "buyer")
     countered: ["New date proposed", "amber"],
     accepted: ["Accepted", "green"],
     declined: ["Declined", "red"],
-    withdrawn: ["Withdrawn", ""],
+    withdrawn: ["Cancelled", ""],
   };
   const [text, tone] = (audience === "office" ? office : buyer)[status];
   return { text, tone };
@@ -99,5 +99,5 @@ export const EVENT_TEXT: Record<RequestMessage["event"], (author: "buyer" | "mer
   agreed: (_, you) => (you ? "You agreed to the new date" : "Buyer agreed to the new date"),
   accepted: () => "Request accepted",
   declined: () => "Request declined",
-  withdrawn: (_, you) => (you ? "You withdrew the request" : "Buyer withdrew the request"),
+  withdrawn: (_, you) => (you ? "You cancelled the request" : "Buyer cancelled the request"),
 };

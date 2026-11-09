@@ -71,6 +71,23 @@ export interface BuyerMaterial {
 
 export type Verdict = "fits" | "tight" | "over" | "no_window" | "unknown";
 
+export interface StageFit {
+  process: string;
+  stage: string;
+  verb: string;
+  capacity: number | null;
+  verdict: Verdict;
+  utilisation: number | null;
+  booked: number;
+  possible: number;
+  workingDays: number;
+  windowStart: string | null;
+  windowEnd: string | null;
+  requiredPerDay: number | null;
+  summary: string;
+}
+
+/** One unit's result: the top-level numbers are those of its tightest stage; `stages` has every checked stage. */
 export interface UnitFit {
   unitId: number;
   name: string;
@@ -87,6 +104,11 @@ export interface UnitFit {
   earliest: { exFactory: string; utilisation: number } | null;
   overlapping: { orderNo: string; poNo: string; qtyLeft: number }[];
   summary: string;
+  limitingStage: string;
+  limitingProcess: string;
+  verb: string;
+  notSet: string[];
+  stages: StageFit[];
 }
 
 export interface UnitRow {
@@ -96,4 +118,5 @@ export interface UnitRow {
   process: string | null;
   dailyCapacity: number | null;
   weeks: { from: string; booked: number; possible: number; utilisation: number | null }[];
+  processes: { process: string; dailyCapacity: number | null; weeks: { from: string; booked: number; possible: number; utilisation: number | null }[] }[];
 }

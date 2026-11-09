@@ -3,7 +3,7 @@
 A click-by-click script that walks through every requirement in the brief. It works for testing the build yourself and for showing it to the client (about 15 minutes). Every step lists what you should see.
 
 ## Before you start
-1. Ollama is running (the tray icon), with `llama3` pulled. Without it, notes are categorised by keywords and the account menu (bottom of the sidebar) shows **Keywords only**. Everything else still works.
+1. The translation models are downloaded (`python -m loomtrack.ai.setup_models`). Without them, notes are categorised by keywords and the account menu (bottom of the sidebar) shows **Keywords only**. Everything else still works.
 2. Reset the demo data: `npm run seed`. This prints the three buyer links.
 3. Start the app: `npm start` → open **http://localhost:4000**. Or use `npm run dev` for live reload while coding (web on :5173).
 
@@ -73,12 +73,12 @@ Office → C-PO-0488 → **Floor updates** (allow ~5–20 s for the local model)
 ## 6b. Your own plan templates
 **Plan templates**, under **Set up** in the sidebar.
 
-- **Expect:** the three built-in templates (marked *Built in*, no Edit button). **Copy** on *Knit basic*.
-- Name it *Embroidered polo*. **+ New production stage**: name *Embroidery*, process `embroidery`, starts **26**, ends **16** (days before ex-factory). Tamil name is optional. **Sort by end day**.
-- **Expect:** *Example dates* shows Embroidery between Cutting and Stitching, worked back from a sample ex-factory date.
+- **Expect:** the three built-in templates (marked *Built in*, no Edit button), each drawn as a time-and-action chart: 9 milestones (fit sample, lab dip / colour, PP sample, fabric in-house, fabric inspection and shrinkage test, trims in-house, inline inspection, final inspection, ex-factory) and the production stages as bars, counted in days before ex-factory. **Copy** on *Knit basic*.
+- Name it *Embroidered polo*. **+ New production stage**: name *Embroidery*, process **Embroidery** (chosen from the list; **Other…** is for work not in it, and a misspelling of a known process such as "stiching" is refused), due **30** (days before ex-factory), and type its **Starts** yourself (for example **40**, which overlaps the end of Cutting): every Starts and Due is a plain number you set, and stages can overlap or leave gaps. There is no Tamil name box: when you save, the app writes the Tamil name supervisors will see (a glossary of floor words first, then the translation model). The row moves into due order when you leave a field, and *Runs* shows how many days each stage takes.
+- **Expect:** *Plan and example dates* draws Embroidery as a bar between Cutting and Stitching, with the dates worked back from a sample ex-factory date. Reopen the template later and the numbers are as you left them.
 - **Save template.** It now appears in the **New order** template dropdown. Create an order with it: the plan includes Embroidery, and the stage goes to your own unit (no embroidery subcontractor exists).
 - Edit the template afterwards: the order you created does not change. Retire it: it leaves the dropdown, existing orders are unaffected.
-- Try a stage whose start is later than its end, or two steps with the same name: the server explains what's wrong.
+- Try a stage whose start is later than its end (the editor flags it and will not save), or two steps with the same name: the server explains what's wrong.
 
 ## 6c. A buyer asks for an order (home page, request, conversation)
 Use two windows: the office (signed in as Priya) and a private window for the buyer.

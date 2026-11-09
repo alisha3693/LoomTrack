@@ -118,6 +118,7 @@ def project_order(
     cal = calendar
     out: list[StageProjection] = []
     upstream_finish: str | None = None
+    upstream_planned_end: str | None = None
     upstream_done = True
     upstream_qty = order_qty
 
@@ -186,7 +187,12 @@ def project_order(
 
         projected = own_finish
         if upstream_finish and remaining > 0:
-            chained = cal.add_working_days(upstream_finish, lag_days)
+            # A stage ends at least `lag_days` after the one before it, but never more than the plan itself allows
+            # between the two: a plan whose stages overlap, or end the same day, must not read as late before any work.
+            gap = lag_days
+            if upstream_planned_end:
+                gap = max(0, min(lag_days, cal.working_day_diff(upstream_planned_end, s.planned_end)))
+            chained = cal.add_working_days(upstream_finish, gap)
             if chained > projected:
                 projected = chained
                 constrained = True
@@ -210,6 +216,7 @@ def project_order(
             )
         )
         upstream_finish = projected
+        upstream_planned_end = s.planned_end
         upstream_done = upstream_done and remaining == 0
         upstream_qty = done
 

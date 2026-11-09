@@ -16,6 +16,10 @@ from loomtrack.security import hash_secret, new_token
 TODAY = "2026-11-05"
 
 
+async def fake_transcribe(path: str):
+    return "கரண்ட் இல்லை, மூன்று மணி நேரம் வேலை நின்றது" if path.endswith(".webm") else None
+
+
 async def fake_classify(note: str):
     return classify_by_keywords(note)
 
@@ -23,7 +27,7 @@ async def fake_classify(note: str):
 @pytest.fixture(scope="module")
 def env(tmp_path_factory):
     db = open_db(":memory:")
-    app = create_app(db, today=lambda: TODAY, classify=fake_classify, upload_dir=tmp_path_factory.mktemp("uploads"))
+    app = create_app(db, today=lambda: TODAY, classify=fake_classify, transcribe=fake_transcribe, upload_dir=tmp_path_factory.mktemp("uploads"))
     client = TestClient(app)
 
     e = {"db": db, "client": client, "tokenB": new_token(), "tokenC": new_token()}
@@ -56,7 +60,18 @@ def stage_id(db: sqlite3.Connection, order_id: int, code: str) -> int:
     return db.execute("SELECT id FROM milestones WHERE order_id = ? AND code = ?", (order_id, code)).fetchone()["id"]
 
 
-def post_update(env, who, update_id, milestone, qty, **extra):
+def release(db, milestone):
+    """The office has marked every checkpoint and job-work step before this stage done, so the floor may start it."""
+    db.execute(
+        """UPDATE milestones SET actual_date = '2026-10-01' WHERE actual_date IS NULL AND code NOT IN ('EXF', 'FINAL') AND order_id =
+             (SELECT order_id FROM milestones WHERE id = ?) AND code IN (SELECT code FROM plan_steps WHERE kind = 'milestone')""",
+        (milestone,),
+    )
+
+
+def post_update(env, who, update_id, milestone, qty, released=True, **extra):
+    if released:
+        release(env["db"], milestone)
     files = extra.pop("files", None)
     data = {"id": update_id, "milestoneId": str(milestone), "workDate": TODAY, "qty": str(qty), **extra}
     return env["client"].post("/api/s/updates", headers=env[who], data=data, files=files)
@@ -170,10 +185,35 @@ def test_tamil_note_is_classified_and_can_be_overridden(env):
     assert row["final_category"] == "MACHINE_BREAKDOWN"
 
 
+def test_a_supervisors_reason_reaches_the_merchandisers_notifications_at_once(env):
+    db, c = env["db"], env["client"]
+    assert post_update(env, "sup1", "note-update-0002", stage_id(db, env["orderB"], "CUT"), 20, noteText="கரண்ட் இல்லை, மூன்று மணி நேரம் வேலை நின்றது").status_code == 201
+    items = c.get("/api/m/feed", headers=env["merch"]).json()["items"]
+    mine = [i for i in items if i["event"] == "supervisor_reported"]
+    assert mine and mine[0]["topic"] == "Floor" and "power cut" in mine[0]["title"].lower()
+
+
+def test_a_voice_note_is_written_out_translated_and_classified(env):
+    db, c = env["db"], env["client"]
+    r = post_update(env, "sup1", "voice-update-0001", stage_id(db, env["orderB"], "CUT"), 5, files={"audio": ("note.webm", b"not really audio", "audio/webm")})
+    assert r.status_code == 201
+    u = db.execute("SELECT note_text, note_source, audio_path FROM daily_updates WHERE id = 'voice-update-0001'").fetchone()
+    assert u["note_source"] == "voice" and u["note_text"] and u["audio_path"]  # the words are there beside the recording
+    assert db.execute("SELECT ai_category FROM issue_reasons WHERE update_id = 'voice-update-0001'").fetchone()["ai_category"] == "POWER_CUT"
+
+
+def test_a_voice_note_stays_a_recording_when_nothing_can_be_made_of_it(env):
+    db = env["db"]
+    r = post_update(env, "sup1", "voice-update-0002", stage_id(db, env["orderB"], "CUT"), 5, files={"audio": ("note.ogg", b"not really audio", "audio/ogg")})
+    assert r.status_code == 201
+    u = db.execute("SELECT note_text, audio_path FROM daily_updates WHERE id = 'voice-update-0002'").fetchone()
+    assert u["note_text"] is None and u["audio_path"]
+
+
 def test_classifier_failure_falls_back_to_keywords(env):
     db = env["db"]
     async def broken(_):
-        raise ConnectionError("ollama down")
+        raise ConnectionError("translator down")
     env["client"].app.state.ctx.classify = broken
     try:
         post_update(env, "sup1", "fallback-0001", stage_id(db, env["orderB"], "CUT"), 10, noteText="மெஷின் பழுது")
@@ -181,7 +221,7 @@ def test_classifier_failure_falls_back_to_keywords(env):
         env["client"].app.state.ctx.classify = fake_classify
     row = db.execute("SELECT * FROM issue_reasons WHERE update_id = 'fallback-0001'").fetchone()
     assert row["ai_source"] == "keywords" and row["ai_category"] == "MACHINE_BREAKDOWN"
-    assert "ollama down" in row["ai_error"]
+    assert "translator down" in row["ai_error"]
 
 
 # --- warnings and audit --------------------------------------------------------------
@@ -864,6 +904,15 @@ def test_the_office_manages_buyer_logins(env):
     assert c.post("/api/auth/login", json={"login": made["login"], "secret": "mgr-new-pass-1"}).status_code == 401
     again = _sign_in(env, made["login"], reset["password"])
     assert c.get("/api/auth/me", headers=again).json()["user"]["must_change_secret"] == 1
+
+    # The office can change the email a person signs in with: they are signed out, and the new email works.
+    assert c.patch(f"/api/m/buyer-logins/{uid}", headers=h, json={"email": "not-an-email"}).status_code == 400
+    assert c.patch(f"/api/m/buyer-logins/{uid}", headers=h, json={"email": "9000000001"}).status_code == 400
+    assert c.patch(f"/api/m/buyer-logins/{uid}", headers=h, json={"name": "New Name", "email": " New.Person@Buyer.Example "}).status_code == 200
+    assert c.get("/api/auth/me", headers=again).status_code == 401
+    assert env["db"].execute("SELECT login, name FROM users WHERE id = ?", (uid,)).fetchone()[:] == ("new.person@buyer.example", "New Name")
+    again = _sign_in(env, "new.person@buyer.example", reset["password"])
+    made["login"] = "new.person@buyer.example"
 
     # Removing the login ends the session and the sign-in.
     assert c.delete(f"/api/m/buyer-logins/{uid}", headers=h).status_code == 200

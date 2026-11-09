@@ -39,8 +39,7 @@ export default function OfficeShell() {
       items: [
         { to: "/m", label: "Orders", icon: "orders", end: true },
         { to: "/m/requests", label: "Requests", icon: "requests", badge: meta?.openRequests },
-        { to: "/m/approvals", label: "Approvals", icon: "approvals", badge: meta?.approvalsToAnswer },
-        { to: "/m/messages", label: "Messages", icon: "messages", badge: meta?.unreadMessages },
+        { to: "/m/feed", label: "Notifications", icon: "bell", badge: meta?.unreadNotifications },
         { to: "/m/buyers", label: "Buyers", icon: "buyers" },
       ],
     },
@@ -49,7 +48,8 @@ export default function OfficeShell() {
       items: [
         { to: "/m/templates", label: "Plan templates", icon: "templates" },
         { to: "/m/units", label: "Units and capacity", icon: "units" },
-        { to: "/m/notifications", label: "Notifications", icon: "bell" },
+        { to: "/m/notifications", label: "Email and WhatsApp", icon: "alert" },
+        ...(meta?.canReset ? [{ to: "/m/reset", label: "Reset test data", icon: "alert" as const }] : []),
       ],
     },
   ];
@@ -67,14 +67,19 @@ export default function OfficeShell() {
             name: user?.name ?? "",
             detail: "Merchandiser",
             extras: meta ? (
-              <div className="menu-row" title={meta.ai.mode === "ollama" ? `Notes are translated by ${meta.ai.model}, running locally` : meta.ai.reason}>
+              <div className="menu-row" title={meta.ai.mode === "indictrans2" ? `Notes are translated by ${meta.ai.model} on this machine (${meta.ai.device === "cuda" ? "GPU" : "CPU"})` : meta.ai.reason}>
                 <span>Note translation</span>
-                <span className={`pill ${meta.ai.mode === "ollama" ? "pill-green" : "pill-amber"}`}>{meta.ai.mode === "ollama" ? "AI on" : "Keywords only"}</span>
+                <span className={`pill ${meta.ai.mode === "indictrans2" ? "pill-green" : "pill-amber"}`}>{meta.ai.mode === "indictrans2" ? "Translation on" : "Keywords only"}</span>
               </div>
             ) : null,
             onSignOut: signOut,
           }}
         >
+          {meta?.testDate && (
+            <div className="banner banner-warn" role="status" style={{ margin: "0 0 12px" }}>
+              The app date is set by hand to {meta.testDate}. This is a test setting; change it back on the supervisor's home screen.
+            </div>
+          )}
           <Outlet />
         </AppShell>
         {searching && <SearchPalette onClose={() => setSearching(false)} />}

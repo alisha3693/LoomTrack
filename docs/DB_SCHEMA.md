@@ -60,7 +60,7 @@ erDiagram
         TEXT name
         TEXT kind "own or subcontract"
         TEXT process "printing or washing"
-        INTEGER daily_capacity "pieces a day it can stitch; own units"
+        INTEGER daily_capacity "pieces a day it can stitch; own units (other stages: unit_capacity)"
     }
     users {
         INTEGER id PK
@@ -101,6 +101,8 @@ erDiagram
         TEXT status "cached green, amber, red"
         TEXT projected_ex_factory "cached"
         TEXT status_computed_at
+        TEXT cancel_reason "why the merchandiser cancelled; shown to the buyer"
+        TEXT cancelled_at
         TEXT created_at
     }
     order_sizes {
@@ -243,6 +245,7 @@ erDiagram
         INTEGER seq UK "order within the template"
         INTEGER end_offset "days before ex-factory"
         INTEGER start_offset "stages only; bigger than end"
+        TEXT after_code FK "stages only: starts the day after this step ends"
     }
     milestones {
         INTEGER id PK
@@ -279,7 +282,7 @@ erDiagram
         TEXT ai_category
         TEXT ai_translation
         REAL ai_confidence
-        TEXT ai_source "ollama or keywords"
+        TEXT ai_source "indictrans2 or keywords"
         TEXT ai_error
         TEXT final_category "human decision"
         INTEGER changed_by FK
@@ -346,7 +349,7 @@ erDiagram
 | Approvals | `approvals`, `approval_events` | What the buyer has to sign off: a fit or pre-production sample, a lab dip, packaging. `status` says where it stands; `approval_events` is the history and is append-only (triggers). Approving a fit or pre-production sample sets `actual_date` on the matching `milestones` row and writes the date history, with no user (the buyer did it). |
 | Materials | `order_materials` | What an order needs before it can be made: fabric, trims, packing. Each line says where it stands and which plan step needs it (`needed_for`). The date it is needed by is read from that step's `milestones` row each time, so it follows the plan when a date moves; `needed_by` is only for something that belongs to no step. Whether a line is late is worked out, not stored (`domain/materials.py`), and it does not feed the delay projection. |
 | Files | `attachments` | Designs, patterns, print artwork, fabric references. A file belongs to a request, an order, or both: a request's files follow it onto the order it becomes. The buyer's own uploads are always visible to that buyer; ours are private unless `buyer_visible` is set; `supervisor_visible` decides what the floor can open. |
-| Templates | `templates`, `template_steps` | A saved layout of steps with timings (days before ex-factory). Orders copy the dates when created, so editing or retiring a template never changes an existing order. The built-in three are read-only. |
+| Templates | `templates`, `template_steps` | A saved layout of steps with timings (days before ex-factory). A stage can be set to start the day after another step ends (`after_code`); its `start_offset` is then always that step's end minus one, recalculated whenever the template is saved. Orders copy the dates when created, so editing or retiring a template never changes an existing order. The built-in three are read-only. |
 | Floor data | `daily_updates`, `photos`, `issue_reasons` | `daily_updates.id` is created on the phone, so a retried offline upload hits the same key and is ignored. |
 | Warnings | `warnings` | Buyers see only `confirmed` warnings. Confirming queues the message to the buyer (see the next row). |
 | Messages outside the app | `outbox_messages`; `buyers.notify_email`, `whatsapp_*` | One row per recipient per event, written in the same transaction as the change that caused it. `status` is `logged` when no provider is set up for the channel (the record is all there is), otherwise `queued`, then `sent`, and for WhatsApp `delivered` or `read` from Meta's reports, or `failed` with the reason in `error` after the retries. `not_before` spaces the retries. A WhatsApp row exists only for a buyer with `whatsapp_opt_in = 1`; who recorded that, and when, is kept. Old rows keep status `logged` and are never sent. |
@@ -378,7 +381,7 @@ erDiagram
 
 ## Versions and migration
 
-`PRAGMA user_version` holds the schema version (now 10). Older databases are migrated in place when the app opens them, one version at a time: one transaction, a copy saved as `<db>.v0.bak`, `.v1.bak` or `.v5.bak`, and a foreign-key check afterwards.
+`PRAGMA user_version` holds the schema version (now 13). Older databases are migrated in place when the app opens them, one version at a time: one transaction, a copy saved as `<db>.v0.bak`, `.v1.bak` or `.v5.bak`, and a foreign-key check afterwards.
 
 | Version | Change |
 |---|---|

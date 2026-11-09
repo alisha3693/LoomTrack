@@ -21,12 +21,14 @@ import BuyerHome from "./pages/buyer/BuyerHome";
 import BuyerOrder from "./pages/buyer/BuyerOrder";
 import BuyerOrders from "./pages/buyer/BuyerOrders";
 import BuyerRequests from "./pages/buyer/BuyerRequests";
-import BuyerMessages from "./pages/buyer/BuyerMessages";
+import BuyerNotifications from "./pages/buyer/BuyerNotifications";
 import BuyerApprovals from "./pages/buyer/BuyerApprovals";
 import BuyerDocuments from "./pages/buyer/BuyerDocuments";
 import RequestNew from "./pages/buyer/RequestNew";
 import BuyerRequest from "./pages/buyer/BuyerRequest";
 import OrderChange from "./pages/buyer/OrderChange";
+import ResetData from "./pages/merch/ResetData";
+import Feed from "./pages/merch/Feed";
 import Landing from "./pages/Landing";
 import Install from "./pages/Install";
 import ChangePassword from "./pages/ChangePassword";
@@ -84,6 +86,8 @@ export default function App() {
         <Route path="requests/:id" element={<RequestDetail />} />
         <Route path="units" element={<Units />} />
         <Route path="notifications" element={<Notifications />} />
+        <Route path="feed" element={<Feed />} />
+        <Route path="reset" element={<ResetData />} />
         <Route path="templates" element={<Templates />} />
         <Route path="templates/new" element={<TemplateEditor />} />
         <Route path="templates/:id" element={<TemplateEditor />} />
@@ -96,7 +100,7 @@ export default function App() {
         <Route path="orders" element={<BuyerOrders />} />
         <Route path="orders/:orderId" element={<BuyerOrder />} />
         <Route path="requests" element={<BuyerRequests />} />
-        <Route path="messages" element={<BuyerMessages />} />
+        <Route path="notifications" element={<BuyerNotifications />} />
         <Route path="approvals" element={<BuyerApprovals />} />
         <Route path="documents" element={<BuyerDocuments />} />
         <Route path="requests/new" element={<RequestNew />} />

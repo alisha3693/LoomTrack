@@ -715,3 +715,29 @@ a.tile:hover { background: var(--row-hover); }
 .install-steps { margin: 0; padding-left: 22px; display: grid; gap: 10px; font-size: 16px; line-height: 1.45; }
 .install-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .welcome h2 { font-size: 17px; }
+
+/* Plan timeline (time-and-action chart) */
+.tna { display: grid; font-size: 13px; }
+.tna-axis, .tna-row { display: grid; grid-template-columns: minmax(150px, 230px) 1fr 150px; align-items: center; gap: 12px; }
+.tna-compact .tna-axis, .tna-compact .tna-row { grid-template-columns: minmax(130px, 200px) 1fr; }
+.tna-axis { color: var(--ink-3); font-size: 11px; padding-bottom: 4px; border-bottom: 1px solid var(--line); }
+.tna-row { min-height: 30px; border-bottom: 1px solid var(--line); }
+.tna-compact .tna-row { min-height: 24px; }
+.tna-row:last-child { border-bottom: 0; }
+.tna-name { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tna-name.tna-ms { color: var(--ink-2); }
+.tna-due { color: var(--ink-2); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tna-track { position: relative; height: 18px; }
+.tna-axis .tna-track { height: 14px; }
+.tna-tick { position: absolute; top: 0; transform: translateX(-50%); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tna-tick-end { transform: translateX(-100%); color: var(--ink-2); font-weight: 500; }
+.tna-grid { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line); opacity: 0.7; }
+.tna-bar { position: absolute; top: 4px; height: 10px; border-radius: 3px; background: var(--ink-3); min-width: 4px; }
+.tna-dot { position: absolute; top: 4px; width: 10px; height: 10px; margin-left: -5px; transform: rotate(45deg) scale(0.85); background: var(--accent); }
+@media (max-width: 640px) {
+  .tna-axis, .tna-row { grid-template-columns: 112px 1fr; }
+  .tna-axis .tna-due, .tna-row .tna-due { display: none; }
+  .tna-name { white-space: normal; line-height: 1.2; }
+  /* The track is narrow here: label only the start of the plan and ex-factory; the grid lines still show the 10-day steps. */
+  .tna-axis .tna-tick:not(:first-child):not(.tna-tick-end) { display: none; }
+}

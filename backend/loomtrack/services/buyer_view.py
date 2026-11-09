@@ -29,6 +29,15 @@ def _with_unread(db: sqlite3.Connection, order_id: int, last: dict | None) -> di
     return {"author": last["author"], "at": last["at"], "count": last["count"], "unread": unread}
 
 
+def cancelled_orders(db: sqlite3.Connection, buyer_id: int) -> list[dict]:
+    """Orders the merchandiser cancelled, with the reason. The buyer sees these only to know they are cancelled."""
+    return [
+        {"id": o["id"], "poNo": o["po_no"], "style": o["style"], "qty": o["qty_total"], "exFactory": o["ex_factory"],
+         "reason": o["cancel_reason"], "cancelledAt": o["cancelled_at"]}
+        for o in db.execute("SELECT * FROM orders WHERE buyer_id = ? AND state = 'cancelled' ORDER BY cancelled_at DESC, id DESC", (buyer_id,))
+    ]
+
+
 def buyer_orders(db: sqlite3.Connection, buyer_id: int, today: str) -> list[dict]:
     orders = db.execute("SELECT * FROM orders WHERE buyer_id = ? AND state != 'cancelled' ORDER BY ex_factory", (buyer_id,)).fetchall()
     result = []

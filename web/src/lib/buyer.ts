@@ -31,10 +31,14 @@ export interface BuyerOrder {
   dateChanges: { field: string; oldValue: string | null; newValue: string | null; reason: string; changedAt: string; milestone: string | null }[];
 }
 
+/** An order the merchandiser cancelled: the buyer only needs to know that, and why. */
+export interface CancelledOrder { id: number; poNo: string; style: string; qty: number; exFactory: string; reason: string | null; cancelledAt: string | null }
+
 export interface BuyerData {
   buyer: { name: string; country: string | null };
   today: string;
   orders: BuyerOrder[];
+  cancelledOrders: CancelledOrder[];
 }
 
 /** One word for where an order is, from what the buyer is allowed to know (never the internal colour). */
@@ -61,9 +65,6 @@ export function attentionFor(token: string, orders: BuyerOrder[], requests: Requ
   for (const o of orders) {
     if (o.state !== "active") continue;
     if (o.notice && !o.notice.acknowledgedAt) items.push({ key: `n${o.id}`, tone: "red", title: `Delay notice for ${o.poNo}`, detail: `Now expected ${fmtDate(o.notice.expectedExFactory, true)}, instead of ${fmtDate(o.exFactory, true)}. Please acknowledge it.`, cta: "See the details", to: `/b/${token}/orders/${o.id}` });
-    if (o.lastMessage?.unread) {
-      items.push({ key: `m${o.id}`, tone: "blue", title: `New reply about ${o.poNo}`, detail: "Your merchandiser wrote to you.", cta: "Read it", to: `/b/${token}/orders/${o.id}?tab=messages` });
-    }
     const owed = o.materials.filter((m) => m.suppliedBy === "buyer" && !m.received);
     if (owed.length) items.push({ key: `f${o.id}`, tone: "amber", title: `We are waiting for ${owed.map((m) => m.name.toLowerCase()).join(", ")} from you`, detail: `For ${o.poNo}. Production cannot use it until it arrives.`, cta: "See the materials", to: `/b/${token}/orders/${o.id}?tab=materials` });
   }

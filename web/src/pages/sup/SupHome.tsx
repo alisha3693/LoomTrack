@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { api } from "../../lib/api";
+import { addDaysIso } from "../../lib/format";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
 import { useLang } from "../../lib/i18n";
@@ -42,10 +44,45 @@ function Welcome({ userId }: { userId: number }) {
   );
 }
 
+/** Only on a test machine: step the whole app to another date, to see the next day's tasks. */
+function TestDate({ onChanged }: { onChanged: () => void }) {
+  const [clock, setClock] = useState<{ allowed: boolean; today: string; testDate: string | null; realToday: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = () => api<NonNullable<typeof clock>>("/api/s/clock").then(setClock).catch(() => setClock(null));
+  useEffect(() => { void load(); }, []);
+  if (!clock?.allowed) return null;
+  async function set(date: string | null) {
+    setError(null);
+    try {
+      await api("/api/s/clock", { method: "PUT", body: { date } });
+      await load();
+      onChanged();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  return (
+    <section className="card card-pad stack" style={{ gap: 8 }} aria-label="Test date">
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <b style={{ fontWeight: 500 }}>Test date</b>
+        <span className="faint small">{clock.testDate ? "set by hand" : "real date"}</span>
+      </div>
+      <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+        <button className="btn btn-sm" onClick={() => void set(addDaysIso(clock.today, -1))} aria-label="Previous day">←</button>
+        <input type="date" className="input input-sm" value={clock.today} aria-label="App date" onChange={(e) => e.target.value && void set(e.target.value)} />
+        <button className="btn btn-sm" onClick={() => void set(addDaysIso(clock.today, 1))} aria-label="Next day">→</button>
+        {clock.testDate && <button className="btn btn-sm btn-ghost" onClick={() => void set(null)}>Real date ({fmtDate(clock.realToday)})</button>}
+      </div>
+      <span className="faint small">Everyone using this test copy sees the same date. It is a test tool and is not on the live site.</span>
+      {error && <div className="banner banner-error">{error}</div>}
+    </section>
+  );
+}
+
 export default function SupHome() {
   const { user, signOut } = useAuth();
   const { lang, setLang, t } = useLang("ta");
-  const { data, queue, online, queuedQty, refreshQueue, flush } = useSupData();
+  const { data, queue, online, queuedQty, refresh, refreshQueue, flush } = useSupData();
   const waiting = queue.filter((q) => !q.error);
   const failed = queue.filter((q) => q.error);
   const today = data?.today;
@@ -56,6 +93,7 @@ export default function SupHome() {
       <main className="phone-body">
         {user && <Welcome userId={user.id} />}
         <InstallBanner />
+        <TestDate onChanged={() => void refresh()} />
         {!online && <div className="banner banner-warn">{t("offline")}</div>}
         {waiting.length > 0 && (
           <button className="queue-chip" style={{ border: 0, alignSelf: "flex-start", cursor: "pointer" }} onClick={() => void flush()}>
@@ -94,6 +132,14 @@ export default function SupHome() {
               <div className="meta">
                 <span className="num">{num(done)} {t("of")} {num(s.qty_total)}</span>
                 <span>{t("dueBy")} {fmtDate(s.planned_date)}</span>
+              </div>
+              <div className="meta">
+                {s.target_per_day - todayQty > 0
+                  ? <span className="num">{t("leftToday")}: <b>{num(s.target_per_day - todayQty)}</b></span>
+                  : <span className="num t-green"><b>✓ {t("targetDone")}</b></span>}
+                {s.ready !== null && (
+                  <span className="faint">{num(Math.max(0, s.ready - queuedQty(s.milestone_id)))} {t("readyFrom")} {lang === "ta" ? s.upstream_name_ta : s.upstream_name_en}</span>
+                )}
               </div>
             </Link>
           );

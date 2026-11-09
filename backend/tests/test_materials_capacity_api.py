@@ -83,7 +83,7 @@ def test_fabric_is_checked_and_optional(env):
 
 
 def test_a_material_goes_from_not_ordered_to_received(env):
-    oid = _order(env, "MAT-1")
+    oid = _order(env, "MAT-1", ex="2027-02-15")   # stitching starts 37 days before this, well after the expected delivery
     mid = _add(env, oid, status="ordered", expectedDate="2026-12-01").json()["id"]
     line = _line(env, oid, mid)
     assert (line["status"], line["orderedDate"], line["risk"]["state"]) == ("ordered", TODAY, "on_track")
@@ -256,7 +256,7 @@ def test_unit_capacity_is_set_cleared_and_checked(env):
 
 
 def test_the_check_reports_each_own_unit_and_explains_itself(env):
-    _unit(env, 3, "Unit 3", cap=1000)
+    _set_cap(env, 3, 1000)
     env["db"].execute("UPDATE units SET daily_capacity = 1000 WHERE id = 3")
     ok = _check(env, 1000)
     assert ok[3]["verdict"] == "fits" and ok[1]["verdict"] == "unknown" and 4 not in ok
@@ -274,15 +274,15 @@ def test_the_check_reports_each_own_unit_and_explains_itself(env):
 def test_a_date_that_is_too_soon_is_over_and_suggests_the_first_date_that_works(env):
     _unit(env, 5, "Unit 5", cap=1000)
     env["db"].execute("UPDATE units SET daily_capacity = 1000 WHERE id = 5")
-    # 11,000 pieces already booked in the 13 working days from now to 19 Nov; ask for 8,000 more in the same days.
-    busy = _order(env, "CAP-BUSY", unitId=5, ex="2026-11-26", sizes=[{"size": "M", "qty": 11000}])
+    # 11,000 pieces already booked in the 13 working days from now to 19 Nov (stitching ends 20 days before ex-factory); ask for 8,000 more in the same days.
+    busy = _order(env, "CAP-BUSY", unitId=5, ex="2026-12-09", sizes=[{"size": "M", "qty": 11000}])
     busy_no = _detail(env, busy)["order"]["order_no"]
-    soon = _check(env, 8000, ex="2026-11-26")[5]
+    soon = _check(env, 8000, ex="2026-12-09")[5]
     assert soon["verdict"] == "over" and soon["booked"] == 11000 and soon["workingDays"] == 13
     assert [o["orderNo"] for o in soon["overlapping"]] == [busy_no]
 
     assert soon["earliest"] is not None
-    assert soon["earliest"]["exFactory"] > "2026-11-26" and soon["earliest"]["utilisation"] <= 1.0
+    assert soon["earliest"]["exFactory"] > "2026-12-09" and soon["earliest"]["utilisation"] <= 1.0
     again = _check(env, 8000, ex=soon["earliest"]["exFactory"])[5]
     assert again["verdict"] in ("fits", "tight")                                         # the suggested date really works
     assert _check(env, 8000, ex="2027-01-30")[5]["verdict"] == "fits"                    # and a date well clear of the booking fits with room
@@ -336,7 +336,62 @@ def test_a_plan_with_no_stitching_step_is_not_checked(env):
     assert made.status_code == 201, made.text
     key = next(t["key"] for t in env["client"].get("/api/m/meta", headers=env["merch"]).json()["templates"] if t["name"] == "Cut and pack only")
     r = env["client"].post("/api/m/capacity/check", headers=env["merch"], json={"qty": 100, "exFactory": SHIP, "templateKey": key})
-    assert r.json() == {"stitching": None, "units": []}
+    body = r.json()
+    # no stitching step; cutting and packing have no capacity set, so every unit reads "not set", never over
+    assert body["stitching"] is None and {u["verdict"] for u in body["units"]} == {"unknown"} and "lateSteps" in body["plan"]
     _unit(env, 9, "Unit 9", cap=1)
     env["db"].execute("UPDATE units SET daily_capacity = 1 WHERE id = 9")
     assert _new_order(env, "CAP-NOSTITCH", 1, exFactory=SHIP, unitId=9, templateKey=key, sizes=[{"size": "M", "qty": 50000}]).status_code == 201
+
+
+def _set(env, unit_id, process, value):
+    return env["client"].patch(f"/api/m/units/{unit_id}", headers=env["merch"], json={"dailyCapacity": value, "process": process})
+
+
+def _unit_check(env, qty, unit_id=3, key="basic"):
+    r = env["client"].post("/api/m/capacity/check", headers=env["merch"], json={"qty": qty, "exFactory": SHIP, "templateKey": key})
+    assert r.status_code == 200, r.text
+    return next(u for u in r.json()["units"] if u["unitId"] == unit_id)
+
+
+def test_every_own_stage_is_checked_and_the_tightest_one_decides(env):
+    _set_cap(env, 3, 1000)
+    assert _set(env, 3, "cutting", 50).status_code == 200  # cutting is the slow stage here
+    assert _set(env, 3, "finishing", None).status_code == 200 and _set(env, 3, "packing", None).status_code == 200
+    u = _unit_check(env, 1000)
+    by = {s["process"]: s for s in u["stages"]}
+    assert set(by) == {"cutting", "stitching", "finishing", "packing"}  # production stages only, no milestones
+    assert by["stitching"]["verdict"] in ("fits", "tight") and by["cutting"]["verdict"] == "over"
+    assert u["verdict"] == "over" and u["limitingProcess"] == "cutting" and u["summary"].startswith("Cutting:")
+    assert set(u["notSet"]) == {"Finishing & checking", "Packing"}  # listed, never decisive
+    # an order that would put cutting over is refused, and goes through when the merchandiser says so
+    refused = _new_order(env, "CAP-CUT", 1, exFactory=SHIP, unitId=3, templateKey="basic", sizes=[{"size": "M", "qty": 1000}])
+    assert refused.status_code == 409 and "Cutting" in refused.text
+    assert _new_order(env, "CAP-CUT2", 1, exFactory=SHIP, unitId=3, templateKey="basic", sizes=[{"size": "M", "qty": 1000}], overCapacityOk=True).status_code == 201
+
+
+def test_job_work_stages_are_not_counted(env):
+    _set_cap(env, 3, 1000)
+    u = _unit_check(env, 1000, key="printed")
+    assert "printing" not in {s["process"] for s in u["stages"]}
+    assert _set(env, 3, "printing", 100).status_code == 400  # job work has no capacity here
+    assert _set(env, 3, "stitching", None).status_code == 200
+
+
+def test_a_second_order_adds_to_the_load_of_each_stage(env):
+    _set_cap(env, 3, 1000)
+    assert _set(env, 3, "cutting", 1000).status_code == 200
+    before = {s["process"]: s["booked"] for s in _unit_check(env, 500)["stages"]}
+    assert _new_order(env, "CAP-TWO", 1, exFactory=SHIP, unitId=3, templateKey="basic", sizes=[{"size": "M", "qty": 600}]).status_code == 201
+    after = {s["process"]: s["booked"] for s in _unit_check(env, 500)["stages"]}
+    assert after["stitching"] > before["stitching"] and after["cutting"] > before["cutting"]  # the pieces are booked in each stage's own days
+
+
+def test_units_page_lists_a_capacity_per_stage(env):
+    _set_cap(env, 3, 1000)
+    _set(env, 3, "packing", 700)
+    _set(env, 3, "cutting", None)
+    row = next(u for u in env["client"].get("/api/m/units", headers=env["merch"]).json()["units"] if u["id"] == 3)
+    by = {p["process"]: p for p in row["processes"]}
+    assert by["stitching"]["dailyCapacity"] == 1000 and by["packing"]["dailyCapacity"] == 700 and by["cutting"]["dailyCapacity"] is None
+    assert len(by["packing"]["weeks"]) == 4 and "printing" not in by

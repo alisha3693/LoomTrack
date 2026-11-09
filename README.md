@@ -18,13 +18,14 @@ Free and open source end to end. The AI runs locally.
 | [docs/UX_GAPS.md](docs/UX_GAPS.md) | Gaps found between the buyer and the merchandiser, and what was done about them |
 
 ## Stack
-**Backend:** Python 3.12, FastAPI, SQLite · **AI:** Ollama + Llama 3 8B (local), keyword fallback · **Web:** React + Vite PWA (installable on a phone, offline queue for supervisors)
+**Backend:** Python 3.12, FastAPI, SQLite · **Translation:** IndicTrans2 on this machine (GPU or CPU, Tamil and English), keyword fallback · **Web:** React + Vite PWA (installable on a phone, offline queue for supervisors)
 
 ## Run it locally (Windows)
 
-Prerequisites: Python 3.12, Node 22 (build tooling only), and [Ollama](https://ollama.com) with the model pulled:
+Prerequisites: Python 3.12 and Node 22 (build tooling only). For Tamil to English and English to Tamil translation, once: install the libraries and download the two models (needs a free Hugging Face token in `backend/.env` as `HF_TOKEN`; steps are at the top of `backend/loomtrack/ai/setup_models.py`):
 ```
-ollama pull llama3
+pip install -r backend/requirements-translate.txt
+python -m loomtrack.ai.setup_models      (in backend/)
 ```
 
 First time:
@@ -50,7 +51,7 @@ npm run dev        # or: API on :4000 + web with live reload on :5173
 
 | Command | |
 |---|---|
-| `npm test` | backend tests (179) |
+| `npm test` | backend tests (202) |
 | `npm run explain` | run-rate maths for every order, in the terminal |
 | `python e2e/walkthrough.py` | headless browser walkthrough with screenshots |
 | `python e2e/offline_test.py` | offline queue check |
@@ -62,7 +63,7 @@ API docs: http://localhost:4000/api/docs
 
 Email and WhatsApp: copy `backend/.env.example` to `backend/.env` and fill in what you use (an SMTP server; Meta's WhatsApp Cloud API). With nothing set, messages to buyers are only recorded under Buyers, Sent messages. Setup steps and the template wording for Meta's review are in [docs/WHATSAPP_TEMPLATES.md](docs/WHATSAPP_TEMPLATES.md).
 
-Without Ollama running, everything still works. Issue notes are then categorised by keywords and shown without a translation.
+Without the translation models, everything still works. Issue notes are then categorised by keywords and shown without a translation.
 
 To try the supervisor screens on a real phone on the same Wi-Fi, open `http://<laptop-ip>:4000` (`npm start` listens on the LAN). Camera and microphone need HTTPS on phones; a free Cloudflare Tunnel provides that.
 

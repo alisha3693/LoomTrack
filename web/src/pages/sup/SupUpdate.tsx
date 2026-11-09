@@ -106,6 +106,7 @@ export default function SupUpdate() {
     if (qty === "") return setError(t("enterQty"));
     const n = Number(qty);
     if (done + n > Math.floor(stage!.qty_total * OVER_QTY_ALLOWANCE)) return setError(`${t("tooMany")} (${num(stage!.qty_total)})`);
+    if (stage!.ready !== null && n > stage!.ready - queuedQty(stage!.milestone_id)) return setError(`${t("notMoreThanBefore")} (${num(Math.max(0, stage!.ready - queuedQty(stage!.milestone_id)))})`);
     recRef.current?.stop();
     setBusy(true);
     await outbox.put({
@@ -140,6 +141,15 @@ export default function SupUpdate() {
         <div className="row faint small" style={{ justifyContent: "space-between" }}>
           <span className="num">{num(done)} {t("of")} {num(stage.qty_total)} · {t("dueBy")} {fmtDate(stage.planned_date)}</span>
           <span>{t("workDate")}: {fmtDate(data.today, true)}</span>
+        </div>
+        {stage.waiting_on_en.length > 0 && (
+          <div className="banner banner-warn">{t("waitingOffice")}: {(lang === "ta" ? stage.waiting_on_ta : stage.waiting_on_en).join(", ")}</div>
+        )}
+        <div className="row faint small" style={{ justifyContent: "space-between" }}>
+          {stage.target_per_day - (stage.today_qty + queuedQty(stage.milestone_id, data.today)) > 0
+            ? <span className="num">{t("leftToday")}: <b>{num(stage.target_per_day - (stage.today_qty + queuedQty(stage.milestone_id, data.today)))}</b></span>
+            : <span className="num t-green"><b>✓ {t("targetDone")}</b></span>}
+          {stage.ready !== null && <span>{num(Math.max(0, stage.ready - queuedQty(stage.milestone_id)))} {t("readyFrom")} {lang === "ta" ? stage.upstream_name_ta : stage.upstream_name_en}</span>}
         </div>
 
         <label className="field">
@@ -184,7 +194,7 @@ export default function SupUpdate() {
         {error && <div className="banner banner-error">{error}</div>}
       </main>
       <div className="send-bar">
-        <button className="btn btn-primary btn-lg btn-block" disabled={busy} onClick={send}>{t("send")}</button>
+        <button className="btn btn-primary btn-lg btn-block" disabled={busy || stage.waiting_on_en.length > 0} onClick={send}>{t("send")}</button>
       </div>
       <Toast message={toast} onDone={() => setToast(null)} />
     </div>

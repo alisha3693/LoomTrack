@@ -2,18 +2,17 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { FileList } from "../../components/Attachments";
 import Activity from "../../components/Activity";
 import { ApprovalCard, BuyerDecision, NoApprovals } from "../../components/Approvals";
-import Conversation from "../../components/Conversation";
 import NoticeCard from "../../components/NoticeCard";
 import { PageHeader, Progress, Swatch, useApi, useCanWrite } from "../../components/ui";
 import { useBadgeRefresh } from "../../lib/badges";
-import { BuyerOrder as Order, orderChip } from "../../lib/buyer";
+import { BuyerOrder as Order, CancelledOrder, orderChip } from "../../lib/buyer";
 import { fabricLine } from "../../lib/fabric";
 import type { ActivityItem, Approval } from "../../lib/flow";
 import { fmtDate, fmtDateTime, num } from "../../lib/format";
 import BuyerFrame from "./BuyerFrame";
 
 const FIELD: Record<string, string> = { ex_factory: "Ex-factory", planned_date: "Due date", planned_start: "Start date", actual_date: "Completed" };
-type Tab = "progress" | "messages" | "approvals" | "materials" | "files" | "history";
+type Tab = "progress" | "approvals" | "materials" | "files" | "history";
 
 export default function BuyerOrder() {
   const { token = "", orderId } = useParams();
@@ -21,6 +20,8 @@ export default function BuyerOrder() {
     <BuyerFrame token={token} wide>
       {(_n, _t, data, reload) => {
         const o = data.orders.find((x) => String(x.id) === orderId);
+        const gone = o ? undefined : data.cancelledOrders.find((x) => String(x.id) === orderId);
+        if (gone) return <CancelledCard token={token} o={gone} />;
         return o ? <Detail token={token} o={o} onChanged={reload} /> : (
           <div className="card card-pad stack" style={{ alignItems: "flex-start" }}>
             <b>We could not find that order.</b>
@@ -32,6 +33,22 @@ export default function BuyerOrder() {
   );
 }
 
+export function CancelledCard({ token, o }: { token: string; o: CancelledOrder }) {
+  return (
+    <div className="stack" style={{ gap: 18 }}>
+      <PageHeader crumbs={[{ label: "Orders", to: `/b/${token}/orders` }, { label: o.poNo }]} title={o.poNo} status={<span className="pill pill-red">Cancelled</span>}
+        sub={`${o.style} · ${num(o.qty)} pcs`} />
+      <section className="turn" aria-label="Cancelled">
+        <div className="stack">
+          <h2>This order was cancelled{o.cancelledAt ? ` on ${fmtDate(o.cancelledAt.slice(0, 10), true)}` : ""}</h2>
+          {o.reason && <p style={{ whiteSpace: "pre-wrap" }}>Reason: {o.reason}</p>}
+          <p className="muted">It will not be produced. If you still need these goods, send a new request.</p>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function Detail({ token, o, onChanged }: { token: string; o: Order; onChanged: () => void }) {
   const canWrite = useCanWrite();
   const { data: apr, reload: reloadApr } = useApi<{ approvals: Approval[] }>(`/api/b/${token}/approvals`);
@@ -40,20 +57,15 @@ function Detail({ token, o, onChanged }: { token: string; o: Order; onChanged: (
   const approvals = (apr?.approvals ?? []).filter((a) => a.orderId === o.id);
   const toDecide = approvals.filter((a) => a.status === "requested").length;
   const [params, setParams] = useSearchParams();
-  const tab = (params.get("tab") as Tab) || "progress";
+  const tab: Tab = params.get("tab") === "history" ? "history" : "progress";  // approvals, materials and files are not used
   const setTab = (t: Tab) => setParams(t === "progress" ? {} : { tab: t }, { replace: true });
   const chip = orderChip(o);
   const fabric = fabricLine(o.fabric);
-  const newReply = !!o.lastMessage?.unread;
   const received = o.materials.filter((m) => m.received).length;
   const owed = o.materials.filter((m) => m.suppliedBy === "buyer" && !m.received);
 
   const TABS: { id: Tab; label: string; extra?: React.ReactNode }[] = [
     { id: "progress", label: "Progress" },
-    { id: "messages", label: "Conversation", extra: newReply ? <span className="dot-new" title="New reply" /> : o.lastMessage ? <span className="faint small"> {o.lastMessage.count}</span> : null },
-    { id: "approvals", label: "Approvals", extra: toDecide ? <span className="badge" title="Waiting for your decision">{toDecide}</span> : approvals.length ? <span className="faint small"> {approvals.length}</span> : null },
-    { id: "materials", label: "Materials", extra: o.materials.length ? <span className="faint small"> {received}/{o.materials.length}</span> : null },
-    { id: "files", label: "Files and photos", extra: o.attachments.length + o.photos.length ? <span className="faint small"> {o.attachments.length + o.photos.length}</span> : null },
     { id: "history", label: "History" },
   ];
 
@@ -121,65 +133,6 @@ function Detail({ token, o, onChanged }: { token: string; o: Order; onChanged: (
                 </li>
               ))}
             </ul>
-          </section>
-        </div>
-      )}
-
-      {tab === "messages" && (
-        <section className="card card-pad stack">
-          <div>
-            <h2>Conversation with your merchandiser</h2>
-            <p className="faint small" style={{ marginTop: 2 }}>Ask about a sample, a delivery or a detail. To change the date or the quantities, use “Ask for a change” instead.</p>
-          </div>
-          <Conversation path={`/api/b/${token}/orders/${o.id}/messages`} me="buyer" otherName="your merchandiser" onSent={onChanged} hint="Your merchandiser will answer here." />
-        </section>
-      )}
-
-      {tab === "approvals" && (
-        <div className="stack">
-          {!apr ? null : approvals.length === 0 ? <NoApprovals side="buyer" /> : approvals.map((a) => (
-            <ApprovalCard key={a.id} a={a} side="buyer" actions={<BuyerDecision token={token} a={a} onDone={() => { void reloadApr(); onChanged(); }} />} />
-          ))}
-        </div>
-      )}
-
-      {tab === "materials" && (
-        <section className="card card-pad">
-          <div className="section-title">What your order needs · {received} of {o.materials.length} received</div>
-          {o.materials.length === 0 ? <p className="muted">Nothing is being tracked for this order yet.</p> : (
-            <ul className="timeline">
-              {o.materials.map((m) => (
-                <li key={m.name} style={{ padding: "8px 0" }}>
-                  <span className={`check ${m.received ? "done" : ""}`}>{m.received ? "✓" : ""}</span>
-                  <span>{m.name}{m.suppliedBy === "buyer" ? <span className="tag" style={{ marginLeft: 8 }}>You supply</span> : null}</span>
-                  <span className={`small num ${!m.received && m.suppliedBy === "buyer" ? "t-amber" : "muted"}`}>
-                    {m.received ? `Received ${fmtDate(m.receivedDate)}` : m.suppliedBy === "buyer" ? "We are waiting for this from you" : "Not yet received"}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      )}
-
-      {tab === "files" && (
-        <div className="stack">
-          <section className="card card-pad stack">
-            <div className="section-title" style={{ margin: 0 }}>Files</div>
-            {o.attachments.length === 0 ? <p className="muted" style={{ margin: 0 }}>No files on this order.</p> : <FileList files={o.attachments} hrefFor={(f) => `/api/b/${token}/attachments/${f.id}`} />}
-          </section>
-          <section className="card card-pad stack">
-            <div className="section-title" style={{ margin: 0 }}>From the floor</div>
-            {o.photos.length === 0 ? <p className="muted" style={{ margin: 0 }}>No photos shared yet. Your merchandiser chooses which floor photos you see.</p> : (
-              <div className="photo-grid">
-                {o.photos.map((ph) => (
-                  <figure key={ph.id}>
-                    <a href={`/api/b/${token}/photos/${ph.id}`} target="_blank" rel="noreferrer"><img src={`/api/b/${token}/photos/${ph.id}`} alt={`${ph.stage}, ${ph.date}`} loading="lazy" /></a>
-                    <figcaption>{ph.stage} · {fmtDate(ph.date)}</figcaption>
-                  </figure>
-                ))}
-              </div>
-            )}
           </section>
         </div>
       )}

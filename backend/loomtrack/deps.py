@@ -24,6 +24,7 @@ class AppContext:
     today: Callable[[], str]
     classify: Callable[[str], Awaitable[Classification]]
     upload_dir: Path
+    transcribe: Callable[[str], Awaitable[str | None]]  # a voice recording's path to the Tamil words in it
 
 
 @dataclass

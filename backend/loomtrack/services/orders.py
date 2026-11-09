@@ -12,7 +12,7 @@ from ..domain.reasons import REASON_LABEL_EN
 from ..domain.tna import Template, plan_from_template
 from ..domain.runrate import DailyQty, OrderProjection, StageInput, pretty_date, project_order
 from ..util import HttpError
-from . import materials
+from . import materials, notify
 from .templates import load_template
 
 
@@ -93,6 +93,22 @@ def compute_projection(db: sqlite3.Connection, order: sqlite3.Row, today: str) -
     return FullProjection(p, overdue)
 
 
+def cancel_order(db: sqlite3.Connection, order_id: int, reason: str) -> None:
+    """Cancel an order that is still in production, with the reason the buyer will read. One step, no back and forth."""
+    text = " ".join(reason.split())
+    if len(text) < 3:
+        raise HttpError(400, "Give the buyer a reason for cancelling")
+    order = get_order(db, order_id)
+    if order is None:
+        raise HttpError(404, "Order not found")
+    if order["state"] != "active":
+        raise HttpError(409, "Only an order that is still in production can be cancelled")
+    with transaction(db):
+        db.execute("UPDATE orders SET state = 'cancelled', cancel_reason = ?, cancelled_at = datetime('now') WHERE id = ?", (text, order_id))
+        db.execute("UPDATE warnings SET state = 'superseded' WHERE order_id = ? AND state IN ('pending','confirmed')", (order_id,))
+        notify.send(db, "order_cancelled", order["buyer_id"], order_id, po=order["po_no"], text=text)
+
+
 def refresh_order(db: sqlite3.Connection, order_id: int, today: str) -> FullProjection | None:
     """Recompute an order's status, cache it on the row, and keep warnings in step."""
     order = get_order(db, order_id)
@@ -153,22 +169,28 @@ def _sync_warnings(db: sqlite3.Connection, order: sqlite3.Row, fp: FullProjectio
         )
 
 
-def recent_reason(db: sqlite3.Connection, order_id: int, today: str) -> str | None:
-    """The most common recent reason category on this order, ignoring 'no issue'."""
+def recent_reason(db: sqlite3.Connection, order_id: int, today: str) -> tuple[str, str | None] | None:
+    """The supervisor's latest reason on this order (category, English translation of his words), or None when his
+    latest note says there is no issue. The latest one wins: the situation on the floor is what he said last."""
     row = db.execute(
-        """SELECT r.final_category AS cat, COUNT(*) AS n FROM issue_reasons r
+        """SELECT r.final_category AS cat, r.ai_translation AS tr FROM issue_reasons r
            JOIN daily_updates u ON u.id = r.update_id JOIN milestones m ON m.id = u.milestone_id
-           WHERE m.order_id = ? AND u.work_date >= ? AND r.final_category IS NOT NULL AND r.final_category != 'NO_ISSUE'
-           GROUP BY r.final_category ORDER BY n DESC, MAX(u.work_date) DESC LIMIT 1""",
+           WHERE m.order_id = ? AND u.work_date >= ? AND r.final_category IS NOT NULL
+           ORDER BY u.work_date DESC, u.rowid DESC LIMIT 1""",
         (order_id, add_days(today, -14)),
     ).fetchone()
-    return row["cat"] if row else None
+    if not row or row["cat"] == "NO_ISSUE":
+        return None
+    return row["cat"], (" ".join(row["tr"].split())[:160] if row["tr"] else None)
 
 
 def _default_buyer_message(db: sqlite3.Connection, order: sqlite3.Row, fp: FullProjection, today: str) -> str:
     p = fp.p
-    cat = recent_reason(db, order["id"], today)
-    because = f" The main cause is {REASON_LABEL_EN[cat].lower()}." if cat else ""
+    reason = recent_reason(db, order["id"], today)
+    because = ""
+    if reason:
+        cat, said = reason
+        because = f" The main cause is {REASON_LABEL_EN[cat].lower()}" + (f" (our supervisor reports: “{said}”)." if said else ".")
     stage = next((s for s in p.stages if s.code == p.key_stage), None)
     head = f"{order['po_no']} ({order['style']})"
     if fp.status == "red":

@@ -61,7 +61,7 @@ def test_the_buyer_badges_count_what_waits_on_them(env):
     _msg(env, "office", oid, "Samples shipped today.")
     after = c.get(f"/api/b/{env['tokenB']}/badges").json()
     assert after["messages"] == before["messages"] + 1
-    assert set(after) == {"requests", "messages", "approvals"}
+    assert set(after) == {"requests", "messages", "notifications", "approvals"}
 
 
 def test_inbox_and_read_marks_are_private_to_each_buyer(env):

@@ -4,7 +4,13 @@ Everything needed to register LoomTrack's WhatsApp messages with Meta, and to tu
 
 ## What is sent, and to whom
 
-LoomTrack tells a buyer's people about their orders: a request was answered, a delay was confirmed, a sample needs approval. WhatsApp is used only for **buyers who agreed to it** (the merchandiser records the number and the buyer's agreement on the buyer's profile; the agreement, who recorded it and when are stored). Every message is one of the **11 templates** below, all in the **Utility** category: each one is about an order the buyer already has with the company, and none promotes anything. The merchandisers themselves are told by email only.
+LoomTrack keeps WhatsApp to what matters to a buyer: **where their order is**. The buyer sends a complete order, the merchandiser confirms it, the supervisors on the floor report progress to the merchandiser in the app, and the buyer can follow it on their own tracking page. WhatsApp tells the buyer three things, each with the link to that page:
+
+1. **Order received**: we have the order they sent.
+2. **Order confirmed**: it is accepted, with our order number.
+3. **Delay**: production is behind plan; they acknowledge it on the page.
+
+Everything else (the merchandiser and the supervisors working on the order, messages, approvals) stays in the app, with email for the office. WhatsApp is used only for **buyers who agreed to it** (the merchandiser records the number and the buyer's agreement on the buyer's profile; the agreement, who recorded it and when are stored). Every message is one of the **3 templates** below, all in the **Utility** category: each one is about an order the buyer already has with the company, and none promotes anything.
 
 A buyer can stop WhatsApp at any time by replying **STOP**; the webhook switches it off at once. Every template carries that line as its footer.
 
@@ -16,7 +22,13 @@ A buyer can stop WhatsApp at any time by replying **STOP**; the webhook switches
 4. Note three values for `backend/.env`: the **Phone number ID** and the **WhatsApp Business Account ID** (WhatsApp, API Setup), and a **permanent access token** (Business settings, System users, add a user, give it the app and the `whatsapp_business_messaging` and `whatsapp_business_management` permissions, generate a token with no expiry). The temporary token on the API Setup page lasts 24 hours.
 5. Submit the templates below, either one by one in **WhatsApp Manager, Message templates, Create template**, or with the API call at the end of each section. Approval of a Utility template usually takes minutes to a day.
 
-In the form: *Category* **Utility**, *Language* **English**, *Name* as given, *Header* none, then paste the body, footer and button. For every variable Meta asks for a sample value; use the ones in the tables.
+In the form: *Category* **Utility**, *Language* **English**, *Name* as given, *Header* none, then paste the body and footer. Leave *Buttons* empty. For every variable Meta asks for a sample value; use the ones in the tables.
+
+## The tracking link
+
+There is **no button**: the link is written in the message text, as a variable (the last one in each template). That way the templates do not change when the address does: today it can be a free tunnel address for the demo, later the company's own domain, and the same approved templates keep working.
+
+The app builds the link from `LOOMTRACK_PUBLIC_URL` in `backend/.env` and the buyer's own tracking code: `https://<address>/b/<code>/orders/<order>` (or `/orders` for an order not confirmed yet). The page opens without a password, so treat the link like the buyer's key. Set `LOOMTRACK_PUBLIC_URL` to an https address that opens from outside before the first real message goes; a `localhost` link is useless on a buyer's phone.
 
 ## Cost, said plainly
 
@@ -24,13 +36,13 @@ The Cloud API itself is free to use and so is the test number. Meta charges **pe
 
 ## If a template is rejected
 
-Meta's usual reasons: a variable at the very start or end of the body, a variable that stands for a whole sentence, wording that reads as promotion, or a missing sample. The templates avoid all four; the test suite checks where the variables sit, the wording and the samples. If a template with long variable text (`delay_notice`, `order_message`, `request_question`) is rejected, put more fixed text around the variable and shorten it; a changed body must be submitted again under a new name (add `_v2`), and the name in `notify.py` changed to match.
+Meta's usual reasons: a variable at the very start or end of the body (so each link is followed by a few fixed words), a variable that stands for a whole sentence, wording that reads as promotion, or a missing sample. The templates avoid all four; the test suite checks where the variables sit, the wording and the samples. If `delay_notice`, which carries the merchandiser's note, is rejected, put more fixed text around the variable and shorten it; a changed body must be submitted again under a new name (add `_v2`), and the name in `notify.py` changed to match.
 
 ## The templates
 
 ### 1. `loomtrack_request_received`
 
-A buyer sent an order request through LoomTrack; this confirms we have it.
+A buyer sent a complete order through LoomTrack; this confirms we have it and gives the page where they can follow it.
 
 | Field | Value |
 |---|---|
@@ -39,12 +51,12 @@ A buyer sent an order request through LoomTrack; this confirms we have it.
 | Language | English (`en`) |
 | Header | none |
 | Footer | Reply STOP to stop WhatsApp messages from LoomTrack. |
-| Button | URL, text "Open LoomTrack", address `https://YOUR-LOOMTRACK-DOMAIN` (fixed, no variable) |
+| Buttons | none |
 
 **Body**
 
 ```
-Hello {{1}}, we have received your order request {{2}} for PO {{3}}. Your merchandiser will review it and reply in LoomTrack.
+Hello {{1}}, we have received your order {{2}} for PO {{3}}. We will confirm it soon. You can follow it at {{4}} at any time.
 ```
 
 **Sample values** (paste these into Meta's form)
@@ -54,13 +66,13 @@ Hello {{1}}, we have received your order request {{2}} for PO {{3}}. Your mercha
 | `{{1}}` | the buyer's company name | Company B Sourcing |
 | `{{2}}` | the request number | REQ-2026-0042 |
 | `{{3}}` | the buyer's PO number | B-PO-88213 |
+| `{{4}}` | the buyer's own tracking page for this order (an https address) | https://track.yourmill.com/b/k3Jq9xT2/orders/117 |
 
 **What the buyer sees**
 
-> Hello Company B Sourcing, we have received your order request REQ-2026-0042 for PO B-PO-88213. Your merchandiser will review it and reply in LoomTrack.
+> Hello Company B Sourcing, we have received your order REQ-2026-0042 for PO B-PO-88213. We will confirm it soon. You can follow it at https://track.yourmill.com/b/k3Jq9xT2/orders/117 at any time.
 >
 > _Reply STOP to stop WhatsApp messages from LoomTrack._
-> [ Open LoomTrack ]
 
 **Create it through the API** (`POST https://graph.facebook.com/v21.0/<WABA_ID>/message_templates`, header `Authorization: Bearer <token>`)
 
@@ -72,13 +84,14 @@ Hello {{1}}, we have received your order request {{2}} for PO {{3}}. Your mercha
   "components": [
     {
       "type": "BODY",
-      "text": "Hello {{1}}, we have received your order request {{2}} for PO {{3}}. Your merchandiser will review it and reply in LoomTrack.",
+      "text": "Hello {{1}}, we have received your order {{2}} for PO {{3}}. We will confirm it soon. You can follow it at {{4}} at any time.",
       "example": {
         "body_text": [
           [
             "Company B Sourcing",
             "REQ-2026-0042",
-            "B-PO-88213"
+            "B-PO-88213",
+            "https://track.yourmill.com/b/k3Jq9xT2/orders/117"
           ]
         ]
       }
@@ -86,241 +99,14 @@ Hello {{1}}, we have received your order request {{2}} for PO {{3}}. Your mercha
     {
       "type": "FOOTER",
       "text": "Reply STOP to stop WhatsApp messages from LoomTrack."
-    },
-    {
-      "type": "BUTTONS",
-      "buttons": [
-        {
-          "type": "URL",
-          "text": "Open LoomTrack",
-          "url": "https://YOUR-LOOMTRACK-DOMAIN"
-        }
-      ]
     }
   ]
 }
 ```
 
-### 2. `loomtrack_request_question`
+### 2. `loomtrack_request_accepted`
 
-The merchandiser needs one more detail before accepting an order request.
-
-| Field | Value |
-|---|---|
-| Name | `loomtrack_request_question` |
-| Category | Utility |
-| Language | English (`en`) |
-| Header | none |
-| Footer | Reply STOP to stop WhatsApp messages from LoomTrack. |
-| Button | URL, text "Open LoomTrack", address `https://YOUR-LOOMTRACK-DOMAIN` (fixed, no variable) |
-
-**Body**
-
-```
-Hello {{1}}, your merchandiser has a question about request {{2}}: {{3}} Please answer it in LoomTrack.
-```
-
-**Sample values** (paste these into Meta's form)
-
-| Variable | Stands for | Sample |
-|---|---|---|
-| `{{1}}` | the buyer's company name | Company B Sourcing |
-| `{{2}}` | the request number | REQ-2026-0042 |
-| `{{3}}` | a short note written by the merchandiser (one line, up to 120 characters) | The neck rib needs a second wash test. We now expect to ship on 10 Dec. |
-
-**What the buyer sees**
-
-> Hello Company B Sourcing, your merchandiser has a question about request REQ-2026-0042: The neck rib needs a second wash test. We now expect to ship on 10 Dec. Please answer it in LoomTrack.
->
-> _Reply STOP to stop WhatsApp messages from LoomTrack._
-> [ Open LoomTrack ]
-
-**Create it through the API** (`POST https://graph.facebook.com/v21.0/<WABA_ID>/message_templates`, header `Authorization: Bearer <token>`)
-
-```json
-{
-  "name": "loomtrack_request_question",
-  "language": "en",
-  "category": "UTILITY",
-  "components": [
-    {
-      "type": "BODY",
-      "text": "Hello {{1}}, your merchandiser has a question about request {{2}}: {{3}} Please answer it in LoomTrack.",
-      "example": {
-        "body_text": [
-          [
-            "Company B Sourcing",
-            "REQ-2026-0042",
-            "The neck rib needs a second wash test. We now expect to ship on 10 Dec."
-          ]
-        ]
-      }
-    },
-    {
-      "type": "FOOTER",
-      "text": "Reply STOP to stop WhatsApp messages from LoomTrack."
-    },
-    {
-      "type": "BUTTONS",
-      "buttons": [
-        {
-          "type": "URL",
-          "text": "Open LoomTrack",
-          "url": "https://YOUR-LOOMTRACK-DOMAIN"
-        }
-      ]
-    }
-  ]
-}
-```
-
-### 3. `loomtrack_request_counter`
-
-The merchandiser proposes a different delivery date for an order request.
-
-| Field | Value |
-|---|---|
-| Name | `loomtrack_request_counter` |
-| Category | Utility |
-| Language | English (`en`) |
-| Header | none |
-| Footer | Reply STOP to stop WhatsApp messages from LoomTrack. |
-| Button | URL, text "Open LoomTrack", address `https://YOUR-LOOMTRACK-DOMAIN` (fixed, no variable) |
-
-**Body**
-
-```
-Hello {{1}}, for request {{2}} your merchandiser proposes the ex-factory date {{3}}. Please agree or reply in LoomTrack.
-```
-
-**Sample values** (paste these into Meta's form)
-
-| Variable | Stands for | Sample |
-|---|---|---|
-| `{{1}}` | the buyer's company name | Company B Sourcing |
-| `{{2}}` | the request number | REQ-2026-0042 |
-| `{{3}}` | a date | 12 Dec 2026 |
-
-**What the buyer sees**
-
-> Hello Company B Sourcing, for request REQ-2026-0042 your merchandiser proposes the ex-factory date 12 Dec 2026. Please agree or reply in LoomTrack.
->
-> _Reply STOP to stop WhatsApp messages from LoomTrack._
-> [ Open LoomTrack ]
-
-**Create it through the API** (`POST https://graph.facebook.com/v21.0/<WABA_ID>/message_templates`, header `Authorization: Bearer <token>`)
-
-```json
-{
-  "name": "loomtrack_request_counter",
-  "language": "en",
-  "category": "UTILITY",
-  "components": [
-    {
-      "type": "BODY",
-      "text": "Hello {{1}}, for request {{2}} your merchandiser proposes the ex-factory date {{3}}. Please agree or reply in LoomTrack.",
-      "example": {
-        "body_text": [
-          [
-            "Company B Sourcing",
-            "REQ-2026-0042",
-            "12 Dec 2026"
-          ]
-        ]
-      }
-    },
-    {
-      "type": "FOOTER",
-      "text": "Reply STOP to stop WhatsApp messages from LoomTrack."
-    },
-    {
-      "type": "BUTTONS",
-      "buttons": [
-        {
-          "type": "URL",
-          "text": "Open LoomTrack",
-          "url": "https://YOUR-LOOMTRACK-DOMAIN"
-        }
-      ]
-    }
-  ]
-}
-```
-
-### 4. `loomtrack_request_declined`
-
-An order request cannot be accepted; the reason is in the app.
-
-| Field | Value |
-|---|---|
-| Name | `loomtrack_request_declined` |
-| Category | Utility |
-| Language | English (`en`) |
-| Header | none |
-| Footer | Reply STOP to stop WhatsApp messages from LoomTrack. |
-| Button | URL, text "Open LoomTrack", address `https://YOUR-LOOMTRACK-DOMAIN` (fixed, no variable) |
-
-**Body**
-
-```
-Hello {{1}}, your order request {{2}} could not be accepted. The reason is in LoomTrack.
-```
-
-**Sample values** (paste these into Meta's form)
-
-| Variable | Stands for | Sample |
-|---|---|---|
-| `{{1}}` | the buyer's company name | Company B Sourcing |
-| `{{2}}` | the request number | REQ-2026-0042 |
-
-**What the buyer sees**
-
-> Hello Company B Sourcing, your order request REQ-2026-0042 could not be accepted. The reason is in LoomTrack.
->
-> _Reply STOP to stop WhatsApp messages from LoomTrack._
-> [ Open LoomTrack ]
-
-**Create it through the API** (`POST https://graph.facebook.com/v21.0/<WABA_ID>/message_templates`, header `Authorization: Bearer <token>`)
-
-```json
-{
-  "name": "loomtrack_request_declined",
-  "language": "en",
-  "category": "UTILITY",
-  "components": [
-    {
-      "type": "BODY",
-      "text": "Hello {{1}}, your order request {{2}} could not be accepted. The reason is in LoomTrack.",
-      "example": {
-        "body_text": [
-          [
-            "Company B Sourcing",
-            "REQ-2026-0042"
-          ]
-        ]
-      }
-    },
-    {
-      "type": "FOOTER",
-      "text": "Reply STOP to stop WhatsApp messages from LoomTrack."
-    },
-    {
-      "type": "BUTTONS",
-      "buttons": [
-        {
-          "type": "URL",
-          "text": "Open LoomTrack",
-          "url": "https://YOUR-LOOMTRACK-DOMAIN"
-        }
-      ]
-    }
-  ]
-}
-```
-
-### 5. `loomtrack_request_accepted`
-
-An order request became a confirmed order; this gives the order number.
+The merchandiser confirmed the order; this gives our order number and the link to track its progress.
 
 | Field | Value |
 |---|---|
@@ -329,12 +115,12 @@ An order request became a confirmed order; this gives the order number.
 | Language | English (`en`) |
 | Header | none |
 | Footer | Reply STOP to stop WhatsApp messages from LoomTrack. |
-| Button | URL, text "Open LoomTrack", address `https://YOUR-LOOMTRACK-DOMAIN` (fixed, no variable) |
+| Buttons | none |
 
 **Body**
 
 ```
-Hello {{1}}, your order request {{2}} is accepted. Your order number is {{3}}.
+Hello {{1}}, your order for PO {{2}} is confirmed. Our order number is {{3}}. Track its progress at {{4}} at any time.
 ```
 
 **Sample values** (paste these into Meta's form)
@@ -342,15 +128,15 @@ Hello {{1}}, your order request {{2}} is accepted. Your order number is {{3}}.
 | Variable | Stands for | Sample |
 |---|---|---|
 | `{{1}}` | the buyer's company name | Company B Sourcing |
-| `{{2}}` | the request number | REQ-2026-0042 |
+| `{{2}}` | the buyer's PO number | B-PO-88213 |
 | `{{3}}` | our order number | LT-2026-0117 |
+| `{{4}}` | the buyer's own tracking page for this order (an https address) | https://track.yourmill.com/b/k3Jq9xT2/orders/117 |
 
 **What the buyer sees**
 
-> Hello Company B Sourcing, your order request REQ-2026-0042 is accepted. Your order number is LT-2026-0117.
+> Hello Company B Sourcing, your order for PO B-PO-88213 is confirmed. Our order number is LT-2026-0117. Track its progress at https://track.yourmill.com/b/k3Jq9xT2/orders/117 at any time.
 >
 > _Reply STOP to stop WhatsApp messages from LoomTrack._
-> [ Open LoomTrack ]
 
 **Create it through the API** (`POST https://graph.facebook.com/v21.0/<WABA_ID>/message_templates`, header `Authorization: Bearer <token>`)
 
@@ -362,157 +148,14 @@ Hello {{1}}, your order request {{2}} is accepted. Your order number is {{3}}.
   "components": [
     {
       "type": "BODY",
-      "text": "Hello {{1}}, your order request {{2}} is accepted. Your order number is {{3}}.",
-      "example": {
-        "body_text": [
-          [
-            "Company B Sourcing",
-            "REQ-2026-0042",
-            "LT-2026-0117"
-          ]
-        ]
-      }
-    },
-    {
-      "type": "FOOTER",
-      "text": "Reply STOP to stop WhatsApp messages from LoomTrack."
-    },
-    {
-      "type": "BUTTONS",
-      "buttons": [
-        {
-          "type": "URL",
-          "text": "Open LoomTrack",
-          "url": "https://YOUR-LOOMTRACK-DOMAIN"
-        }
-      ]
-    }
-  ]
-}
-```
-
-### 6. `loomtrack_change_accepted`
-
-A change the buyer asked for on an existing order (date or quantity) was accepted.
-
-| Field | Value |
-|---|---|
-| Name | `loomtrack_change_accepted` |
-| Category | Utility |
-| Language | English (`en`) |
-| Header | none |
-| Footer | Reply STOP to stop WhatsApp messages from LoomTrack. |
-| Button | URL, text "Open LoomTrack", address `https://YOUR-LOOMTRACK-DOMAIN` (fixed, no variable) |
-
-**Body**
-
-```
-Hello {{1}}, the change you asked for on PO {{2}} is accepted. The details are in LoomTrack.
-```
-
-**Sample values** (paste these into Meta's form)
-
-| Variable | Stands for | Sample |
-|---|---|---|
-| `{{1}}` | the buyer's company name | Company B Sourcing |
-| `{{2}}` | the buyer's PO number | B-PO-88213 |
-
-**What the buyer sees**
-
-> Hello Company B Sourcing, the change you asked for on PO B-PO-88213 is accepted. The details are in LoomTrack.
->
-> _Reply STOP to stop WhatsApp messages from LoomTrack._
-> [ Open LoomTrack ]
-
-**Create it through the API** (`POST https://graph.facebook.com/v21.0/<WABA_ID>/message_templates`, header `Authorization: Bearer <token>`)
-
-```json
-{
-  "name": "loomtrack_change_accepted",
-  "language": "en",
-  "category": "UTILITY",
-  "components": [
-    {
-      "type": "BODY",
-      "text": "Hello {{1}}, the change you asked for on PO {{2}} is accepted. The details are in LoomTrack.",
-      "example": {
-        "body_text": [
-          [
-            "Company B Sourcing",
-            "B-PO-88213"
-          ]
-        ]
-      }
-    },
-    {
-      "type": "FOOTER",
-      "text": "Reply STOP to stop WhatsApp messages from LoomTrack."
-    },
-    {
-      "type": "BUTTONS",
-      "buttons": [
-        {
-          "type": "URL",
-          "text": "Open LoomTrack",
-          "url": "https://YOUR-LOOMTRACK-DOMAIN"
-        }
-      ]
-    }
-  ]
-}
-```
-
-### 7. `loomtrack_change_recorded`
-
-The merchandiser recorded a change the buyer asked for by phone or email.
-
-| Field | Value |
-|---|---|
-| Name | `loomtrack_change_recorded` |
-| Category | Utility |
-| Language | English (`en`) |
-| Header | none |
-| Footer | Reply STOP to stop WhatsApp messages from LoomTrack. |
-| Button | URL, text "Open LoomTrack", address `https://YOUR-LOOMTRACK-DOMAIN` (fixed, no variable) |
-
-**Body**
-
-```
-Hello {{1}}, a change was recorded on PO {{2}}: {{3}} The reason is in LoomTrack.
-```
-
-**Sample values** (paste these into Meta's form)
-
-| Variable | Stands for | Sample |
-|---|---|---|
-| `{{1}}` | the buyer's company name | Company B Sourcing |
-| `{{2}}` | the buyer's PO number | B-PO-88213 |
-| `{{3}}` | a one-line summary of the change | Ex-factory moved from 5 Dec to 10 Dec 2026. |
-
-**What the buyer sees**
-
-> Hello Company B Sourcing, a change was recorded on PO B-PO-88213: Ex-factory moved from 5 Dec to 10 Dec 2026. The reason is in LoomTrack.
->
-> _Reply STOP to stop WhatsApp messages from LoomTrack._
-> [ Open LoomTrack ]
-
-**Create it through the API** (`POST https://graph.facebook.com/v21.0/<WABA_ID>/message_templates`, header `Authorization: Bearer <token>`)
-
-```json
-{
-  "name": "loomtrack_change_recorded",
-  "language": "en",
-  "category": "UTILITY",
-  "components": [
-    {
-      "type": "BODY",
-      "text": "Hello {{1}}, a change was recorded on PO {{2}}: {{3}} The reason is in LoomTrack.",
+      "text": "Hello {{1}}, your order for PO {{2}} is confirmed. Our order number is {{3}}. Track its progress at {{4}} at any time.",
       "example": {
         "body_text": [
           [
             "Company B Sourcing",
             "B-PO-88213",
-            "Ex-factory moved from 5 Dec to 10 Dec 2026."
+            "LT-2026-0117",
+            "https://track.yourmill.com/b/k3Jq9xT2/orders/117"
           ]
         ]
       }
@@ -520,24 +163,14 @@ Hello {{1}}, a change was recorded on PO {{2}}: {{3}} The reason is in LoomTrack
     {
       "type": "FOOTER",
       "text": "Reply STOP to stop WhatsApp messages from LoomTrack."
-    },
-    {
-      "type": "BUTTONS",
-      "buttons": [
-        {
-          "type": "URL",
-          "text": "Open LoomTrack",
-          "url": "https://YOUR-LOOMTRACK-DOMAIN"
-        }
-      ]
     }
   ]
 }
 ```
 
-### 8. `loomtrack_delay_notice`
+### 3. `loomtrack_delay_notice`
 
-Production is behind plan on an order; the merchandiser confirmed a delay notice for the buyer.
+Production is behind plan on an order; the merchandiser confirmed a delay notice, and the buyer acknowledges it on the order's page.
 
 | Field | Value |
 |---|---|
@@ -546,12 +179,12 @@ Production is behind plan on an order; the merchandiser confirmed a delay notice
 | Language | English (`en`) |
 | Header | none |
 | Footer | Reply STOP to stop WhatsApp messages from LoomTrack. |
-| Button | URL, text "Open LoomTrack", address `https://YOUR-LOOMTRACK-DOMAIN` (fixed, no variable) |
+| Buttons | none |
 
 **Body**
 
 ```
-Hello {{1}}, there is a production update on PO {{2}}: {{3}} Please open LoomTrack and acknowledge it.
+Hello {{1}}, there is a delay on PO {{2}}: {{3}} The details are at {{4}} where you can acknowledge it.
 ```
 
 **Sample values** (paste these into Meta's form)
@@ -561,13 +194,13 @@ Hello {{1}}, there is a production update on PO {{2}}: {{3}} Please open LoomTra
 | `{{1}}` | the buyer's company name | Company B Sourcing |
 | `{{2}}` | the buyer's PO number | B-PO-88213 |
 | `{{3}}` | a short note written by the merchandiser (one line, up to 120 characters) | The neck rib needs a second wash test. We now expect to ship on 10 Dec. |
+| `{{4}}` | the buyer's own tracking page for this order (an https address) | https://track.yourmill.com/b/k3Jq9xT2/orders/117 |
 
 **What the buyer sees**
 
-> Hello Company B Sourcing, there is a production update on PO B-PO-88213: The neck rib needs a second wash test. We now expect to ship on 10 Dec. Please open LoomTrack and acknowledge it.
+> Hello Company B Sourcing, there is a delay on PO B-PO-88213: The neck rib needs a second wash test. We now expect to ship on 10 Dec. The details are at https://track.yourmill.com/b/k3Jq9xT2/orders/117 where you can acknowledge it.
 >
 > _Reply STOP to stop WhatsApp messages from LoomTrack._
-> [ Open LoomTrack ]
 
 **Create it through the API** (`POST https://graph.facebook.com/v21.0/<WABA_ID>/message_templates`, header `Authorization: Bearer <token>`)
 
@@ -579,13 +212,14 @@ Hello {{1}}, there is a production update on PO {{2}}: {{3}} Please open LoomTra
   "components": [
     {
       "type": "BODY",
-      "text": "Hello {{1}}, there is a production update on PO {{2}}: {{3}} Please open LoomTrack and acknowledge it.",
+      "text": "Hello {{1}}, there is a delay on PO {{2}}: {{3}} The details are at {{4}} where you can acknowledge it.",
       "example": {
         "body_text": [
           [
             "Company B Sourcing",
             "B-PO-88213",
-            "The neck rib needs a second wash test. We now expect to ship on 10 Dec."
+            "The neck rib needs a second wash test. We now expect to ship on 10 Dec.",
+            "https://track.yourmill.com/b/k3Jq9xT2/orders/117"
           ]
         ]
       }
@@ -593,235 +227,6 @@ Hello {{1}}, there is a production update on PO {{2}}: {{3}} Please open LoomTra
     {
       "type": "FOOTER",
       "text": "Reply STOP to stop WhatsApp messages from LoomTrack."
-    },
-    {
-      "type": "BUTTONS",
-      "buttons": [
-        {
-          "type": "URL",
-          "text": "Open LoomTrack",
-          "url": "https://YOUR-LOOMTRACK-DOMAIN"
-        }
-      ]
-    }
-  ]
-}
-```
-
-### 9. `loomtrack_order_message`
-
-The merchandiser wrote a message in the order's conversation.
-
-| Field | Value |
-|---|---|
-| Name | `loomtrack_order_message` |
-| Category | Utility |
-| Language | English (`en`) |
-| Header | none |
-| Footer | Reply STOP to stop WhatsApp messages from LoomTrack. |
-| Button | URL, text "Open LoomTrack", address `https://YOUR-LOOMTRACK-DOMAIN` (fixed, no variable) |
-
-**Body**
-
-```
-Hello {{1}}, your merchandiser sent a message about PO {{2}}: {{3}} You can reply in LoomTrack.
-```
-
-**Sample values** (paste these into Meta's form)
-
-| Variable | Stands for | Sample |
-|---|---|---|
-| `{{1}}` | the buyer's company name | Company B Sourcing |
-| `{{2}}` | the buyer's PO number | B-PO-88213 |
-| `{{3}}` | a short note written by the merchandiser (one line, up to 120 characters) | The neck rib needs a second wash test. We now expect to ship on 10 Dec. |
-
-**What the buyer sees**
-
-> Hello Company B Sourcing, your merchandiser sent a message about PO B-PO-88213: The neck rib needs a second wash test. We now expect to ship on 10 Dec. You can reply in LoomTrack.
->
-> _Reply STOP to stop WhatsApp messages from LoomTrack._
-> [ Open LoomTrack ]
-
-**Create it through the API** (`POST https://graph.facebook.com/v21.0/<WABA_ID>/message_templates`, header `Authorization: Bearer <token>`)
-
-```json
-{
-  "name": "loomtrack_order_message",
-  "language": "en",
-  "category": "UTILITY",
-  "components": [
-    {
-      "type": "BODY",
-      "text": "Hello {{1}}, your merchandiser sent a message about PO {{2}}: {{3}} You can reply in LoomTrack.",
-      "example": {
-        "body_text": [
-          [
-            "Company B Sourcing",
-            "B-PO-88213",
-            "The neck rib needs a second wash test. We now expect to ship on 10 Dec."
-          ]
-        ]
-      }
-    },
-    {
-      "type": "FOOTER",
-      "text": "Reply STOP to stop WhatsApp messages from LoomTrack."
-    },
-    {
-      "type": "BUTTONS",
-      "buttons": [
-        {
-          "type": "URL",
-          "text": "Open LoomTrack",
-          "url": "https://YOUR-LOOMTRACK-DOMAIN"
-        }
-      ]
-    }
-  ]
-}
-```
-
-### 10. `loomtrack_approval_requested`
-
-A sample, lab dip or packaging needs the buyer's approval before production continues.
-
-| Field | Value |
-|---|---|
-| Name | `loomtrack_approval_requested` |
-| Category | Utility |
-| Language | English (`en`) |
-| Header | none |
-| Footer | Reply STOP to stop WhatsApp messages from LoomTrack. |
-| Button | URL, text "Open LoomTrack", address `https://YOUR-LOOMTRACK-DOMAIN` (fixed, no variable) |
-
-**Body**
-
-```
-Hello {{1}}, your approval is needed for {{2}} on PO {{3}}. Please review it in LoomTrack.
-```
-
-**Sample values** (paste these into Meta's form)
-
-| Variable | Stands for | Sample |
-|---|---|---|
-| `{{1}}` | the buyer's company name | Company B Sourcing |
-| `{{2}}` | what needs approving | Pre-production sample, navy crew neck |
-| `{{3}}` | the buyer's PO number | B-PO-88213 |
-
-**What the buyer sees**
-
-> Hello Company B Sourcing, your approval is needed for Pre-production sample, navy crew neck on PO B-PO-88213. Please review it in LoomTrack.
->
-> _Reply STOP to stop WhatsApp messages from LoomTrack._
-> [ Open LoomTrack ]
-
-**Create it through the API** (`POST https://graph.facebook.com/v21.0/<WABA_ID>/message_templates`, header `Authorization: Bearer <token>`)
-
-```json
-{
-  "name": "loomtrack_approval_requested",
-  "language": "en",
-  "category": "UTILITY",
-  "components": [
-    {
-      "type": "BODY",
-      "text": "Hello {{1}}, your approval is needed for {{2}} on PO {{3}}. Please review it in LoomTrack.",
-      "example": {
-        "body_text": [
-          [
-            "Company B Sourcing",
-            "Pre-production sample, navy crew neck",
-            "B-PO-88213"
-          ]
-        ]
-      }
-    },
-    {
-      "type": "FOOTER",
-      "text": "Reply STOP to stop WhatsApp messages from LoomTrack."
-    },
-    {
-      "type": "BUTTONS",
-      "buttons": [
-        {
-          "type": "URL",
-          "text": "Open LoomTrack",
-          "url": "https://YOUR-LOOMTRACK-DOMAIN"
-        }
-      ]
-    }
-  ]
-}
-```
-
-### 11. `loomtrack_approval_resubmitted`
-
-An item the buyer asked changes on was corrected and needs approval again.
-
-| Field | Value |
-|---|---|
-| Name | `loomtrack_approval_resubmitted` |
-| Category | Utility |
-| Language | English (`en`) |
-| Header | none |
-| Footer | Reply STOP to stop WhatsApp messages from LoomTrack. |
-| Button | URL, text "Open LoomTrack", address `https://YOUR-LOOMTRACK-DOMAIN` (fixed, no variable) |
-
-**Body**
-
-```
-Hello {{1}}, {{2}} on PO {{3}} was updated after your comments and needs your approval again.
-```
-
-**Sample values** (paste these into Meta's form)
-
-| Variable | Stands for | Sample |
-|---|---|---|
-| `{{1}}` | the buyer's company name | Company B Sourcing |
-| `{{2}}` | what needs approving | Pre-production sample, navy crew neck |
-| `{{3}}` | the buyer's PO number | B-PO-88213 |
-
-**What the buyer sees**
-
-> Hello Company B Sourcing, Pre-production sample, navy crew neck on PO B-PO-88213 was updated after your comments and needs your approval again.
->
-> _Reply STOP to stop WhatsApp messages from LoomTrack._
-> [ Open LoomTrack ]
-
-**Create it through the API** (`POST https://graph.facebook.com/v21.0/<WABA_ID>/message_templates`, header `Authorization: Bearer <token>`)
-
-```json
-{
-  "name": "loomtrack_approval_resubmitted",
-  "language": "en",
-  "category": "UTILITY",
-  "components": [
-    {
-      "type": "BODY",
-      "text": "Hello {{1}}, {{2}} on PO {{3}} was updated after your comments and needs your approval again.",
-      "example": {
-        "body_text": [
-          [
-            "Company B Sourcing",
-            "Pre-production sample, navy crew neck",
-            "B-PO-88213"
-          ]
-        ]
-      }
-    },
-    {
-      "type": "FOOTER",
-      "text": "Reply STOP to stop WhatsApp messages from LoomTrack."
-    },
-    {
-      "type": "BUTTONS",
-      "buttons": [
-        {
-          "type": "URL",
-          "text": "Open LoomTrack",
-          "url": "https://YOUR-LOOMTRACK-DOMAIN"
-        }
-      ]
     }
   ]
 }
@@ -865,20 +270,22 @@ Emails go to the buyer's signed-in accounts (their email addresses), one message
 | Event | Goes to | Email | WhatsApp template | When |
 |---|---|---|---|---|
 | `request_received` | Buyer's people | yes | `loomtrack_request_received` | The buyer sent a new order request |
-| `request_question` | Buyer's people | yes | `loomtrack_request_question` | The merchandiser asked a question on a request |
-| `request_counter` | Buyer's people | yes | `loomtrack_request_counter` | The merchandiser proposed a different delivery date |
-| `request_declined` | Buyer's people | yes | `loomtrack_request_declined` | The merchandiser declined a request |
+| `request_question` | Buyer's people | yes | email only | The merchandiser asked a question on a request |
+| `request_counter` | Buyer's people | yes | email only | The merchandiser proposed a different delivery date |
+| `request_declined` | Buyer's people | yes | email only | The merchandiser declined a request |
 | `request_accepted` | Buyer's people | yes | `loomtrack_request_accepted` | A request became an order |
-| `change_accepted` | Buyer's people | yes | `loomtrack_change_accepted` | A change the buyer asked for on an order was accepted |
-| `change_recorded` | Buyer's people | yes | `loomtrack_change_recorded` | The merchandiser recorded a change the buyer asked for outside the app |
+| `change_accepted` | Buyer's people | yes | email only | A change the buyer asked for on an order was accepted |
+| `change_recorded` | Buyer's people | yes | email only | The merchandiser recorded a change the buyer asked for outside the app |
 | `delay_notice` | Buyer's people | yes | `loomtrack_delay_notice` | The merchandiser confirmed a delay notice for an order |
-| `order_message` | Buyer's people | yes | `loomtrack_order_message` | The merchandiser wrote in an order's conversation |
-| `approval_requested` | Buyer's people | yes | `loomtrack_approval_requested` | The merchandiser asked for an approval (sample, lab dip, packaging) |
-| `approval_resubmitted` | Buyer's people | yes | `loomtrack_approval_resubmitted` | The merchandiser sent an approval again after the buyer asked for changes |
+| `order_cancelled` | Buyer's people | yes | email only | The merchandiser cancelled an order |
+| `order_message` | Buyer's people | yes | email only | The merchandiser wrote in an order's conversation |
+| `approval_requested` | Buyer's people | yes | email only | The merchandiser asked for an approval (sample, lab dip, packaging) |
+| `approval_resubmitted` | Buyer's people | yes | email only | The merchandiser sent an approval again after the buyer asked for changes |
 | `request_submitted` | Merchandisers | yes | email only | A buyer sent a request (new order or a change) |
 | `buyer_reply` | Merchandisers | yes | email only | A buyer answered on a request |
 | `order_message_in` | Merchandisers | yes | email only | A buyer wrote in an order's conversation |
 | `approval_decided` | Merchandisers | yes | email only | A buyer approved, or asked for changes |
+| `supervisor_reported` | Merchandisers | yes | email only | The supervisor sent a reason for a problem on the floor |
 | `notice_acknowledged` | Merchandisers | yes | email only | A buyer acknowledged a delay notice |
 
 ## What happens when sending fails

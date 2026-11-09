@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 // Supervisor-facing strings. Office screens are English (the office team
 // works in English with buyers); the floor works in Tamil by default.
@@ -11,6 +11,14 @@ const STRINGS = {
   todayEntered: { ta: "இன்று பதிவு", en: "Today" },
   notYet: { ta: "இன்னும் இல்லை", en: "Not yet" },
   done: { ta: "முடிந்தது", en: "Done" },
+  waitingOffice: { ta: "அலுவலகம் இவற்றை முடித்ததாகக் குறிக்கக் காத்திருக்கிறது", en: "Waiting for the office to mark done" },
+  target: { ta: "இன்றைய இலக்கு", en: "Target today" },
+  leftToday: { ta: "இன்று மீதம்", en: "Left to do today" },
+  targetDone: { ta: "இன்றைய இலக்கு முடிந்தது", en: "Today's target done" },
+  perDay: { ta: "ஒரு நாளுக்கு", en: "a day" },
+  readyFrom: { ta: "தயார்", en: "ready from" },
+  waitingFor: { ta: "முந்தைய நிலை முடிய காத்திருக்கிறது", en: "waiting for the stage before" },
+  notMoreThanBefore: { ta: "முந்தைய நிலையில் முடிந்ததை விட அதிகம் பதிவு செய்ய முடியாது", en: "More than the stage before has finished" },
   dueBy: { ta: "முடிக்க வேண்டியது", en: "Due" },
   todayQty: { ta: "இன்று எத்தனை பீஸ்?", en: "Pieces today" },
   photo: { ta: "புகைப்படம்", en: "Photo" },
@@ -76,18 +84,28 @@ function storedLang(fallback: Lang): Lang {
   }
 }
 
+// One language for the whole app: every component that calls useLang follows the same choice, so switching it in
+// the header changes the welcome card, the install offer and the order list together.
+let chosen: Lang | null = null;
+const listeners = new Set<() => void>();
+const subscribe = (fn: () => void) => {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+};
+
 export function useLang(fallback: Lang = "ta") {
-  const [lang, setLangState] = useState<Lang>(() => storedLang(fallback));
+  const lang = useSyncExternalStore(subscribe, () => chosen ?? storedLang(fallback));
   useEffect(() => {
     document.documentElement.lang = lang;
   }, [lang]);
   const setLang = useCallback((l: Lang) => {
-    setLangState(l);
+    chosen = l;
     try {
       localStorage.setItem(LANG_KEY, l);
     } catch {
       /* ignore */
     }
+    listeners.forEach((fn) => fn());
   }, []);
   const t = useCallback((k: StringKey) => STRINGS[k][lang], [lang]);
   return { lang, setLang, t };

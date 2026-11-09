@@ -1,28 +1,18 @@
 import { FormEvent, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import Activity from "../../components/Activity";
-import { ApprovalCard, AskForApproval, NoApprovals, OfficeDecision } from "../../components/Approvals";
-import { OfficeFiles } from "../../components/Attachments";
 import ChangeForm from "../../components/ChangeForm";
-import Conversation from "../../components/Conversation";
-import Materials from "../../components/Materials";
-import { RequestPill } from "../../components/RequestParts";
 import { fabricLine } from "../../lib/fabric";
 import { Modal, PageHeader, Progress, Skeleton, StatusPill, Swatch, Toast, useApi } from "../../components/ui";
 import { api } from "../../lib/api";
 import { ago, fmtDate, fmtDateTime, num, plural, Status } from "../../lib/format";
 import type { MilestoneRow, OrderDetail as Detail, StageProjection, UpdateRow, WarningRow } from "../../lib/types";
 import { useBadgeRefresh } from "../../lib/badges";
-import { isOpenApproval } from "../../lib/flow";
 import { useMeta } from "./OfficeShell";
 
 const TABS = [
   { id: "overview", label: "Overview" },
   { id: "plan", label: "Plan and delay" },
-  { id: "conversation", label: "Conversation" },
-  { id: "approvals", label: "Approvals" },
-  { id: "materials", label: "Materials" },
-  { id: "files", label: "Files and requests" },
   { id: "history", label: "History and floor" },
 ];
 
@@ -35,17 +25,13 @@ export default function OrderDetail() {
   const [edit, setEdit] = useState<DateEdit | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [params, setParams] = useSearchParams();
 
   if (error) return <main className="page"><div className="banner banner-error">{error}</div></main>;
   if (!data) return <main className="page"><Skeleton rows={6} /></main>;
   const { order, projection: p } = data;
   const pending = data.warnings.find((w) => w.state === "pending");
-  const lastMessage = data.messages[data.messages.length - 1];
-  const awaiting = !!lastMessage && lastMessage.source === "order" && lastMessage.author === "buyer";
-  const openApprovals = data.approvals.filter(isOpenApproval);
-  const sentBack = data.approvals.filter((a) => a.status === "changes");
-  const lateMaterials = data.materials.filter((m) => m.risk.state === "late").length;
   const confirmed = data.warnings.find((w) => w.state === "confirmed");
   const receipt = confirmed && (confirmed.buyer_ack_at ? `Acknowledged by the buyer ${ago(confirmed.buyer_ack_at)}` : confirmed.buyer_seen_at ? `Opened by the buyer ${ago(confirmed.buyer_seen_at)}, not acknowledged yet` : "Not opened by the buyer yet");
   const tab = TABS.some((t) => t.id === params.get("tab")) ? params.get("tab")! : "overview";
@@ -71,37 +57,25 @@ export default function OrderDetail() {
           sub={<>{order.order_no} · {order.style}, <Swatch hex={order.colour_hex} />{order.colour.toLowerCase()}{order.colour_pantone ? ` (Pantone ${order.colour_pantone})` : ""} · <Link to={`/m/buyers/${order.buyer_id}`} title="This buyer's profile">{order.buyer_name}</Link> · {order.unit_name}</>}
           actions={<>
             {data.buyerPath && <a className="btn btn-sm" href={data.buyerPath} target="_blank" rel="noreferrer" title="Opens the page your buyer sees, in a new tab">What the buyer sees ↗</a>}
-            <button className="btn btn-sm" onClick={() => setRecording(true)}>Record a change</button>
-            <button className="btn btn-sm" onClick={() => setEdit({ kind: "exf", current: order.ex_factory })}>Change ex-factory</button>
+            {order.state === "active" && <>
+              <button className="btn btn-sm" onClick={() => setRecording(true)}>Record a change</button>
+              <button className="btn btn-sm" onClick={() => setEdit({ kind: "exf", current: order.ex_factory })}>Change ex-factory</button>
+              <button className="btn btn-sm" onClick={() => setCancelling(true)}>Cancel order</button>
+            </>}
           </>}
         />
 
-        {pending && <PendingWarning w={pending} onDone={(msg) => { setToast(msg); void reload(); }} />}
-        {(awaiting || sentBack.length > 0) && (
-          <div className="attention">
-            {awaiting && (
-              <button type="button" className="attn amber" onClick={() => goTab("conversation")}>
-                <b>{order.buyer_name} is waiting for your reply</b>
-                <span className="cta">Open conversation →</span>
-              </button>
-            )}
-            {sentBack.map((a) => (
-              <button key={a.id} type="button" className="attn amber" onClick={() => goTab("approvals")}>
-                <b>The buyer asked for changes: {a.title}</b>
-                <span className="detail">{a.events[a.events.length - 1]?.note}</span>
-                <span className="cta">Answer →</span>
-              </button>
-            ))}
+        {order.state === "cancelled" && (
+          <div className="banner banner-warn" role="status">
+            <b>This order was cancelled{order.cancelled_at ? ` on ${fmtDate(order.cancelled_at.slice(0, 10), true)}` : ""}.</b> The buyer was told: “{order.cancel_reason}”
           </div>
         )}
+        {pending && <PendingWarning w={pending} onDone={(msg) => { setToast(msg); void reload(); }} />}
 
         <div className="tabs no-print" role="tablist" aria-label="About this order">
           {TABS.map((t) => (
             <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => goTab(t.id)}>
               {t.label}
-              {t.id === "conversation" && (awaiting ? <span className="badge" title="The buyer is waiting for your reply">1</span> : data.messages.length ? <span className="faint small"> {data.messages.length}</span> : null)}
-              {t.id === "approvals" && (sentBack.length ? <span className="badge" title="Sent back by the buyer">{sentBack.length}</span> : openApprovals.length ? <span className="faint small"> {openApprovals.length}</span> : null)}
-              {t.id === "materials" && lateMaterials > 0 && <span className="badge" title="Late materials">{lateMaterials}</span>}
             </button>
           ))}
         </div>
@@ -156,57 +130,6 @@ export default function OrderDetail() {
           </>
         )}
 
-        {tab === "conversation" && (
-          <section className="card">
-            <div className="card-head">
-              <div>
-                <h2>Conversation with {order.buyer_name}</h2>
-                <div className="faint small">The buyer sees this on their order page. To change a date or quantity, use Record a change.</div>
-              </div>
-            </div>
-            <div className="card-body">
-              <Conversation path={`/api/m/orders/${order.id}/messages`} me="merchandiser" otherName={order.buyer_name} onSent={() => void reload()} hint="Ask about a sample, share an update, answer a question." />
-            </div>
-          </section>
-        )}
-
-        {tab === "approvals" && (
-          <div className="stack">
-            <div><AskForApproval orderId={order.id} onAsked={(m) => { setToast(m); void reload(); }} /></div>
-            {data.approvals.length === 0 ? <NoApprovals side="office" /> : data.approvals.map((a) => (
-              <ApprovalCard key={a.id} a={a} side="office" actions={<OfficeDecision a={a} onDone={(m) => { setToast(m); void reload(); }} />} />
-            ))}
-          </div>
-        )}
-
-        {tab === "materials" && (
-          <Materials orderId={order.id} items={data.materials} steps={data.milestones} today={data.today} active={order.state === "active"} onChanged={reload} notify={setToast} />
-        )}
-
-        {tab === "files" && (
-          <>
-            <section className="card">
-              <div className="card-head"><h2>Files</h2><span className="faint small">Designs, patterns, prints, fabric. You choose who sees each one.</span></div>
-              <div className="card-body">
-                <OfficeFiles files={data.attachments} uploadPath={`/api/m/orders/${order.id}/attachments`} onChanged={() => void reload()} />
-              </div>
-            </section>
-            {data.changeRequests.length > 0 && (
-              <section className="card">
-                <div className="card-head"><h2>Requests and changes</h2><span className="faint small">What the buyer asked for and how it was answered</span></div>
-                <div className="card-body">
-                  <ul className="reasons">
-                    {data.changeRequests.map((c) => (
-                      <li key={c.id}>
-                        <Link to={`/m/requests/${c.id}`}><b style={{ fontWeight: 500 }}>{c.requestNo}</b></Link> · {c.kind === "amendment" ? "change" : "original request"} · <RequestPill status={c.status} audience="office" />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </section>
-            )}
-          </>
-        )}
 
         {tab === "history" && (
           <>
@@ -240,6 +163,10 @@ export default function OrderDetail() {
             }}
           />
         </Modal>
+      )}
+      {cancelling && (
+        <CancelModal orderId={order.id} po={order.po_no} onClose={() => setCancelling(false)}
+          onDone={() => { setCancelling(false); setToast("Order cancelled and the buyer told"); void reload(); }} />
       )}
       {edit && <DateModal edit={edit} orderId={order.id} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); setToast("Date changed and recorded"); void reload(); }} />}
       <Toast message={toast} onDone={() => setToast(null)} />
@@ -359,7 +286,7 @@ function Milestones({ data, onEdit, onMarkDone }: { data: Detail; onEdit: (e: Da
                     {fmtDate(m.planned_date, true)}
                   </button>
                   <span className="plan-act">
-                    {m.kind === "milestone" && m.code !== "EXF" && (
+                    {((m.kind === "milestone" && m.code !== "EXF") || (m.kind === "stage" && m.unit_kind === "subcontract")) && (
                       m.actual_date
                         ? <button className="btn btn-ghost btn-sm" onClick={() => onMarkDone(m, null)}>Undo</button>
                         : <button className="btn btn-sm" onClick={() => onMarkDone(m, data.today)}>Mark done</button>
@@ -441,13 +368,13 @@ function Updates({ updates, onChanged, toast }: { updates: UpdateRow[]; onChange
                 <>
                   <div className="note-pair">
                     <div>
-                      <div className="section-title" style={{ marginBottom: 4 }}>Supervisor wrote{u.note_source === "voice" ? " (voice)" : ""}</div>
+                      <div className="section-title" style={{ marginBottom: 4 }}>Supervisor wrote{u.note_source === "voice" ? " (voice, written out by AI: check by listening)" : ""}</div>
                       <div className="ta">{u.note_text ?? <span className="faint">Voice note only</span>}</div>
                       {u.audio_url && <audio controls preload="none" src={u.audio_url} style={{ width: "100%", marginTop: 8, height: 32 }} />}
                     </div>
                     <div>
                       <div className="section-title" style={{ marginBottom: 4 }}>
-                        {u.ai_source === "ollama" ? "AI translation" : u.ai_source === "keywords" ? "Keyword match (no translation)" : "Not classified yet"}
+                        {u.ai_source === "indictrans2" ? "Machine translation" : u.ai_source === "keywords" ? "Keyword match (no translation)" : "Not classified yet"}
                       </div>
                       <div>{u.ai_translation ?? <span className="faint">{u.note_text ? "No translation available" : "Listen and set the reason"}</span>}</div>
                       <div className="row" style={{ marginTop: 8, gap: 8 }}>
@@ -458,7 +385,7 @@ function Updates({ updates, onChanged, toast }: { updates: UpdateRow[]; onChange
                         {u.changed_at ? (
                           <span className="small faint">Set by merchandiser{u.ai_category && u.ai_category !== u.final_category ? ` · AI said “${reasonLabel(u.ai_category)}”` : ""}</span>
                         ) : u.ai_source ? (
-                          <span className="small faint">{u.ai_source === "ollama" ? "AI guess, check it" : "Keyword guess, check it"}</span>
+                          <span className="small faint">{u.ai_source === "indictrans2" ? "Reason guessed from the translation, check it" : "Keyword guess, check it"}</span>
                         ) : null}
                       </div>
                       {u.ai_error && <div className="small t-amber" style={{ marginTop: 4 }} title={u.ai_error}>Local AI unavailable, used keywords</div>}
@@ -488,6 +415,39 @@ function Updates({ updates, onChanged, toast }: { updates: UpdateRow[]; onChange
         )}
       </div>
     </section>
+  );
+}
+
+function CancelModal({ orderId, po, onClose, onDone }: { orderId: number; po: string; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function cancel(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api(`/api/m/orders/${orderId}/cancel`, { body: { reason } });
+      onDone();
+    } catch (e2) {
+      setErr((e2 as Error).message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title={`Cancel ${po}?`} onClose={onClose}>
+      <form className="stack" onSubmit={cancel}>
+        <p className="muted small" style={{ margin: 0 }}>The buyer is emailed your reason and sees the order as cancelled. There is no discussion, and a cancelled order cannot be reopened.</p>
+        <label className="field"><span>Reason for the buyer</span>
+          <textarea className="textarea" rows={4} autoFocus value={reason} onChange={(e) => setReason(e.target.value)} minLength={3} maxLength={300} required placeholder="e.g. We cannot make the ship window because the fabric is delayed by four weeks." /></label>
+        {err && <p className="error-text" role="alert">{err}</p>}
+        <div className="row" style={{ justifyContent: "flex-end" }}>
+          <button type="button" className="btn btn-ghost" onClick={onClose}>Keep the order</button>
+          <button className="btn btn-primary" disabled={busy || reason.trim().length < 3}>Cancel order</button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 

@@ -17,14 +17,16 @@ function Week({ w }: { w: UnitRow["weeks"][number] }) {
   );
 }
 
-function CapacityField({ u, onSaved, notify }: { u: UnitRow; onSaved: () => void; notify: (m: string) => void }) {
-  const [value, setValue] = useState(u.dailyCapacity ? String(u.dailyCapacity) : "");
+function CapacityField({ unitId, unitName, process, value: current, onSaved, notify }: {
+  unitId: number; unitName: string; process: string; value: number | null; onSaved: () => void; notify: (m: string) => void;
+}) {
+  const [value, setValue] = useState(current ? String(current) : "");
   const [busy, setBusy] = useState(false);
-  const changed = value !== (u.dailyCapacity ? String(u.dailyCapacity) : "");
+  const changed = value !== (current ? String(current) : "");
   async function save() {
     setBusy(true);
     try {
-      await api(`/api/m/units/${u.id}`, { method: "PATCH", body: { dailyCapacity: value ? Number(value) : null } });
+      await api(`/api/m/units/${unitId}`, { method: "PATCH", body: { dailyCapacity: value ? Number(value) : null, process } });
       notify(value ? "Capacity saved" : "Capacity cleared");
       onSaved();
     } catch (e) {
@@ -35,7 +37,7 @@ function CapacityField({ u, onSaved, notify }: { u: UnitRow; onSaved: () => void
   }
   return (
     <div className="row" style={{ flexWrap: "nowrap", gap: 6 }}>
-      <input className="input input-sm num" style={{ width: 110 }} inputMode="numeric" value={value} placeholder="not set" aria-label={`Daily capacity of ${u.name}`}
+      <input className="input input-sm num" style={{ width: 110 }} inputMode="numeric" value={value} placeholder="not set" aria-label={`Daily ${process} capacity of ${unitName}`}
         onChange={(e) => setValue(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && changed && void save()} />
       <span className="faint small">pcs / day</span>
       {changed && <button className="btn btn-sm btn-primary" disabled={busy} onClick={save}>Save</button>}
@@ -76,7 +78,7 @@ export default function Units() {
   const [toast, setToast] = useState<string | null>(null);
   const own = data?.units.filter((u) => u.kind === "own") ?? [];
   const jobWork = data?.units.filter((u) => u.kind === "subcontract") ?? [];
-  const weeks = own[0]?.weeks ?? [];
+  const weeks = own[0]?.processes[0]?.weeks ?? [];
 
   return (
     <main className="page">
@@ -84,8 +86,8 @@ export default function Units() {
         <div>
           <h1>Units and capacity</h1>
           <p className="sub">
-            How many pieces each of our units can stitch in a working day. The capacity check on a new order or a buyer's request uses this, with what is already booked,
-            to say whether a date is realistic.
+            How many pieces each of our units can do in a working day, for each stage we do ourselves (cutting, stitching, finishing, packing). The capacity check on a new order
+            or a buyer's request uses this, with what is already booked, to say whether a date is realistic.
           </p>
         </div>
       </div>
@@ -98,26 +100,28 @@ export default function Units() {
               <thead>
                 <tr>
                   <th style={{ paddingLeft: 20 }}>Unit</th>
-                  <th>Stitching capacity</th>
+                  <th>Stage</th>
+                  <th>Capacity</th>
                   {weeks.map((w) => <th key={w.from}>Week of {fmtDate(w.from)}</th>)}
                 </tr>
               </thead>
               <tbody>
-                {own.map((u) => (
-                  <tr key={u.id}>
-                    <td style={{ paddingLeft: 20 }}><b style={{ fontWeight: 500 }}>{u.name}</b></td>
-                    <td><CapacityField key={`${u.id}-${u.dailyCapacity}`} u={u} onSaved={() => void reload()} notify={setToast} /></td>
-                    {u.weeks.map((w) => <td key={w.from}>{u.dailyCapacity ? <Week w={w} /> : <span className="faint">set capacity</span>}</td>)}
+                {own.flatMap((u) => u.processes.map((p, i) => (
+                  <tr key={`${u.id}-${p.process}`} style={i === 0 ? { borderTop: "2px solid var(--line)" } : undefined}>
+                    <td style={{ paddingLeft: 20 }}>{i === 0 && <b style={{ fontWeight: 500 }}>{u.name}</b>}</td>
+                    <td style={{ textTransform: "capitalize" }}>{p.process}</td>
+                    <td><CapacityField key={`${u.id}-${p.process}-${p.dailyCapacity}`} unitId={u.id} unitName={u.name} process={p.process} value={p.dailyCapacity} onSaved={() => void reload()} notify={setToast} /></td>
+                    {p.weeks.map((w) => <td key={w.from}>{p.dailyCapacity ? <Week w={w} /> : <span className="faint">set capacity</span>}</td>)}
                   </tr>
-                ))}
+                )))}
               </tbody>
             </table>
           </div>
         </section>
         <p className="faint small" style={{ margin: 0 }}>
-          How it is worked out: each order still stitching at a unit is spread evenly over the working days it has left (Monday to Saturday, minus holidays). A new order
-          is spread over the stitching window its plan would give it. Up to 85% of the unit's capacity is comfortable, up to 100% is tight, and over 100% needs you to
-          confirm. Other stages (cutting, finishing, packing) are not checked.
+          How it is worked out: for each stage, every order that still has pieces to do at a unit is spread evenly over the working days that stage has left (Monday to Saturday, minus holidays).
+          A new order is spread over the window its plan would give each stage. Up to 85% of a stage's capacity is comfortable, up to 100% is tight, and over 100% needs you to
+          confirm. A unit is as full as its tightest stage. A stage with no capacity set is not checked. Milestones and job work are not counted.
         </p>
         {jobWork.length > 0 && (
           <section className="card card-pad stack" style={{ gap: 6 }}>

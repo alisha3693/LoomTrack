@@ -66,6 +66,28 @@ def set_access(db: sqlite3.Connection, user_id: int, can_write: bool) -> None:
     db.execute("UPDATE users SET can_write = ? WHERE id = ?", (1 if can_write else 0, user_id))
 
 
+def update_details(db: sqlite3.Connection, user_id: int, name: str | None, email: str | None) -> None:
+    """Change a person's name and/or the email they sign in with. A new email signs them out everywhere."""
+    row = db.execute("SELECT login FROM users WHERE id = ? AND role = 'buyer'", (user_id,)).fetchone()
+    if row is None:
+        raise HttpError(404, "Account not found")
+    new_name = name.strip() if name is not None else None
+    if new_name is not None and not new_name:
+        raise HttpError(400, "Enter the person's name")
+    new_login = email.strip().lower() if email is not None else None
+    if new_login is not None:
+        if not _EMAIL.match(new_login):
+            raise HttpError(400, "Enter a valid email address")
+        if db.execute("SELECT 1 FROM users WHERE lower(login) = ? AND id != ?", (new_login, user_id)).fetchone():
+            raise HttpError(409, "That email already has an account")
+    with transaction(db):
+        if new_name is not None:
+            db.execute("UPDATE users SET name = ? WHERE id = ?", (new_name, user_id))
+        if new_login is not None and new_login != row["login"].lower():
+            db.execute("UPDATE users SET login = ? WHERE id = ?", (new_login, user_id))
+            db.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+
+
 def remove_login(db: sqlite3.Connection, user_id: int) -> None:
     _buyer_user(db, user_id)
     with transaction(db):

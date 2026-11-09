@@ -169,6 +169,19 @@ function People({ b, reload, notify }: { b: BuyerRow; reload: () => Promise<void
     notify(canWrite ? `${l.name} can now send, approve and change` : `${l.name} can now only look`);
     void reload();
   };
+  const edit = async (l: LoginRow) => {
+    const name = prompt("Name", l.name);
+    if (name === null) return;
+    const email = prompt(`Email they sign in with.${l.login ? " Changing it signs them out; they use the new email next time." : ""}`, l.login);
+    if (email === null) return;
+    try {
+      await api(`/api/m/buyer-logins/${l.id}`, { method: "PATCH", body: { name, email } });
+      notify("Saved");
+      void reload();
+    } catch (err) {
+      notify((err as Error).message);
+    }
+  };
   const copy = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -211,6 +224,7 @@ function People({ b, reload, notify }: { b: BuyerRow; reload: () => Promise<void
               </select>
             </label>
             <div className="row">
+              <button className="btn btn-ghost btn-sm" onClick={() => edit(l)}>Edit</button>
               <button className="btn btn-ghost btn-sm" onClick={() => reset(l)}>New password</button>
               <button className="btn btn-ghost btn-sm" onClick={() => remove(l)}>Remove</button>
             </div>

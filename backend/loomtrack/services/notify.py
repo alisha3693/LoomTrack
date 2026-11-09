@@ -20,7 +20,6 @@ from .. import config
 # WhatsApp refuses a value with a newline, a tab or four spaces in a row, and a body over 1024 characters.
 WA_VALUE_LIMIT = 120
 WA_FOOTER = "Reply STOP to stop WhatsApp messages from LoomTrack."
-WA_BUTTON = "Open LoomTrack"
 
 # Sample values for Meta's review form. Meta wants one per variable, and a real-looking one gets approved sooner.
 SAMPLES = {
@@ -32,6 +31,7 @@ SAMPLES = {
     "title": "Pre-production sample, navy crew neck",
     "summary": "Ex-factory moved from 5 Dec to 10 Dec 2026.",
     "text": "The neck rib needs a second wash test. We now expect to ship on 10 Dec.",
+    "link": "https://track.yourmill.com/b/k3Jq9xT2/orders/117",
 }
 
 
@@ -67,67 +67,64 @@ _EVENTS = [
         "request_received", "buyer", "The buyer sent a new order request",
         "We received your order request {request_no}",
         "We received your order request {request_no} for PO {po}.\n\nYour merchandiser will look at it and answer in LoomTrack.",
-        "Hello {buyer}, we have received your order request {request_no} for PO {po}. Your merchandiser will review it and reply in LoomTrack.",
+        "Hello {buyer}, we have received your order {request_no} for PO {po}. We will confirm it soon. You can follow it at {link} at any time.",
     ),
     Event(
         "request_question", "buyer", "The merchandiser asked a question on a request",
         "A question about your order request {request_no}",
         "Your merchandiser has a question about request {request_no}:\n\n{text}\n\nPlease answer it in LoomTrack.",
-        "Hello {buyer}, your merchandiser has a question about request {request_no}: {text} Please answer it in LoomTrack.",
     ),
     Event(
         "request_counter", "buyer", "The merchandiser proposed a different delivery date",
         "A different delivery date is proposed for {request_no}",
         "For request {request_no} your merchandiser proposes the ex-factory date {date}.\n\n{text}\n\nPlease agree, or reply, in LoomTrack.",
-        "Hello {buyer}, for request {request_no} your merchandiser proposes the ex-factory date {date}. Please agree or reply in LoomTrack.",
     ),
     Event(
         "request_declined", "buyer", "The merchandiser declined a request",
         "Your order request {request_no} was declined",
         "Your order request {request_no} could not be accepted.\n\nReason: {text}",
-        "Hello {buyer}, your order request {request_no} could not be accepted. The reason is in LoomTrack.",
     ),
     Event(
         "request_accepted", "buyer", "A request became an order",
         "Your order request {request_no} was accepted",
         "Your order request {request_no} is accepted.\n\nYour order number with us is {order_no}.\n\n{text}",
-        "Hello {buyer}, your order request {request_no} is accepted. Your order number is {order_no}.",
+        "Hello {buyer}, your order for PO {po} is confirmed. Our order number is {order_no}. Track its progress at {link} at any time.",
     ),
     Event(
         "change_accepted", "buyer", "A change the buyer asked for on an order was accepted",
         "The change you asked for on PO {po} was accepted",
         "The change you asked for on PO {po} is accepted.\n\n{text}",
-        "Hello {buyer}, the change you asked for on PO {po} is accepted. The details are in LoomTrack.",
     ),
     Event(
         "change_recorded", "buyer", "The merchandiser recorded a change the buyer asked for outside the app",
         "A change to PO {po} was recorded",
         "A change to PO {po} was recorded:\n\n{summary}\n\nReason: {text}",
-        "Hello {buyer}, a change was recorded on PO {po}: {summary} The reason is in LoomTrack.",
     ),
     Event(
         "delay_notice", "buyer", "The merchandiser confirmed a delay notice for an order",
         "Production update: {po}",
         "There is a production update on PO {po}:\n\n{text}\n\nPlease open LoomTrack and acknowledge it, so we know you have seen it.",
-        "Hello {buyer}, there is a production update on PO {po}: {text} Please open LoomTrack and acknowledge it.",
+        "Hello {buyer}, there is a delay on PO {po}: {text} The details are at {link} where you can acknowledge it.",
+    ),
+    Event(
+        "order_cancelled", "buyer", "The merchandiser cancelled an order",
+        "Order {po} was cancelled",
+        "Your order for PO {po} has been cancelled.\n\nReason: {text}\n\nYou can see this at {link}.",
     ),
     Event(
         "order_message", "buyer", "The merchandiser wrote in an order's conversation",
         "Message about {po}",
         "Your merchandiser wrote about PO {po}:\n\n{text}\n\nYou can reply in LoomTrack.",
-        "Hello {buyer}, your merchandiser sent a message about PO {po}: {text} You can reply in LoomTrack.",
     ),
     Event(
         "approval_requested", "buyer", "The merchandiser asked for an approval (sample, lab dip, packaging)",
         "Approval needed: {title} ({po})",
         "Your approval is needed for {title} on PO {po}.\n\n{text}\n\nPlease approve it, or ask for changes, in LoomTrack.",
-        "Hello {buyer}, your approval is needed for {title} on PO {po}. Please review it in LoomTrack.",
     ),
     Event(
         "approval_resubmitted", "buyer", "The merchandiser sent an approval again after the buyer asked for changes",
         "Approval needed again: {title} ({po})",
         "{title} on PO {po} was updated after your comments and needs your approval again.\n\nWhat changed: {text}",
-        "Hello {buyer}, {title} on PO {po} was updated after your comments and needs your approval again.",
     ),
     # --- to the merchandisers: email only ---
     Event(
@@ -149,6 +146,11 @@ _EVENTS = [
         "approval_decided", "office", "A buyer approved, or asked for changes",
         "{buyer}: {outcome} on {title} ({po})",
         "{buyer} {outcome} on {title}, PO {po}.\n\n{text}",
+    ),
+    Event(
+        "supervisor_reported", "office", "The supervisor sent a reason for a problem on the floor",
+        "Supervisor reported on {po}: {reason}",
+        "The supervisor reported a problem on PO {po} ({stage}):\n\n{text}",
     ),
     Event(
         "notice_acknowledged", "office", "A buyer acknowledged a delay notice",
@@ -174,12 +176,13 @@ def render_email(event: Event, person: str, values: dict) -> tuple[str, str]:
     subject = _tidy(_fill(event.subject, values), 150)
     body = _fill(event.email, values).strip()
     body = re.sub(r"\n{3,}", "\n\n", body)  # an empty {text} leaves a gap
-    link = config.public_url()
+    link = values.get("link") or config.public_url()
     return subject, f"Hello {person},\n\n{body}\n\nOpen LoomTrack: {link}\n\n-- LoomTrack, order tracking for {values.get('buyer', 'your orders')}"
 
 
 def wa_values(event: Event, values: dict) -> list[str]:
-    return [_tidy(values.get(n, ""), WA_VALUE_LIMIT) or "-" for n in event.wa_names]
+    # A cut link would not open, so the link is never shortened.
+    return [_tidy(values.get(n, ""), 2000 if n == "link" else WA_VALUE_LIMIT) or "-" for n in event.wa_names]
 
 
 def render_whatsapp(event: Event, values: list[str]) -> str:
@@ -207,11 +210,13 @@ def send(db: sqlite3.Connection, event: str, buyer_id: int, order_id: int | None
     """Record the messages for one event. Call it inside the transaction that made the event true."""
     ev = EVENTS[event]
     buyer = db.execute(
-        "SELECT name, notify_email, whatsapp_number, whatsapp_opt_in FROM buyers WHERE id = ?", (buyer_id,)
+        "SELECT name, link_token, notify_email, whatsapp_number, whatsapp_opt_in FROM buyers WHERE id = ?", (buyer_id,)
     ).fetchone()
     if buyer is None:
         return
     values = {**values, "buyer": buyer["name"]}
+    if ev.audience == "buyer":  # the buyer's own tracking page: the order, or their orders while there is none yet
+        values["link"] = f"{config.public_url()}/b/{buyer['link_token']}/orders" + (f"/{order_id}" if order_id else "")
     insert = (
         "INSERT INTO outbox_messages (buyer_id, order_id, channel, subject, body, event, audience, recipient, status, error, template, params)"
         " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"

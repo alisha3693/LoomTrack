@@ -1,0 +1,5 @@
+# Tamil voice notes to text on this machine (Whisper, run by faster-whisper). Optional: without it a voice note stays a recording.
+# Uses the GPU when PyTorch's CUDA build is installed (see requirements-translate.txt), otherwise the CPU (slower).
+# Then:  pip install -r requirements-speech.txt   and   python -m loomtrack.ai.setup_speech
+faster-whisper>=1.2
+av>=14,<17  # faster-whisper 1.2 cannot open files with the newest av

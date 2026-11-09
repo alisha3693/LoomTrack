@@ -125,11 +125,14 @@ async def units(c: AppContext = Depends(ctx)):
 
 class UnitIn(BaseModel):
     dailyCapacity: int | None = Field(ge=1, le=1_000_000)
+    process: str = "stitching"  # which stage the number is for
 
 
 @router.patch("/units/{unit_id}")
 async def set_capacity(unit_id: int, body: UnitIn, c: AppContext = Depends(ctx)):
-    cur = c.db.execute("UPDATE units SET daily_capacity = ? WHERE id = ? AND kind = 'own'", (body.dailyCapacity, unit_id))
-    if not cur.rowcount:
+    if body.process not in cap.own_processes(c.db):
+        raise HttpError(400, "Capacity is set for the stages we do ourselves, not for job work")
+    if not c.db.execute("SELECT 1 FROM units WHERE id = ? AND kind = 'own'", (unit_id,)).fetchone():
         raise HttpError(404, "Not one of our own units")
+    cap.set_capacity(c.db, unit_id, body.process, body.dailyCapacity)
     return {"ok": True}

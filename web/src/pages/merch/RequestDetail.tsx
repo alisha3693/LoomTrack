@@ -4,7 +4,7 @@ import { api } from "../../lib/api";
 import { refreshBadges } from "../../lib/badges";
 import { addDaysIso, fmtDate, plural } from "../../lib/format";
 import { OfficeFiles } from "../../components/Attachments";
-import CapacityCheck, { blocks } from "../../components/CapacityCheck";
+import CapacityCheck, { blocks, type PlanCheck } from "../../components/CapacityCheck";
 import type { UnitFit } from "../../lib/fabric";
 import { Modal, Toast, useApi } from "../../components/ui";
 import { RequestPill, RequestSummary, RequestThread } from "../../components/RequestParts";
@@ -66,6 +66,8 @@ export default function RequestDetail() {
   const [busy, setBusy] = useState(false);
   const [fit, setFit] = useState<UnitFit | null>(null);
   const [overOk, setOverOk] = useState(false);
+  const [plan, setPlan] = useState<PlanCheck | null>(null);
+  const [lateOk, setLateOk] = useState(false);
 
   if (error) return <main className="page"><div className="banner banner-error">{error}</div></main>;
   if (!r) return <main className="page faint">Loading…</main>;
@@ -76,7 +78,7 @@ export default function RequestDetail() {
     setDialog(d);
     setMessage("");
     setFormError(null);
-    setDate(r ? addDaysIso(r.exFactory, 7) : "");
+    setDate(""); // chosen on purpose: a date picked for the merchandiser can be sent without being noticed
   }
 
   async function send(action: string, body: object, done: string) {
@@ -99,7 +101,7 @@ export default function RequestDetail() {
   const outcome = {
     accepted: r.orderNo ? `Accepted. It became order ${r.orderNo}.` : "Accepted.",
     declined: "Declined. The buyer has the reason.",
-    withdrawn: "The buyer withdrew this request.",
+    withdrawn: "The buyer cancelled this request.",
   }[r.status as "accepted" | "declined" | "withdrawn"];
   const hint = {
     submitted: "Accept it into an order, ask a question, or propose another date. The buyer sees your answer on their page.",
@@ -193,12 +195,18 @@ export default function RequestDetail() {
               </select>
             </label>
             <CapacityCheck qty={r.totalQty} exFactory={r.exFactory} templateKey={templateKey} unitId={unitId}
-              onPickUnit={setUnitId} onSelected={(u) => { setFit(u); setOverOk(false); }}
+              onPickUnit={setUnitId} onSelected={(u) => { setFit(u); setOverOk(false); }} onPlan={(p) => { setPlan(p); setLateOk(false); }}
               onUseDate={(d) => { openDialog("counter"); setDate(d); }} />
             {blocks(fit?.verdict) && (
               <label className="row small" style={{ gap: 8, flexWrap: "nowrap", alignItems: "flex-start" }}>
                 <input type="checkbox" checked={overOk} onChange={(e) => setOverOk(e.target.checked)} style={{ marginTop: 3 }} />
                 <span>I have seen that {fit?.name} would be over capacity for this order, and I want to accept it anyway.</span>
+              </label>
+            )}
+            {plan && plan.lateSteps.length > 0 && (
+              <label className="row small" style={{ gap: 8, flexWrap: "nowrap", alignItems: "flex-start" }}>
+                <input type="checkbox" checked={lateOk} onChange={(e) => setLateOk(e.target.checked)} style={{ marginTop: 3 }} />
+                <span>I have seen that some steps of this plan are already past due, and I want to accept it anyway.</span>
               </label>
             )}
             <label className="field"><span>Note to the buyer (optional)</span>
@@ -207,7 +215,7 @@ export default function RequestDetail() {
             {formError && <div className="banner banner-error">{formError}</div>}
             <div className="row" style={{ justifyContent: "flex-end" }}>
               <button className="btn btn-ghost" onClick={() => setDialog(null)}>Cancel</button>
-              <button className="btn btn-primary" disabled={busy || !unitId || (blocks(fit?.verdict) && !overOk)}
+              <button className="btn btn-primary" disabled={busy || !unitId || (blocks(fit?.verdict) && !overOk) || (!!plan && plan.lateSteps.length > 0 && !lateOk)}
                 onClick={() => send("accept", { unitId: Number(unitId), templateKey, message: message.trim() || null, overCapacityOk: blocks(fit?.verdict) && overOk }, "")}>Create order</button>
             </div>
           </div>
@@ -219,11 +227,12 @@ export default function RequestDetail() {
           <div className="stack">
             {dialog === "counter" && (
               <label className="field"><span>Proposed ex-factory date</span>
-                <input type="date" className="input" min={meta ? addDaysIso(meta.today, 1) : undefined} value={date} onChange={(e) => setDate(e.target.value)} />
+                <input type="date" className="input" autoFocus min={meta ? addDaysIso(meta.today, 1) : undefined} value={date} onChange={(e) => setDate(e.target.value)} />
+                <span className="faint small">{r ? `The buyer asked for ${fmtDate(r.exFactory, true)}. ` : ""}This is the date the buyer is asked to agree to. Use the box below for the reason, not the date.</span>
               </label>
             )}
             <label className="field"><span>{dialog === "query" ? "Your question" : dialog === "counter" ? "Reason for the new date" : "Reason"}</span>
-              <textarea className="textarea" rows={4} value={message} onChange={(e) => setMessage(e.target.value)} autoFocus />
+              <textarea className="textarea" rows={4} value={message} onChange={(e) => setMessage(e.target.value)} autoFocus={dialog !== "counter"} />
             </label>
             <p className="faint small" style={{ margin: 0 }}>The buyer sees this on their link, and a copy goes to the sent-messages list.</p>
             {formError && <div className="banner banner-error">{formError}</div>}

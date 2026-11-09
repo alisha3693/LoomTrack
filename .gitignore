@@ -9,3 +9,4 @@ __pycache__/
 backend/data/
 .env
 e2e/shots/
+backend/server.log

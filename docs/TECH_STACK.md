@@ -28,13 +28,12 @@ Each decision is tied to a constraint from the brief. Two decisions came from th
 - Zero-ops and file-based. Transactions make the audit-trail guarantee simple (C4). Append-only is enforced by triggers, not just by convention.
 - At ~500 orders/year SQLite in WAL mode can run production. Postgres (free, open source) is the path if the client wants managed backups or point-in-time recovery. The SQL is plain and lives in a few service modules.
 
-### 3. AI: local open-source LLM through Ollama (free, nothing leaves the machine)
-- **Model:** Llama 3 8B (`OLLAMA_MODEL=llama3`), constrained to a JSON schema by Ollama's structured output. It returns an English translation, one category from a fixed list, and a confidence score.
-- **Measured on this laptop (RTX 3050 6 GB):** ~4 s per note once loaded, ~20 s cold start.
-- **Accuracy:** 6/6 on the probe set once the prompt defines each category with floor vocabulary (4/6 without definitions). 5/7 on the seeded notes. Llama 3.2 3B scored 2/6 and was rejected.
-- **Fallback:** a deterministic Tamil + English keyword classifier. It's used when Ollama isn't running, when it errors, or when AI is switched off (`LOOMTRACK_AI=off`). Every record stores which one produced it (`ai_source`) and any error.
+### 3. Translation: IndicTrans2 on this machine (free, MIT licence, nothing leaves the machine)
+- **Models:** `ai4bharat/indictrans2-indic-en-dist-200M` (Tamil to English) and `ai4bharat/indictrans2-en-indic-dist-200M` (English to Tamil), about 200M parameters each. They run through PyTorch and `transformers`, on the GPU when PyTorch can use one (about 0.4 GB each in half precision) and on the CPU otherwise. They are downloaded once with a free Hugging Face token (`python -m loomtrack.ai.setup_models`); the app never downloads anything and loads only a pinned commit of each repository, because the repositories ship Python code that runs when loaded.
+- **What it does:** translates a supervisor's Tamil note to English; names a new plan step in Tamil when it is saved (a glossary of floor words first); the merchandiser never types a Tamil name. The reason category is then picked by deterministic keyword rules over the note and its translation, not by the model.
+- **Not measured yet:** the models need a Hugging Face login to download, so their Tamil quality and speed on real supervisor notes have not been measured. Ollama with Llama 3.2 was tried first and got 2 of 4 sample notes right; an ungated Marian model was worse. Measure before trusting it.
+- **Fallback:** the Tamil + English keyword rules alone, when the models are not downloaded, when they error, or when AI is switched off (`LOOMTRACK_AI=off`). Every record stores which one produced it (`ai_source`) and any error.
 - **Failure handling (C6):** original note shown beside the translation; `ai_category` and `final_category` are separate columns; the merchandiser can change the category; warnings reach buyers **only** after a merchandiser confirms them.
-- **Swappable:** any Ollama model works (`qwen2.5:7b` and `gemma2:9b` are worth an evaluation for Tamil). The production server needs a GPU box or a CPU box with patience (~15–30 s per note on CPU, acceptable because classification is in the background).
 
 ### 4. Voice notes
 - The phone records audio with the browser's MediaRecorder and **always uploads the original audio**, kept beside the note.
@@ -60,7 +59,7 @@ Each decision is tied to a constraint from the brief. Two decisions came from th
 - Weekly status per buyer as **Excel** via `openpyxl` (MIT). There's a buyer edition (same allow-list as the buyer link) and an internal edition (adds status and slack).
 
 ### 9. Hosting for the demo
-- Runs on a laptop: `npm run dev` (API + web) with Ollama already running. To show it on the client's phones over Wi-Fi, use the laptop's LAN address. For an internet link, a free tunnel works (e.g. Cloudflare Tunnel's free tier).
+- Runs on a laptop: `npm run dev` (API + web) with the translation models downloaded. To show it on the client's phones over Wi-Fi, use the laptop's LAN address. For an internet link, a free tunnel works (e.g. Cloudflare Tunnel's free tier).
 - Production later: any small Linux VM; the stack has no licence costs.
 
 ### 10. Testing
@@ -78,4 +77,4 @@ Each decision is tied to a constraint from the brief. Two decisions came from th
 | Date | Change | Why |
 |---|---|---|
 | 2026-11-05 | Backend moved from Node/Express to **Python/FastAPI** | One backend language alongside the AI feature |
-| 2026-11-05 | Claude API replaced by **local Ollama (Llama 3 8B)** + keyword fallback | Demo must use only free / open-source models and services |
+| 2026-11-05 | A paid cloud AI API replaced by **local Ollama (Llama 3 8B)** + keyword fallback; on 2026-11-08 Ollama was replaced by **IndicTrans2** (Tamil and English, on the GPU) | Demo must use only free / open-source models and services |

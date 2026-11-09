@@ -216,12 +216,15 @@ async def seed(db, today: str) -> None:
     for trigger in ("date_changes_no_delete", "request_messages_no_delete", "order_messages_no_delete", "approval_events_no_delete"):
         db.execute(f"DROP TRIGGER IF EXISTS {trigger}")
     for t in ["approval_events", "approvals", "thread_reads", "attachments", "request_messages", "request_sizes", "order_requests", "order_messages", "date_changes", "outbox_messages", "warnings",
-              "issue_reasons", "photos", "daily_updates", "order_materials", "milestones", "order_sizes", "orders", "sessions", "users", "units", "buyers"]:
+              "issue_reasons", "photos", "daily_updates", "order_materials", "milestones", "order_sizes", "orders", "sessions", "users", "unit_capacity", "units", "buyers"]:
         db.execute(f"DELETE FROM {t}")
     db.executescript(SCHEMA)
 
     buyer_id = {name: db.execute("INSERT INTO buyers (name, country, link_token) VALUES (?,?,?)", (name, country, new_token())).lastrowid for name, country in BUYERS}
     unit_id = {name: db.execute("INSERT INTO units (name, kind, process, daily_capacity) VALUES (?,?,?,?)", (name, kind, proc, CAPACITY.get(name))).lastrowid for name, kind, proc in UNITS}
+    for name, stitch in CAPACITY.items():  # the other stages, a little quicker than stitching (demo figures)
+        for process, factor in (("cutting", 1.3), ("finishing", 1.1), ("packing", 1.2)):
+            db.execute("INSERT INTO unit_capacity (unit_id, process, daily_capacity) VALUES (?,?,?)", (unit_id[name], process, round(stitch * factor)))
     supervisor_of: dict[int, int] = {}
     merch_id = None
     for name, role, login, secret, unit, lang in USERS:
@@ -297,7 +300,7 @@ async def seed(db, today: str) -> None:
         _stock_up(db, r["id"], r["po_no"], today, merch_id)
 
     # Classify seeded notes exactly the way live notes are classified.
-    use_model = (await ai_status())["mode"] == "ollama"
+    use_model = (await ai_status())["mode"] == "indictrans2"
     for upd, note in to_classify:
         error = None
         try:

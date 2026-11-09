@@ -17,12 +17,12 @@ const COUNT_LABEL: [string, string][] = [["sent", "Sent"], ["delivered", "Delive
 export default function Notifications() {
   const { data } = useApi<Setup>("/api/m/notifications");
   const [toast, setToast] = useState<string | null>(null);
-  if (!data) return <main className="page"><PageHeader title="Notifications" /><Skeleton rows={4} /></main>;
+  if (!data) return <main className="page"><PageHeader title="Email and WhatsApp" /><Skeleton rows={4} /></main>;
   const counts = COUNT_LABEL.filter(([k]) => data.last7days[k]);
 
   return (
     <main className="page">
-      <PageHeader title="Notifications" sub="How LoomTrack reaches people outside the app. Until a channel is connected, messages are only recorded under Buyers, Sent messages." />
+      <PageHeader title="Email and WhatsApp" sub="How LoomTrack reaches people outside the app. Until a channel is connected, messages are only recorded under Buyers, Sent messages." />
       <div className="stack" style={{ marginTop: 20 }}>
         <div className="grid-2">
           <Channel

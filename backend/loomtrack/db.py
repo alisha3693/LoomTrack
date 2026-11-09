@@ -29,6 +29,18 @@ CREATE TABLE IF NOT EXISTS units (
   daily_capacity INTEGER CHECK (daily_capacity IS NULL OR daily_capacity > 0)  -- pieces a day it can stitch; own units
 );
 
+CREATE TABLE IF NOT EXISTS unit_capacity (  -- pieces a day an own unit can do in a stage other than stitching (stitching is units.daily_capacity)
+  unit_id INTEGER NOT NULL REFERENCES units(id),
+  process TEXT NOT NULL,
+  daily_capacity INTEGER NOT NULL CHECK (daily_capacity > 0),
+  PRIMARY KEY (unit_id, process)
+);
+
+CREATE TABLE IF NOT EXISTS app_clock (  -- one row: a date a tester has set by hand (test machines only; see services/clock.py)
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  test_date TEXT
+);
+
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
@@ -71,6 +83,8 @@ CREATE TABLE IF NOT EXISTS orders (
   status TEXT,                      -- cached: green | amber | red
   projected_ex_factory TEXT,        -- cached
   status_computed_at TEXT,
+  cancel_reason TEXT,               -- why the merchandiser cancelled the order; the buyer is shown it
+  cancelled_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (buyer_id, po_no)          -- two buyers may use the same PO number
 );
@@ -114,6 +128,7 @@ CREATE TABLE IF NOT EXISTS template_steps (
   code TEXT NOT NULL REFERENCES plan_steps(code),
   end_offset INTEGER NOT NULL CHECK (end_offset BETWEEN 0 AND 365),   -- calendar days before ex-factory
   start_offset INTEGER CHECK (start_offset IS NULL OR start_offset BETWEEN 0 AND 365),  -- stages only
+  after_code TEXT REFERENCES plan_steps(code),   -- stages only: starts the day after this step ends; start_offset follows it
   PRIMARY KEY (template_id, code),
   UNIQUE (template_id, seq)
 );
@@ -162,7 +177,7 @@ CREATE TABLE IF NOT EXISTS issue_reasons (
   ai_category TEXT,
   ai_translation TEXT,
   ai_confidence REAL,
-  ai_source TEXT,                   -- 'ollama' | 'keywords'
+  ai_source TEXT,                   -- 'indictrans2' | 'keywords'
   ai_error TEXT,
   final_category TEXT,
   changed_by INTEGER REFERENCES users(id),
@@ -366,6 +381,15 @@ BEGIN SELECT RAISE(ABORT, 'approval_events is append-only'); END;
 
 -- Every email and WhatsApp message the app sends or would send: one row per recipient. 'logged' = no provider is
 -- set up for the channel, so it is only recorded (the old mock behaviour); 'queued' waits for the sender.
+-- How far each reader has looked down the notifications page (the newest outbox id they have seen).
+CREATE TABLE IF NOT EXISTS feed_reads (
+  reader TEXT NOT NULL CHECK (reader IN ('buyer', 'merchandiser')),
+  ref_id INTEGER NOT NULL,         -- the buyer's id, or the merchandiser's user id
+  last_id INTEGER NOT NULL DEFAULT 0,
+  read_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (reader, ref_id)
+);
+
 CREATE TABLE IF NOT EXISTS outbox_messages (
   id INTEGER PRIMARY KEY,
   buyer_id INTEGER NOT NULL REFERENCES buyers(id),
@@ -389,7 +413,7 @@ CREATE TABLE IF NOT EXISTS outbox_messages (
 """
 
 
-SCHEMA_VERSION = 10  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no/colour, 2 = before templates, 3 = before order requests, 4 = before attachments, 5 = before buyer accounts, 6 = before fabric, materials and unit capacity, 7 = before order messages, 8 = before approvals, read tracking and view-only accounts, 9 = before email/WhatsApp delivery
+SCHEMA_VERSION = 15  # PRAGMA user_version; 0 = before plan_steps, 1 = before order_no/colour, 2 = before templates, 3 = before order requests, 4 = before attachments, 5 = before buyer accounts, 6 = before fabric, materials and unit capacity, 7 = before order messages, 8 = before approvals, read tracking and view-only accounts, 9 = before email/WhatsApp delivery, 10 = before a stage can start after another step, 11 = before an order can be cancelled with a reason, 12 = before the notifications page, 13 = before capacity for every own stage, 14 = before the test date
 
 
 def _is_v0(db: sqlite3.Connection) -> bool:
@@ -587,6 +611,20 @@ _V10_COLUMNS = {
 }
 
 
+_V11_COLUMNS = {"template_steps": {"after_code": "TEXT REFERENCES plan_steps(code)"}}
+
+
+def _add_v11_columns(db: sqlite3.Connection) -> None:
+    _add_columns(db, _V11_COLUMNS)
+
+
+_V12_COLUMNS = {"orders": {"cancel_reason": "TEXT", "cancelled_at": "TEXT"}}
+
+
+def _add_v12_columns(db: sqlite3.Connection) -> None:
+    _add_columns(db, _V12_COLUMNS)
+
+
 def _add_v10_columns(db: sqlite3.Connection) -> None:
     _add_columns(db, _V10_COLUMNS)
     db.execute("CREATE INDEX IF NOT EXISTS ix_outbox_queue ON outbox_messages (status, id)")
@@ -621,8 +659,8 @@ def sync_builtin_templates(db: sqlite3.Connection) -> None:
         tid = db.execute("SELECT id FROM templates WHERE key = ?", (t.key,)).fetchone()["id"]
         db.execute("DELETE FROM template_steps WHERE template_id = ?", (tid,))
         db.executemany(
-            "INSERT INTO template_steps (template_id, seq, code, end_offset, start_offset) VALUES (?,?,?,?,?)",
-            [(tid, n, i.code, i.end_offset, i.start_offset) for n, i in enumerate(t.items, start=1)],
+            "INSERT INTO template_steps (template_id, seq, code, end_offset, start_offset, after_code) VALUES (?,?,?,?,?,?)",
+            [(tid, n, i.code, i.end_offset, i.start_offset, i.after) for n, i in enumerate(t.items, start=1)],
         )
 
 
@@ -646,6 +684,8 @@ def open_db(file: str) -> sqlite3.Connection:
     _add_v7_columns(db)
     _add_v9_columns(db)
     _add_v10_columns(db)
+    _add_v11_columns(db)
+    _add_v12_columns(db)
     sync_plan_steps(db)
     sync_builtin_templates(db)
     db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

@@ -15,7 +15,7 @@ export function SupHeader({ title, sub, lang, setLang, left, right }: {
       {right}
       <ThemeToggle />
       <div className="lang-toggle" role="group" aria-label="Language">
-        <button aria-pressed={lang === "ta"} onClick={() => setLang("ta")}>த</button>
+        <button aria-pressed={lang === "ta"} onClick={() => setLang("ta")}>தமிழ்</button>
         <button aria-pressed={lang === "en"} onClick={() => setLang("en")}>EN</button>
       </div>
     </header>

@@ -14,11 +14,12 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import config
+from .ai import speech
 from .ai.classifier import classify_note
 from .db import open_db
 from .deps import AppContext
 from .routes import accounts, attachments, auth, flow, materials as material_routes, buyer, merchandiser, notifications, requests, supervisor, templates
-from .services import delivery
+from .services import clock, delivery
 from .util import HttpError
 
 
@@ -34,11 +35,13 @@ def create_app(db: sqlite3.Connection | None = None, **overrides) -> FastAPI:
             task.cancel()
 
     app = FastAPI(title="LoomTrack", docs_url="/api/docs", openapi_url="/api/openapi.json", redoc_url=None, lifespan=lifespan)
+    database = db if db is not None else open_db(config.DB_FILE)
     app.state.ctx = AppContext(
-        db=db if db is not None else open_db(config.DB_FILE),
-        today=overrides.get("today", config.today),
+        db=database,
+        today=overrides.get("today") or (lambda: clock.today(database)),
         classify=overrides.get("classify", classify_note),
         upload_dir=Path(overrides.get("upload_dir", config.UPLOAD_DIR)),
+        transcribe=overrides.get("transcribe", speech.to_text),
     )
 
     # Every error is {"error": "..."} so the client has one shape to show.

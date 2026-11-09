@@ -16,9 +16,12 @@ export interface Meta {
   openRequests: number;
   /** Conversations where the buyer wrote last and nobody has read it yet. */
   unreadMessages: number;
+  unreadNotifications: number;
+  canReset: boolean;
+  testDate: string | null;
   /** Approvals where the buyer asked for changes, so the office has to answer. */
   approvalsToAnswer: number;
-  ai: { mode: "ollama" | "keywords"; model?: string; reason?: string };
+  ai: { mode: "indictrans2" | "keywords"; model?: string; device?: string; reason?: string };
 }
 
 export interface BoardOrder {
@@ -99,6 +102,7 @@ export interface MilestoneRow {
   planned_date: string;
   actual_date: string | null;
   unit_name: string | null;
+  unit_kind: "own" | "subcontract" | null;
 }
 
 export interface UpdateRow {
@@ -115,7 +119,7 @@ export interface UpdateRow {
   ai_category: string | null;
   ai_translation: string | null;
   ai_confidence: number | null;
-  ai_source: "ollama" | "keywords" | null;
+  ai_source: "indictrans2" | "keywords" | null;
   ai_error: string | null;
   final_category: string | null;
   changed_at: string | null;
@@ -169,6 +173,8 @@ export interface OrderDetail {
     unit_name: string;
     template_key: string;
     state: string;
+    cancel_reason: string | null;
+    cancelled_at: string | null;
   };
   sizes: { size: string; qty: number }[];
   milestones: MilestoneRow[];
@@ -203,6 +209,12 @@ export interface SupStage {
   planned_date: string;
   done: number;
   today_qty: number;
+  target_per_day: number;
+  upstream_name_en: string | null;
+  upstream_name_ta: string | null;
+  waiting_on_en: string[]; // checkpoints and job work the office has not marked done; the stage is locked until they are
+  waiting_on_ta: string[];
+  ready: number | null; // pieces the stage before has finished that this stage has not worked on yet
 }
 
 export interface TemplateStep {
@@ -214,6 +226,7 @@ export interface TemplateStep {
   builtin: boolean;
   endOffset: number;
   startOffset: number | null;
+  after: string | null; // a stage that starts the day after this step ends
 }
 
 export interface TemplateRow {
@@ -229,6 +242,7 @@ export interface TemplateRow {
 export interface TemplateList {
   templates: TemplateRow[];
   library: { code: string; nameEn: string; nameTa: string; kind: "stage" | "milestone"; process: string | null; builtin: boolean }[];
+  processes: string[]; // the work the app knows by name; a stage's process decides who does it
 }
 
 /** A design, pattern, print or fabric file. `url` and the two flags are only sent to the office. */
